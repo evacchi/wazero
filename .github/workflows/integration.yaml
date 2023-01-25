@@ -193,11 +193,7 @@ jobs:
 
       - name: Install wazero
         run: |
-          if [ "$RUNNER_OS" == "Windows" ]; then
-            go install ".\cmd\wazero"
-          else
-            go install ./cmd/wazero
-          fi
+          go install ./cmd/wazero
         shell: bash
 
       - name: Checkout wasi-testsuite
