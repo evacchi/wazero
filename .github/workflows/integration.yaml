@@ -214,12 +214,16 @@ jobs:
           pip install -r requirements/dev.txt
         shell: bash
 
-      - name: Override shell runner on Windows
+      - name: Run all wasi-testsuite (Windows)
         if: runner.os == 'Windows'
         env:
           TEST_SHELL_RUNNER: 'C:\Program Files\Git\bin\bash.EXE'
+        run: |
+              python3 test-runner/wasi_test_runner.py -t ./tests/assemblyscript/testsuite/  ./tests/c/testsuite/ -r adapters/wazero.sh
+        shell: bash
 
       - name: Run all wasi-testsuite
+        if: runner.os != 'Windows'
         run: |
               python3 test-runner/wasi_test_runner.py -t ./tests/assemblyscript/testsuite/  ./tests/c/testsuite/ -r adapters/wazero.sh
         shell: bash
