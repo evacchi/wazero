@@ -214,10 +214,10 @@ jobs:
           pip install -r requirements/dev.txt
         shell: bash
 
-    - name: Send Build Notification
-      if: runner.os == 'Windows'
-      env:
-        TEST_SHELL_RUNNER: 'C:\Program Files\Git\bin\bash.EXE'
+      - name: Override shell runner on Windows
+        if: runner.os == 'Windows'
+        env:
+          TEST_SHELL_RUNNER: 'C:\Program Files\Git\bin\bash.EXE'
 
       - name: Run all wasi-testsuite
         run: |
