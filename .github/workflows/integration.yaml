@@ -212,5 +212,5 @@ jobs:
               python3 test-runner/wasi_test_runner.py  \
               -t ./tests/assemblyscript/testsuite/  ./tests/c/testsuite/ \
               -r adapters/wazero.sh
-
+        shell: bash
 
