@@ -196,15 +196,24 @@ jobs:
           go install ./cmd/wazero
         shell: bash
 
+      - name: Initialize Python environment
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+          cache: pip
+
       - name: Checkout wasi-testsuite
         uses: actions/checkout@v3
         with:
           repository: tetratelabs/wasi-testsuite
           ref: wazero
 
+      - name: Install dependencies
+        working-directory: test-runner
+        run: pip install -r requirements/dev.txt
+
       - name: Run all wasi-testsuite
         run: |
-              python3 -m pip install -r test-runner/requirements.txt && \
               python3 test-runner/wasi_test_runner.py  \
               -t ./tests/assemblyscript/testsuite/  ./tests/c/testsuite/ \
               -r adapters/wazero.sh
