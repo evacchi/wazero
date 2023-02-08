@@ -277,7 +277,7 @@ jobs:
         uses: actions/checkout@v3
         with:
           repository: evacchi/wasi-testsuite
-          ref: gha/win-support
+          ref: wazero-python-adapters
 
       - name: Initialize Python environment
         uses: actions/setup-python@v4
