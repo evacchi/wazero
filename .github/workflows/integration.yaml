@@ -271,7 +271,7 @@ jobs:
       - name: Install wazero
         run: |
           go install ./cmd/wazero
-        shell: bash
+
 
       - name: Checkout wasi-testsuite
         uses: actions/checkout@v3
