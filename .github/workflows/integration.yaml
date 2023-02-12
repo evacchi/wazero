@@ -246,7 +246,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: [ubuntu-20.04, macos-12] #todo: windows-2022
+        os: [ubuntu-20.04, macos-12, windows-2022]
 
     steps:
       # TODO: remove cargo/rust parts after https://github.com/WebAssembly/wasi-testsuite/issues/49
@@ -276,8 +276,8 @@ jobs:
       - name: Checkout wasi-testsuite
         uses: actions/checkout@v3
         with:
-          repository: tetratelabs/wasi-testsuite
-          ref: wazero
+          repository: evacchi/wasi-testsuite
+          ref: wazero-python-adapters
 
       - name: Initialize Python environment
         uses: actions/setup-python@v4
@@ -310,4 +310,4 @@ jobs:
             ./tests/c/testsuite/ \
             ./tests/rust/testsuite/ \
             -f ./tests/rust/skip.json \
-            -r ./adapters/wazero.sh
+            -r ./adapters/wazero.py
