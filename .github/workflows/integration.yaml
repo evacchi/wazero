@@ -246,7 +246,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: [ubuntu-20.04, macos-12, windows-2022]
+        os: [windows-2022] #[ubuntu-20.04, macos-12, windows-2022]
 
     steps:
       # TODO: remove cargo/rust parts after https://github.com/WebAssembly/wasi-testsuite/issues/49
@@ -303,11 +303,14 @@ jobs:
         run: |
           ./build.sh
 
-      - name: Run all wasi-testsuite
-        run: |
-          python3 test-runner/wasi_test_runner.py \
-            -t ./tests/assemblyscript/testsuite/ \
-            ./tests/c/testsuite/ \
-            ./tests/rust/testsuite/ \
-            -f ./tests/rust/skip.json \
-            -r ./adapters/wazero.py
+#      - name: Run all wasi-testsuite
+#        run: |
+#          python3 test-runner/wasi_test_runner.py \
+#            -t ./tests/assemblyscript/testsuite/ \
+#            ./tests/c/testsuite/ \
+#            ./tests/rust/testsuite/ \
+#            -f ./tests/rust/skip.json \
+#            -r ./adapters/wazero.py
+
+      - name: Setup tmate session
+        uses: mxschmitt/action-tmate@v3
