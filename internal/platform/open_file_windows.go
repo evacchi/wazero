@@ -47,7 +47,7 @@ func OpenFile(name string, flag int, perm fs.FileMode) (*os.File, error) {
 		} else if errors.Is(err, syscall.ENOENT) {
 			print("enoent -> enotdir")
 
-			err = syscall.ENOTDIR
+			err = syscall.ELOOP
 		}
 	}
 	return f, err
