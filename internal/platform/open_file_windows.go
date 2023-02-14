@@ -37,8 +37,12 @@ func OpenFile(name string, flag int, perm fs.FileMode) (*os.File, error) {
 	f, err := os.OpenFile(name, flag, perm)
 	if err != nil {
 		if errors.Is(err, syscall.ENOTDIR) {
+			print("enotdir converted")
+
 			err = syscall.ENOENT
 		} else if errors.Is(err, syscall.ERROR_FILE_EXISTS) {
+			print("error exists")
+
 			err = syscall.EEXIST
 		} else {
 			print("I am here lol")
