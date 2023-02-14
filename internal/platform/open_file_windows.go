@@ -40,6 +40,8 @@ func OpenFile(name string, flag int, perm fs.FileMode) (*os.File, error) {
 			err = syscall.ENOENT
 		} else if errors.Is(err, syscall.ERROR_FILE_EXISTS) {
 			err = syscall.EEXIST
+		} else {
+			print("I am here lol")
 		}
 	}
 	return f, err
