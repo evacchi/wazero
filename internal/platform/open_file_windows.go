@@ -44,8 +44,10 @@ func OpenFile(name string, flag int, perm fs.FileMode) (*os.File, error) {
 			print("error exists")
 
 			err = syscall.EEXIST
-		} else {
-			print("I am here lol")
+		} else if errors.Is(err, syscall.ENOENT) {
+			print("enoent -> enotdir")
+
+			err = syscall.ENOTDIR
 		}
 	}
 	return f, err
