@@ -38,6 +38,8 @@ func OpenFile(name string, flag int, perm fs.FileMode) (*os.File, error) {
 	if err != nil {
 		if errors.Is(err, syscall.ERROR_FILE_EXISTS) {
 			err = syscall.EEXIST
+		} else if errors.Is(err, syscall.ENOTDIR) {
+			return f, syscall.ENOTDIR
 		} else if errors.Is(err, syscall.ENOENT) {
 			// err = syscall.ELOOP
 			println("received ENOENT")
