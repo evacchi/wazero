@@ -32,14 +32,14 @@ func OpenFile(name string, flag int, perm fs.FileMode) (*os.File, error) {
 	fd, err := open(name, flag|syscall.O_CLOEXEC, uint32(perm))
 	if err == nil {
 		return os.NewFile(uintptr(fd), name), nil
+	} else {
+		return nil, err
 	}
 	// TODO: Set FILE_SHARE_DELETE for directory as well.
 	f, err := os.OpenFile(name, flag, perm)
 	if err != nil {
 		if errors.Is(err, syscall.ERROR_FILE_EXISTS) {
 			err = syscall.EEXIST
-		} else if errors.Is(err, syscall.ENOTDIR) {
-			return f, syscall.ENOTDIR
 		} else if errors.Is(err, syscall.ENOENT) {
 			// err = syscall.ELOOP
 			println("received ENOENT")
