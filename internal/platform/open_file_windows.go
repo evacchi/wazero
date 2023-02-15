@@ -40,18 +40,13 @@ func OpenFile(name string, flag int, perm fs.FileMode) (*os.File, error) {
 		if errors.Is(err, syscall.ERROR_FILE_EXISTS) {
 			err = syscall.EEXIST
 		} else if errors.Is(err, syscall.ENOENT) {
-			// err = syscall.ELOOP
 			pathp, e := syscall.UTF16PtrFromString(name)
 			if e != nil {
 				return f, e
 			}
 
-			println("is enoent ", err)
-			attributes, e1 := syscall.GetFileAttributes(pathp)
-			println(attributes)
-			println(e1)
+			attributes, _ := syscall.GetFileAttributes(pathp)
 			if attributes&syscall.FILE_ATTRIBUTE_REPARSE_POINT != 0 {
-				println("IT'S REPARSE")
 				err = syscall.ELOOP
 			}
 
