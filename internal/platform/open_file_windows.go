@@ -135,6 +135,7 @@ func open(path string, mode int, perm uint32) (fd syscall.Handle, err error) {
 		println(attributes)
 		println(err)
 		if attributes&syscall.FILE_ATTRIBUTE_REPARSE_POINT != 0 {
+			println("IT'S REPARSE")
 			return h, syscall.ENOTDIR
 		} else {
 			e = syscall.ENOENT
