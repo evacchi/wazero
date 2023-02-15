@@ -122,5 +122,12 @@ func open(path string, mode int, perm uint32) (fd syscall.Handle, err error) {
 		}
 	}
 	h, e := syscall.CreateFile(pathp, access, sharemode, sa, createmode, attrs, 0)
+	if e == syscall.ENOENT {
+		attributes, err := syscall.GetFileAttributes(pathp)
+		if err != nil && attributes&syscall.FILE_ATTRIBUTE_REPARSE_POINT != 0 {
+			return h, syscall.ENOTDIR
+		}
+	}
+
 	return h, e
 }
