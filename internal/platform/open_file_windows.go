@@ -125,6 +125,10 @@ func open(path string, mode int, perm uint32) (fd syscall.Handle, err error) {
 		println("SOME OTHER ERROR ", e)
 
 	}
+	if errors.Is(err, syscall.ENOENT) {
+		println("yes it is enoent")
+	}
+
 	if errors.Is(err, syscall.ENOTDIR) {
 		println("is enoent ", e)
 		attributes, err := syscall.GetFileAttributes(pathp)
