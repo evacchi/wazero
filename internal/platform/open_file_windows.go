@@ -52,7 +52,7 @@ func OpenFile(name string, flag int, perm fs.FileMode) (*os.File, error) {
 			println(e1)
 			if attributes&syscall.FILE_ATTRIBUTE_REPARSE_POINT != 0 {
 				println("IT'S REPARSE")
-				err = syscall.ENOTDIR
+				err = syscall.ELOOP
 			}
 
 		}
