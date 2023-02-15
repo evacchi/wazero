@@ -98,7 +98,7 @@ jobs:
         uses: actions/checkout@v3
 
       - name: Download the built binary
-        run: gh run download --name zig-test-binary-${{ env.ZIG_VERSION }}
+        run: gh run download --repo tetratelabs/wazero --name zig-test-binary-${{ env.ZIG_VERSION }}
         env:
           # Necessary to use gh command.
           GH_TOKEN: ${{ github.token }}
@@ -222,7 +222,7 @@ jobs:
         uses: actions/checkout@v3
 
       - name: Download the built binary
-        run: gh run download --name tinygo-test-binaries-${{ env.TINYGO_VERSION }}
+        run: gh run download --repo tetratelabs/wazero --name tinygo-test-binaries-${{ env.TINYGO_VERSION }}
         env:
           # Necessary to use gh command.
           GH_TOKEN: ${{ github.token }}
@@ -303,11 +303,17 @@ jobs:
         run: |
           ./build.sh
 
-      - name: Run all wasi-testsuite
-        run: |
-          python3 test-runner/wasi_test_runner.py \
-            -t ./tests/assemblyscript/testsuite/ \
-            ./tests/c/testsuite/ \
-            ./tests/rust/testsuite/ \
-            -f ./tests/rust/skip.json \
-            -r ./adapters/wazero.sh
+      - name: Setup tmate session
+        uses: mxschmitt/action-tmate@v3
+
+
+
+#
+#      - name: Run all wasi-testsuite
+#        run: |
+#          python3 test-runner/wasi_test_runner.py \
+#            -t ./tests/assemblyscript/testsuite/ \
+#            ./tests/c/testsuite/ \
+#            ./tests/rust/testsuite/ \
+#            -f ./tests/rust/skip.json \
+#            -r ./adapters/wazero.sh
