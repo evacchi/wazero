@@ -36,9 +36,7 @@ func OpenFile(name string, flag int, perm fs.FileMode) (*os.File, error) {
 	// TODO: Set FILE_SHARE_DELETE for directory as well.
 	f, err := os.OpenFile(name, flag, perm)
 	if err != nil {
-		if errors.Is(err, syscall.ENOTDIR) {
-			err = syscall.ENOENT
-		} else if errors.Is(err, syscall.ERROR_FILE_EXISTS) {
+		if errors.Is(err, syscall.ERROR_FILE_EXISTS) {
 			err = syscall.EEXIST
 		} else if errors.Is(err, syscall.ENOENT) {
 			// err = syscall.ELOOP
@@ -132,6 +130,8 @@ func open(path string, mode int, perm uint32) (fd syscall.Handle, err error) {
 		if err != nil && attributes&syscall.FILE_ATTRIBUTE_REPARSE_POINT != 0 {
 			return h, syscall.ENOTDIR
 		}
+	} else if errors.Is(err, syscall.ENOTDIR) {
+		e = syscall.ENOENT
 	}
 
 	return h, e
