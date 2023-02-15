@@ -112,7 +112,7 @@ func (d *dirFS) Unlink(name string) (err error) {
 func (d *dirFS) Symlink(oldName, link string) (err error) {
 	// Note: do not resolve `oldName` relative to this dirFS. The link result is always resolved
 	// when dereference the `link` on its usage (e.g. readlink, read, etc).
-	// https://github.com/bytecodealliance/cap-std/blob/v1.0.4/cap-std/src/fs/dir.rs#L404-L409
+	// https://github.com/bytecodealliance/cap-std/blob/	v1.0.4/cap-std/src/fs/dir.rs#L404-L409
 	err = os.Symlink(oldName, d.join(link))
 	return UnwrapOSError(err)
 }
