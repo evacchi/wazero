@@ -299,6 +299,7 @@ func (c *FSContext) RootFS() sysfs.FS {
 // OpenFile opens the file into the table and returns its file descriptor.
 // The result must be closed by CloseFile or Close.
 func (c *FSContext) OpenFile(fs sysfs.FS, path string, flag int, perm fs.FileMode) (uint32, error) {
+	print("Path is ", path)
 	if f, err := fs.OpenFile(path, flag, perm); err != nil {
 		return 0, err
 	} else {

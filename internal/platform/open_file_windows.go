@@ -33,6 +33,7 @@ func OpenFile(name string, flag int, perm fs.FileMode) (*os.File, error) {
 	if err == nil {
 		return os.NewFile(uintptr(fd), name), nil
 	}
+
 	// TODO: Set FILE_SHARE_DELETE for directory as well.
 	f, err := os.OpenFile(name, flag, perm)
 	if err != nil {
@@ -41,7 +42,15 @@ func OpenFile(name string, flag int, perm fs.FileMode) (*os.File, error) {
 		} else if errors.Is(err, syscall.ERROR_FILE_EXISTS) {
 			err = syscall.EEXIST
 		} else if errors.Is(err, syscall.ENOENT) {
-			err = syscall.ELOOP
+			pathp, e := syscall.UTF16PtrFromString(name)
+			if e != nil {
+				return f, e
+			}
+
+			attributes, _ := syscall.GetFileAttributes(pathp)
+			if attributes&syscall.FILE_ATTRIBUTE_REPARSE_POINT != 0 {
+				err = syscall.ELOOP
+			}
 		}
 	}
 	return f, err
@@ -96,6 +105,7 @@ func open(path string, mode int, perm uint32) (fd syscall.Handle, err error) {
 		createmode = syscall.OPEN_EXISTING
 	}
 	var attrs uint32 = syscall.FILE_ATTRIBUTE_NORMAL
+	println("test")
 	if perm&syscall.S_IWRITE == 0 {
 		attrs = syscall.FILE_ATTRIBUTE_READONLY
 		if createmode == syscall.CREATE_ALWAYS {
@@ -114,6 +124,7 @@ func open(path string, mode int, perm uint32) (fd syscall.Handle, err error) {
 				// errors as Errno.Is checks for ErrNotExist.
 				// Carry on to create the file.
 			default:
+				println("SOME ERROR")
 				// Success or some different error.
 				return h, e
 			}
