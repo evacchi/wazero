@@ -132,6 +132,7 @@ func open(path string, mode int, perm uint32) (fd syscall.Handle, err error) {
 		//if errors.Is(e, syscall.ENOTDIR) {
 		println("is enoent ", e)
 		attributes, err := syscall.GetFileAttributes(pathp)
+		println(attributes)
 		if err != nil && attributes&syscall.FILE_ATTRIBUTE_REPARSE_POINT != 0 {
 			return h, syscall.ENOTDIR
 		} else {
