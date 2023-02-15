@@ -303,17 +303,11 @@ jobs:
         run: |
           ./build.sh
 
-      - name: Setup tmate session
-        uses: mxschmitt/action-tmate@v3
-
-
-
-#
-#      - name: Run all wasi-testsuite
-#        run: |
-#          python3 test-runner/wasi_test_runner.py \
-#            -t ./tests/assemblyscript/testsuite/ \
-#            ./tests/c/testsuite/ \
-#            ./tests/rust/testsuite/ \
-#            -f ./tests/rust/skip.json \
-#            -r ./adapters/wazero.sh
+      - name: Run all wasi-testsuite
+        run: |
+          python3 test-runner/wasi_test_runner.py \
+            -t ./tests/assemblyscript/testsuite/ \
+            ./tests/c/testsuite/ \
+            ./tests/rust/testsuite/ \
+            -f ./tests/rust/skip.json \
+            -r ./adapters/wazero.sh

@@ -37,7 +37,12 @@ func OpenFile(name string, flag int, perm fs.FileMode) (*os.File, error) {
 	f, err := os.OpenFile(name, flag, perm)
 	if err != nil {
 		if errors.Is(err, syscall.ENOTDIR) {
-			err = syscall.ENOENT
+			if flag&O_DIRECTORY != 0 {
+			} else if flag&O_NOFOLLOW != 0 {
+				err = syscall.ELOOP
+			} else {
+				err = syscall.ENOENT
+			}
 		} else if errors.Is(err, syscall.ERROR_FILE_EXISTS) {
 			err = syscall.EEXIST
 		}
