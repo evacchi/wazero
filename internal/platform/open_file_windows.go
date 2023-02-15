@@ -32,9 +32,8 @@ func OpenFile(name string, flag int, perm fs.FileMode) (*os.File, error) {
 	fd, err := open(name, flag|syscall.O_CLOEXEC, uint32(perm))
 	if err == nil {
 		return os.NewFile(uintptr(fd), name), nil
-	} else {
-		return nil, err
 	}
+
 	// TODO: Set FILE_SHARE_DELETE for directory as well.
 	f, err := os.OpenFile(name, flag, perm)
 	if err != nil {
@@ -42,7 +41,20 @@ func OpenFile(name string, flag int, perm fs.FileMode) (*os.File, error) {
 			err = syscall.EEXIST
 		} else if errors.Is(err, syscall.ENOENT) {
 			// err = syscall.ELOOP
-			println("received ENOENT")
+			pathp, e := syscall.UTF16PtrFromString(name)
+			if e != nil {
+				return f, e
+			}
+
+			println("is enoent ", err)
+			attributes, err := syscall.GetFileAttributes(pathp)
+			println(attributes)
+			println(err)
+			if attributes&syscall.FILE_ATTRIBUTE_REPARSE_POINT != 0 {
+				println("IT'S REPARSE")
+				err = syscall.ENOTDIR
+			}
+
 		}
 	}
 	return f, err
@@ -123,24 +135,5 @@ func open(path string, mode int, perm uint32) (fd syscall.Handle, err error) {
 		}
 	}
 	h, e := syscall.CreateFile(pathp, access, sharemode, sa, createmode, attrs, 0)
-	if e != nil {
-		println("SOME OTHER ERROR ", e)
-
-	}
-	if errors.Is(e, syscall.ENOENT) {
-		//	println("yes it is enoent")
-		//}
-		//
-		//if errors.Is(e, syscall.ENOTDIR) {
-		println("is enoent ", e)
-		attributes, err := syscall.GetFileAttributes(pathp)
-		println(attributes)
-		println(err)
-		if attributes&syscall.FILE_ATTRIBUTE_REPARSE_POINT != 0 {
-			println("IT'S REPARSE")
-			e = syscall.ENOTDIR
-		}
-	}
-
 	return h, e
 }
