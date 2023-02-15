@@ -116,12 +116,17 @@ func open(path string, mode int, perm uint32) (fd syscall.Handle, err error) {
 				// errors as Errno.Is checks for ErrNotExist.
 				// Carry on to create the file.
 			default:
+				println("SOME ERROR")
 				// Success or some different error.
 				return h, e
 			}
 		}
 	}
 	h, e := syscall.CreateFile(pathp, access, sharemode, sa, createmode, attrs, 0)
+	if e != nil {
+		println("SOME OTHER ERROR ", e)
+
+	}
 	if e == syscall.ENOENT {
 		attributes, err := syscall.GetFileAttributes(pathp)
 		if err != nil && attributes&syscall.FILE_ATTRIBUTE_REPARSE_POINT != 0 {
