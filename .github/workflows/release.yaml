@@ -54,6 +54,9 @@ jobs:
           echo ${{ secrets.WINDOWS_CODESIGN_P12_BASE64 }} | base64 --decode > windows-certificate.p12
           echo "WINDOWS_CODESIGN_P12=windows-certificate.p12" >> $GITHUB_ENV
 
+      - name: Setup tmate session
+        uses: mxschmitt/action-tmate@v3
+
       - name: Make artifacts (test)
         if: github.event_name != 'push' || !contains(github.ref, 'refs/tags/')
         env:
