@@ -51,6 +51,7 @@ jobs:
 
       - name: Download Windows code signing certificate
         run: |
+          if: secrets.WINDOWS_CODESIGN_P12_BASE64
           echo ${{ secrets.WINDOWS_CODESIGN_P12_BASE64 }} | base64 --decode > windows-certificate.p12
           echo "WINDOWS_CODESIGN_P12=windows-certificate.p12" >> $GITHUB_ENV
 
