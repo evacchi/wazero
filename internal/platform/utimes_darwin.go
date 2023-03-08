@@ -2,17 +2,31 @@ package platform
 
 import (
 	"syscall"
-	"unsafe"
+	_ "unsafe" // for go:linkname
 )
 
-func futimens(fd uintptr, atimeNsec, mtimeNsec int64) error {
-	tv := []syscall.Timespec{
-		syscall.NsecToTimespec(atimeNsec),
-		syscall.NsecToTimespec(mtimeNsec),
+const (
+	_AT_FDCWD            = -0x2
+	_AT_SYMLINK_NOFOLLOW = 0x0020
+)
+
+//go:noescape
+//go:linkname utimensat syscall.utimensat
+func utimensat(dirfd int, path string, times *[2]syscall.Timespec, flags int) error
+
+func utimens(path string, times *[2]syscall.Timespec, symlinkFollow bool) error {
+	flags := _AT_SYMLINK_NOFOLLOW
+	if !symlinkFollow {
+		flags = 0
 	}
+	return utimensat(_AT_FDCWD, path, times, flags)
+}
+
+func futimens(fd uintptr, times *[2]syscall.Timespec) error {
+	_p0 := timesToPtr(times)
 
 	// Warning: futimens only exists since High Sierra (10.13).
-	_, _, e1 := syscall_syscall6(libc_futimens_trampoline_addr, fd, uintptr(unsafe.Pointer(&tv[0])), 0, 0, 0, 0)
+	_, _, e1 := syscall_syscall6(libc_futimens_trampoline_addr, fd, uintptr(_p0), 0, 0, 0, 0)
 	if e1 != 0 {
 		return e1
 	}

@@ -124,9 +124,9 @@ func (d *dirFS) Symlink(oldName, link string) (err error) {
 	return platform.UnwrapOSError(err)
 }
 
-// UtimesNano implements FS.UtimesNano
-func (d *dirFS) UtimesNano(name string, atimeNsec, mtimeNsec int64) error {
-	return platform.UtimesNano(d.join(name), atimeNsec, mtimeNsec)
+// Utimesns implements FS.Utimesns
+func (d *dirFS) Utimesns(path string, times *[2]syscall.Timespec, symlinkFollow bool) error {
+	return platform.Utimesns(d.join(path), times, symlinkFollow)
 }
 
 // Truncate implements FS.Truncate

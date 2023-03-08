@@ -2,17 +2,26 @@ package platform
 
 import (
 	"syscall"
-	"unsafe"
 )
 
-func futimens(fd uintptr, atimeNsec, mtimeNsec int64) error {
-	times := []syscall.Timespec{
-		syscall.NsecToTimespec(atimeNsec),
-		syscall.NsecToTimespec(mtimeNsec),
+const (
+	_AT_FDCWD            = -0x64
+	_AT_SYMLINK_NOFOLLOW = 0x100
+)
+
+//go:noescape
+//go:linkname utimensat syscall.utimensat
+func utimensat(dirfd int, path string, times *[2]syscall.Timespec, flags int) error
+
+func utimens(path string, times *[2]syscall.Timespec, symlinkFollow bool) error {
+	flags := _AT_SYMLINK_NOFOLLOW
+	if !symlinkFollow {
+		flags = 0
 	}
-	_, _, err := syscall.Syscall6(syscall.SYS_UTIMENSAT, fd, uintptr(0), uintptr(unsafe.Pointer(&times[0])), uintptr(0), 0, 0)
-	if err != 0 {
-		return err
-	}
-	return nil
+	return utimensat(_AT_FDCWD, path, times, flags)
+}
+
+// On linux, implement futimens via utimensat with the empty path.
+func futimens(fd uintptr, times *[2]syscall.Timespec) error {
+	return utimensat(int(fd), "", times, 0)
 }

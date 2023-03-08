@@ -86,8 +86,8 @@ func (UnimplementedFS) Unlink(path string) error {
 	return syscall.ENOSYS
 }
 
-// UtimesNano implements FS.UtimesNano
-func (UnimplementedFS) UtimesNano(path string, atimeNsec, mtimeNsec int64) error {
+// Utimesns implements FS.Utimesns
+func (UnimplementedFS) Utimesns(path string, times *[2]syscall.Timespec, symlinkFollow bool) error {
 	return syscall.ENOSYS
 }
 

@@ -399,16 +399,17 @@ func testUtimesNano(t *testing.T, tmpDir string, testFS FS) {
 	require.NoError(t, err)
 
 	t.Run("doesn't exist", func(t *testing.T) {
-		err := testFS.UtimesNano("nope",
-			time.Unix(123, 4*1e3).UnixNano(),
-			time.Unix(567, 8*1e3).UnixNano())
+		err := testFS.Utimesns("nope", nil, true)
+		require.EqualErrno(t, syscall.ENOENT, err)
+		err = testFS.Utimesns("nope", nil, false)
 		require.EqualErrno(t, syscall.ENOENT, err)
 	})
 
 	type test struct {
-		name                 string
-		path                 string
-		atimeNsec, mtimeNsec int64
+		name          string
+		path          string
+		times         *[2]syscall.Timespec
+		symlinkFollow bool
 	}
 
 	// Note: This sets microsecond granularity because Windows doesn't support
@@ -417,34 +418,50 @@ func testUtimesNano(t *testing.T, tmpDir string, testFS FS) {
 	// Negative isn't tested as most platforms don't return consistent results.
 	tests := []test{
 		{
-			name:      "file positive",
-			path:      file,
-			atimeNsec: time.Unix(123, 4*1e3).UnixNano(),
-			mtimeNsec: time.Unix(567, 8*1e3).UnixNano(),
+			name: "file positive",
+			path: file,
+			times: &[2]syscall.Timespec{
+				{Sec: 123, Nsec: 4 * 1e3},
+				{Sec: 123, Nsec: 4 * 1e3},
+			},
 		},
 		{
-			name:      "dir positive",
-			path:      dir,
-			atimeNsec: time.Unix(123, 4*1e3).UnixNano(),
-			mtimeNsec: time.Unix(567, 8*1e3).UnixNano(),
+			name: "dir positive",
+			path: dir,
+			times: &[2]syscall.Timespec{
+				{Sec: 123, Nsec: 4 * 1e3},
+				{Sec: 123, Nsec: 4 * 1e3},
+			},
 		},
-		{name: "file zero", path: file},
-		{name: "dir zero", path: dir},
+		{name: "file nil", path: file},
+		{name: "dir nil", path: dir},
 	}
 
 	for _, tt := range tests {
 		tc := tt
 		t.Run(tc.name, func(t *testing.T) {
-			err := testFS.UtimesNano(tc.path, tc.atimeNsec, tc.mtimeNsec)
+			err := testFS.Utimesns(tc.path, tc.times, tc.symlinkFollow)
 			require.NoError(t, err)
 
 			var stat platform.Stat_t
 			require.NoError(t, testFS.Stat(tc.path, &stat))
-			if platform.CompilerSupported() {
-				require.Equal(t, stat.Atim, tc.atimeNsec)
-			} // else only mtimes will return.
-			require.Equal(t, stat.Mtim, tc.mtimeNsec)
+			requireStatTimes(t, tc.times, stat)
 		})
+	}
+}
+
+func requireStatTimes(t *testing.T, times *[2]syscall.Timespec, stat platform.Stat_t) {
+	if platform.CompilerSupported() {
+		if times != nil && times[0].Nano() != platform.UTIME_NOW {
+			require.Equal(t, stat.Atim, times[0].Nano())
+		} else {
+			require.True(t, stat.Atim < time.Now().UnixNano())
+		}
+	} // else only mtimes will return.
+	if times != nil && times[1].Nano() != platform.UTIME_NOW {
+		require.Equal(t, stat.Mtim, times[1].Nano())
+	} else {
+		require.True(t, stat.Mtim < time.Now().UnixNano())
 	}
 }
 

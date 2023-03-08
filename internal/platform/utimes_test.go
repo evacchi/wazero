@@ -12,7 +12,7 @@ import (
 	"github.com/tetratelabs/wazero/internal/testing/require"
 )
 
-func TestUtimesNano(t *testing.T) {
+func TestUtimesns(t *testing.T) {
 	tmpDir := t.TempDir()
 	file := path.Join(tmpDir, "file")
 	err := os.WriteFile(file, []byte{}, 0o700)
@@ -23,16 +23,17 @@ func TestUtimesNano(t *testing.T) {
 	require.NoError(t, err)
 
 	t.Run("doesn't exist", func(t *testing.T) {
-		err := UtimesNano("nope",
-			time.Unix(123, 4*1e3).UnixNano(),
-			time.Unix(567, 8*1e3).UnixNano())
+		err := Utimesns("nope", nil, true)
+		require.EqualErrno(t, syscall.ENOENT, err)
+		err = Utimesns("nope", nil, false)
 		require.EqualErrno(t, syscall.ENOENT, err)
 	})
 
 	type test struct {
-		name                 string
-		path                 string
-		atimeNsec, mtimeNsec int64
+		name          string
+		path          string
+		times         *[2]syscall.Timespec
+		symlinkFollow bool
 	}
 
 	// Note: This sets microsecond granularity because Windows doesn't support
@@ -41,38 +42,54 @@ func TestUtimesNano(t *testing.T) {
 	// Negative isn't tested as most platforms don't return consistent results.
 	tests := []test{
 		{
-			name:      "file positive",
-			path:      file,
-			atimeNsec: time.Unix(123, 4*1e3).UnixNano(),
-			mtimeNsec: time.Unix(567, 8*1e3).UnixNano(),
+			name: "file positive",
+			path: file,
+			times: &[2]syscall.Timespec{
+				{Sec: 123, Nsec: 4 * 1e3},
+				{Sec: 123, Nsec: 4 * 1e3},
+			},
 		},
 		{
-			name:      "dir positive",
-			path:      dir,
-			atimeNsec: time.Unix(123, 4*1e3).UnixNano(),
-			mtimeNsec: time.Unix(567, 8*1e3).UnixNano(),
+			name: "dir positive",
+			path: dir,
+			times: &[2]syscall.Timespec{
+				{Sec: 123, Nsec: 4 * 1e3},
+				{Sec: 123, Nsec: 4 * 1e3},
+			},
 		},
-		{name: "file zero", path: file},
-		{name: "dir zero", path: dir},
+		{name: "file nil", path: file},
+		{name: "dir nil", path: dir},
 	}
 
 	for _, tt := range tests {
 		tc := tt
 		t.Run(tc.name, func(t *testing.T) {
-			err := UtimesNano(tc.path, tc.atimeNsec, tc.mtimeNsec)
+			err := Utimesns(tc.path, tc.times, tc.symlinkFollow)
 			require.NoError(t, err)
 
 			var stat Stat_t
 			require.NoError(t, Stat(tc.path, &stat))
-			if CompilerSupported() {
-				require.Equal(t, stat.Atim, tc.atimeNsec)
-			} // else only mtimes will return.
-			require.Equal(t, stat.Mtim, tc.mtimeNsec)
+			requireStatTimes(t, tc.times, stat)
 		})
 	}
 }
 
-func TestUtimesNanoFile(t *testing.T) {
+func requireStatTimes(t *testing.T, times *[2]syscall.Timespec, stat Stat_t) {
+	if CompilerSupported() {
+		if times != nil && times[0].Nano() != UTIME_NOW {
+			require.Equal(t, stat.Atim, times[0].Nano())
+		} else {
+			require.True(t, stat.Atim < time.Now().UnixNano())
+		}
+	} // else only mtimes will return.
+	if times != nil && times[1].Nano() != UTIME_NOW {
+		require.Equal(t, stat.Mtim, times[1].Nano())
+	} else {
+		require.True(t, stat.Mtim < time.Now().UnixNano())
+	}
+}
+
+func TestUtimesnsFile(t *testing.T) {
 	switch runtime.GOOS {
 	case "linux", "darwin": // supported
 	case "freebsd": // TODO: support freebsd w/o CGO
@@ -80,7 +97,7 @@ func TestUtimesNanoFile(t *testing.T) {
 		if !IsGo120 {
 			t.Skip("windows only works after Go 1.20") // TODO: possibly 1.19 ;)
 		}
-	default: // expect ENOSYS and callers need to fall back to UtimesNano
+	default: // expect ENOSYS and callers need to fall back to Utimesns
 		t.Skip("unsupported GOOS", runtime.GOOS)
 	}
 
@@ -101,10 +118,10 @@ func TestUtimesNanoFile(t *testing.T) {
 	defer fileF.Close()
 
 	type test struct {
-		name                 string
-		file                 fs.File
-		atimeNsec, mtimeNsec int64
-		expectedErr          error
+		name        string
+		file        fs.File
+		times       *[2]syscall.Timespec
+		expectedErr error
 	}
 
 	// Note: This sets microsecond granularity because Windows doesn't support
@@ -113,19 +130,23 @@ func TestUtimesNanoFile(t *testing.T) {
 	// Negative isn't tested as most platforms don't return consistent results.
 	tests := []*test{
 		{
-			name:      "file positive",
-			file:      fileF,
-			atimeNsec: time.Unix(123, 4*1e3).UnixNano(),
-			mtimeNsec: time.Unix(567, 8*1e3).UnixNano(),
+			name: "file positive",
+			file: fileF,
+			times: &[2]syscall.Timespec{
+				{Sec: 123, Nsec: 4 * 1e3},
+				{Sec: 123, Nsec: 4 * 1e3},
+			},
 		},
-		{name: "file zero", file: fileF},
+		{name: "file nil", file: fileF},
 		{
-			name:      "dir positive",
-			file:      dirF,
-			atimeNsec: time.Unix(123, 4*1e3).UnixNano(),
-			mtimeNsec: time.Unix(567, 8*1e3).UnixNano(),
+			name: "dir positive",
+			file: dirF,
+			times: &[2]syscall.Timespec{
+				{Sec: 123, Nsec: 4 * 1e3},
+				{Sec: 123, Nsec: 4 * 1e3},
+			},
 		},
-		{name: "dir zero", file: dirF},
+		{name: "dir nil", file: dirF},
 	}
 
 	// In windows, trying to update the time of a directory fails, as it is
@@ -141,7 +162,7 @@ func TestUtimesNanoFile(t *testing.T) {
 	for _, tt := range tests {
 		tc := tt
 		t.Run(tc.name, func(t *testing.T) {
-			err := UtimesNanoFile(tc.file, tc.atimeNsec, tc.mtimeNsec)
+			err := UtimesnsFile(tc.file, tc.times)
 			if tc.expectedErr != nil {
 				require.EqualErrno(t, tc.expectedErr.(syscall.Errno), err)
 				return
@@ -149,26 +170,19 @@ func TestUtimesNanoFile(t *testing.T) {
 
 			var stat Stat_t
 			require.NoError(t, StatFile(tc.file, &stat))
-			if CompilerSupported() {
-				require.Equal(t, stat.Atim, tc.atimeNsec)
-			} // else only mtimes will return.
-			require.Equal(t, stat.Mtim, tc.mtimeNsec)
+			requireStatTimes(t, tc.times, stat)
 		})
 	}
 
 	require.NoError(t, fileF.Close())
 	t.Run("closed file", func(t *testing.T) {
-		err := UtimesNanoFile(fileF,
-			time.Unix(123, 4*1e3).UnixNano(),
-			time.Unix(567, 8*1e3).UnixNano())
+		err := UtimesnsFile(fileF, nil)
 		require.EqualErrno(t, syscall.EBADF, err)
 	})
 
 	require.NoError(t, dirF.Close())
 	t.Run("closed dir", func(t *testing.T) {
-		err := UtimesNanoFile(dirF,
-			time.Unix(123, 4*1e3).UnixNano(),
-			time.Unix(567, 8*1e3).UnixNano())
+		err := UtimesnsFile(dirF, nil)
 		require.EqualErrno(t, syscall.EBADF, err)
 	})
 }
