@@ -62,7 +62,7 @@ func UtimesnsFile(f fs.File, times *[2]syscall.Timespec) error {
 	return syscall.ENOSYS
 }
 
-func timesToPtr(times *[2]syscall.Timespec) unsafe.Pointer {
+func timesToPtr(times *[2]syscall.Timespec) unsafe.Pointer { //nolint:unused
 	var _p0 unsafe.Pointer
 	if times != nil {
 		_p0 = unsafe.Pointer(&times[0])
