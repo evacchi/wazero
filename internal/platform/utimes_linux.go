@@ -2,6 +2,7 @@ package platform
 
 import (
 	"syscall"
+	_ "unsafe" // for go:linkname
 )
 
 const (
