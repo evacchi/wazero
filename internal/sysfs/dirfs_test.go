@@ -2,6 +2,7 @@ package sysfs
 
 import (
 	"errors"
+	"fmt"
 	"io/fs"
 	"os"
 	"path"
@@ -50,7 +51,7 @@ func TestDirFS_join(t *testing.T) {
 	require.Equal(t, ".", testFS.join(""))
 	require.Equal(t, ".", testFS.join("."))
 	require.Equal(t, ".", testFS.join("/"))
-	require.Equal(t, "./tmp", testFS.join("tmp"))
+	require.Equal(t, fmt.Sprintf(".%stmp", string(os.PathSeparator)), testFS.join("tmp"))
 }
 
 func TestDirFS_String(t *testing.T) {
