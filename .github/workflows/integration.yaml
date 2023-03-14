@@ -332,7 +332,6 @@ jobs:
           mkdir ~/bin && cd ~/bin
           for value in os io io/fs reflect fmt
           do
-            tinygo test -target wasi -c -o ${{ env.BINARY_OUT }}/${value/\//_}.test $value
             go test -c -o ${value/\//_}.wasm $value
           done
 
