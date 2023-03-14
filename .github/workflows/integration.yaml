@@ -361,8 +361,9 @@ jobs:
         with:
           go-version: ${{ env.GO_VERSION }}
 
-      - run: |
-          mv ~/bin/os.wasm $(go env GOROOT)/src/os/test.wasm
+      # TODO: move test packages beside os as well.
+      - run:  mv ~/bin/os.wasm $(go env GOROOT)/src/os/test.wasm
+
       - name: Checkout wazero
         uses: actions/checkout@v3
 
@@ -374,5 +375,5 @@ jobs:
       - name: Run tests
         run: | # TODO: test packages beside os as well.
           mkdir localtmp && chmod +rwx localtmp
-          TMP_PATH=$(pwd)/localtmp
+          export TMP_PATH=$(pwd)/localtmp
           cd $(go env GOROOT)/src/os; wazero run -mount=/:/ -mount=${TMP_PATH}:/tmp --experimental-workdir-inherit=true test.wasm -test.v
