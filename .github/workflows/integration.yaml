@@ -375,4 +375,4 @@ jobs:
         run: | # TODO: test packages beside os as well.
           mkdir localtmp && chmod +rwx localtmp
           export TMP_PATH=$(pwd)/localtmp
-          cd $(go env GOROOT)/src/os; wazero run -mount=/:/ -mount=${TMP_PATH}:/tmp --experimental-workdir-inherit=true test.wasm -test.v
+          cd $(go env GOROOT)/src/os; wazero run -mount=/:/ --experimental-workdir-inherit=true test.wasm -test.v
