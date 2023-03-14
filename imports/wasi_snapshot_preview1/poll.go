@@ -81,7 +81,7 @@ func pollOneoffFn(ctx context.Context, mod api.Module, params []uint64) Errno {
 			errno = processClockEvent(ctx, mod, inBuf[inOffset+8+8:])
 		case EventTypeFdRead, EventTypeFdWrite:
 			// +8 past userdata +4 FD alignment
-			errno = processFDEvent(mod, eventType, inBuf[inOffset+8+4:])
+			errno = processFDEvent(mod, eventType, inBuf[inOffset+8+8:])
 		default:
 			return ErrnoInval
 		}
