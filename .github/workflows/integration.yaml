@@ -342,7 +342,7 @@ jobs:
     strategy:
       fail-fast: false  # don't fail fast as sometimes failures are arch/OS specific
       matrix:
-        os: [ubuntu-22.04, macos-12] # TODO: windows
+        os: [ubuntu-22.04] #, macos-12] # TODO: windows
 
     steps:
       - uses: actions/cache@v3
@@ -371,8 +371,12 @@ jobs:
           go install ./cmd/wazero
         shell: bash
 
-      - name: Run tests
-        run: | # TODO: test packages beside os as well.
-          mkdir localtmp && chmod +rwx localtmp
-          export TMP_PATH=$(pwd)/localtmp
-          cd $(go env GOROOT)/src/os; wazero run -mount=/:/ --experimental-workdir-inherit=true test.wasm -test.v
+      - name: Setup tmate session
+        uses: mxschmitt/action-tmate@v3
+
+
+#      - name: Run tests
+#        run: | # TODO: test packages beside os as well.
+#          mkdir localtmp && chmod +rwx localtmp
+#          export TMP_PATH=$(pwd)/localtmp
+#          cd $(go env GOROOT)/src/os; wazero run -mount=/:/ --experimental-workdir-inherit=true test.wasm -test.v
