@@ -5,7 +5,7 @@ import (
 	"unsafe"
 )
 
-func ioctlPtr(fd int, req uint, arg unsafe.Pointer) (err error) {
+func ioctlPtr(fd int, req uint, arg *uint32) (err error) {
 	kernel32, err := syscall.LoadLibrary("kernel32.dll")
 	if err != nil {
 		panic(err)

@@ -2,12 +2,13 @@ package wasi_snapshot_preview1
 
 import (
 	"context"
+	"syscall"
+	"unsafe"
+
 	"github.com/tetratelabs/wazero/api"
 	internalsys "github.com/tetratelabs/wazero/internal/sys"
 	. "github.com/tetratelabs/wazero/internal/wasi_snapshot_preview1"
 	"github.com/tetratelabs/wazero/internal/wasm"
-	"syscall"
-	"unsafe"
 )
 
 // pollOneoff is the WASI function named PollOneoffName that concurrently
@@ -159,6 +160,7 @@ func processFDEvent(mod api.Module, eventType byte, inBuf []byte) Errno {
 func hasEventsOnWindows(fd int) (nevents int32, err error) {
 	kernel32, err := syscall.LoadLibrary("kernel32.dll")
 	if err != nil {
+		println(1)
 		panic(err)
 	}
 	defer syscall.FreeLibrary(kernel32)
@@ -166,6 +168,8 @@ func hasEventsOnWindows(fd int) (nevents int32, err error) {
 	// Get a handle to the function
 	proc, err := syscall.GetProcAddress(kernel32, "GetNumberOfConsoleInputEvents")
 	if err != nil {
+		println(2)
+
 		panic(err)
 	}
 
@@ -181,7 +185,9 @@ func hasEventsOnWindows(fd int) (nevents int32, err error) {
 	handle := syscall.Stdin
 	ok, err := getNumberOfConsoleInputEvents(handle, &numEvents)
 	if err != nil {
-		panic(err)
+		println(3)
+
+		//		panic(err)
 	}
 	if ok {
 		println(numEvents)
