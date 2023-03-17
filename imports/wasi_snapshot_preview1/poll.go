@@ -3,10 +3,11 @@ package wasi_snapshot_preview1
 import (
 	"context"
 	"github.com/tetratelabs/wazero/api"
-	"github.com/tetratelabs/wazero/internal/platform"
 	internalsys "github.com/tetratelabs/wazero/internal/sys"
 	. "github.com/tetratelabs/wazero/internal/wasi_snapshot_preview1"
 	"github.com/tetratelabs/wazero/internal/wasm"
+	"syscall"
+	"unsafe"
 )
 
 // pollOneoff is the WASI function named PollOneoffName that concurrently
@@ -137,7 +138,9 @@ func processFDEvent(mod api.Module, eventType byte, inBuf []byte) Errno {
 	errno := ErrnoNotsup
 	if eventType == EventTypeFdRead {
 		if _, ok := fsc.LookupFile(fd); ok {
-			n, err := platform.IoctlGetInt(int(fd), platform.IOCTL_FIONREAD)
+			//n, err := platform.IoctlGetInt(int(fd), platform.IOCTL_FIONREAD)
+
+			n, err := hasEventsOnWindows(int(fd))
 			if err != nil {
 				errno = ToErrno(err)
 			} else if n == 0 {
@@ -151,4 +154,37 @@ func processFDEvent(mod api.Module, eventType byte, inBuf []byte) Errno {
 	}
 
 	return errno
+}
+
+func hasEventsOnWindows(fd int) (nevents int32, err error) {
+	kernel32, err := syscall.LoadLibrary("kernel32.dll")
+	if err != nil {
+		panic(err)
+	}
+	defer syscall.FreeLibrary(kernel32)
+
+	// Get a handle to the function
+	proc, err := syscall.GetProcAddress(kernel32, "GetNumberOfConsoleInputEvents")
+	if err != nil {
+		panic(err)
+	}
+
+	// Convert the function pointer to the correct type
+	var getNumberOfConsoleInputEvents func(syscall.Handle, *uint32) (bool, error)
+	getNumberOfConsoleInputEvents = func(handle syscall.Handle, events *uint32) (bool, error) {
+		ret, _, err := syscall.Syscall(proc, 2, uintptr(handle), uintptr(unsafe.Pointer(events)), 0)
+		return ret != 0, err
+	}
+
+	// Use the function
+	var numEvents uint32
+	handle := syscall.Stdin
+	ok, err := getNumberOfConsoleInputEvents(handle, &numEvents)
+	if err != nil {
+		panic(err)
+	}
+	if ok {
+		println(numEvents)
+	}
+	return int32(numEvents), nil
 }
