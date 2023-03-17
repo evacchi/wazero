@@ -2,8 +2,8 @@ package wasi_snapshot_preview1
 
 import (
 	"context"
-
 	"github.com/tetratelabs/wazero/api"
+	"github.com/tetratelabs/wazero/internal/platform"
 	internalsys "github.com/tetratelabs/wazero/internal/sys"
 	. "github.com/tetratelabs/wazero/internal/wasi_snapshot_preview1"
 	"github.com/tetratelabs/wazero/internal/wasm"
@@ -136,7 +136,14 @@ func processFDEvent(mod api.Module, eventType byte, inBuf []byte) Errno {
 	// files.
 	errno := ErrnoNotsup
 	if eventType == EventTypeFdRead {
-		if _, ok := fsc.LookupFile(fd); !ok {
+		if _, ok := fsc.LookupFile(fd); ok {
+			n, err := platform.IoctlGetInt(int(fd), platform.IOCTL_FIONREAD)
+			if err != nil {
+				errno = ToErrno(err)
+			} else if n == 0 {
+				errno = ErrnoBadf
+			}
+		} else {
 			errno = ErrnoBadf
 		}
 	} else if eventType == EventTypeFdWrite && internalsys.WriterForFile(fsc, fd) == nil {
