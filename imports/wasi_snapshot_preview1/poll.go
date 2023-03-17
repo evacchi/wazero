@@ -187,7 +187,7 @@ func hasEventsOnWindows(fd int) (nevents int32, err error) {
 	if err != nil {
 		println(3)
 
-		//		panic(err)
+		println(err)
 	}
 	if ok {
 		println(numEvents)
