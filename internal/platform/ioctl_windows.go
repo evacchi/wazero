@@ -47,7 +47,18 @@ func HasData(fd int) (bool, error) {
 	}
 	defer syscall.FreeLibrary(kernel32)
 
-	handle := syscall.Handle(fd)
+	var handle syscall.Handle
+	switch fd {
+	case 0:
+		handle = syscall.Stdin
+	case 1:
+		handle = syscall.Stdout
+	case 2:
+		handle = syscall.Stderr
+	default:
+		handle = syscall.Handle(fd)
+	}
+
 	t, err := syscall.GetFileType(handle)
 	if err != nil {
 		return false, err
