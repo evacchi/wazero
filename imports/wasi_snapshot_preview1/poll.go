@@ -137,12 +137,7 @@ func processFDEvent(mod api.Module, eventType byte, inBuf []byte) Errno {
 	errno := ErrnoNotsup
 	if eventType == EventTypeFdRead {
 		if _, ok := fsc.LookupFile(fd); ok {
-			//n, err := platform.IoctlGetInt(int(fd), platform.IOCTL_FIONREAD)
-
-			n, err := platform.HasData(int(fd))
-			if err != nil {
-				errno = ToErrno(err)
-			} else if !n {
+			if platform.IsTerminal(uintptr(fd)) {
 				errno = ErrnoBadf
 			}
 		} else {
