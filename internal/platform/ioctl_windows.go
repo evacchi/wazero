@@ -64,15 +64,10 @@ func HasData(fd int) (bool, error) {
 		return false, err
 	}
 	if t == syscall.FILE_TYPE_CHAR {
-		event, err := syscall.WaitForSingleObject(handle, 0)
-		if err != nil {
-			return false, err
-		}
-		return event == syscall.WAIT_OBJECT_0, nil
+		return false, nil
 	}
 	if t == syscall.FILE_TYPE_PIPE {
-		var bytesAvailable uint32
-		err = PeekNamedPipe(handle, &bytesAvailable)
+		return true, nil
 	}
 
 	return false, nil
