@@ -39,3 +39,20 @@ func ioctlPtr(fd int, req uint, arg *uint32) (err error) {
 
 	return nil
 }
+
+func HasData(fd int) (bool, error) {
+	handle := syscall.Handle(fd)
+	t, err := syscall.GetFileType(handle)
+	if err != nil {
+		return false, err
+	}
+	if t == syscall.FILE_TYPE_CHAR {
+		event, err := syscall.WaitForSingleObject(handle, 0)
+		if err != nil {
+			return false, err
+		}
+		return event == syscall.WAIT_OBJECT_0, nil
+	}
+
+	return false, nil
+}
