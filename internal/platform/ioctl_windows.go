@@ -41,6 +41,12 @@ func ioctlPtr(fd int, req uint, arg *uint32) (err error) {
 }
 
 func HasData(fd int) (bool, error) {
+	kernel32, err := syscall.LoadLibrary("kernel32.dll")
+	if err != nil {
+		panic(err)
+	}
+	defer syscall.FreeLibrary(kernel32)
+
 	handle := syscall.Handle(fd)
 	t, err := syscall.GetFileType(handle)
 	if err != nil {
@@ -53,6 +59,55 @@ func HasData(fd int) (bool, error) {
 		}
 		return event == syscall.WAIT_OBJECT_0, nil
 	}
+	if t == syscall.FILE_TYPE_PIPE {
+		var bytesAvailable uint32
+		err = PeekNamedPipe(handle, &bytesAvailable)
+	}
 
 	return false, nil
+}
+
+var (
+	kernel32DLL       = syscall.NewLazyDLL("kernel32.dll")
+	peekNamedPipeProc = kernel32DLL.NewProc("PeekNamedPipe")
+)
+
+func PeekNamedPipe(handle syscall.Handle, bytesAvailable *uint32) error {
+	var bytesRead uint32
+
+	// Call the PeekNamedPipe function
+	r, _, err := peekNamedPipeProc.Call(
+		uintptr(handle),
+		uintptr(0),
+		uintptr(0),
+		uintptr(unsafe.Pointer(&bytesRead)),
+		uintptr(unsafe.Pointer(&bytesAvailable)),
+		0,
+	)
+
+	if r == 0 {
+		return err
+	}
+
+	return nil
+}
+
+func _main() {
+	handle, err := syscall.Open("CONIN$", syscall.O_RDONLY, 0)
+	if err != nil {
+		panic(err)
+	}
+	defer syscall.Close(handle)
+
+	var bytesAvailable uint32
+	err = PeekNamedPipe(handle, &bytesAvailable)
+	if err != nil {
+		panic(err)
+	}
+
+	if bytesAvailable > 0 {
+		// read data from stdin
+	} else {
+		// do something else
+	}
 }
