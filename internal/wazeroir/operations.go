@@ -137,6 +137,40 @@ type Operation interface {
 	fmt.Stringer
 }
 
+// OperationUnion is the compilation (engine.lowerIR) result of a wazeroir.Operation.
+//
+// Not all operations result in a OperationUnion, e.g. wazeroir.OperationI32ReinterpretFromF32, and some operations are
+// more complex than others, e.g. wazeroir.OperationBrTable.
+//
+// Note: This is a form of union type as it can store fields needed for any operation. Hence, most fields are opaque and
+// only relevant when in context of its kind.
+type OperationUnion struct {
+	// OpKind determines how to interpret the other fields in this struct.
+	// The name is not Kind to avoid namespace collision with Kind()
+	OpKind   OperationKind
+	b1, b2   byte   //nolint
+	b3       bool   //nolint
+	U1, U2   uint64 //nolint
+	Us       []uint64
+	rs       []*InclusiveRange //nolint
+	sourcePC uint64            //nolint
+}
+
+// Kind implements the interface Operation
+func (o OperationUnion) Kind() OperationKind {
+	return o.OpKind
+}
+
+// String implements the interface Operation, extend fmt.Stringer
+func (o OperationUnion) String() string {
+	switch o.Kind() {
+	case OperationKindGlobalGet | OperationKindGlobalSet:
+		return fmt.Sprintf("%s %d", o.Kind(), o.U1)
+	default: // OperationKindUnreachable
+		return o.Kind().String()
+	}
+}
+
 // OperationKind is the kind of each implementation of Operation interface.
 type OperationKind uint16
 
@@ -716,7 +750,7 @@ const (
 )
 
 var (
-	_ Operation = OperationUnreachable{}
+	//_ Operation = OperationUnreachable{}
 	_ Operation = OperationLabel{}
 	_ Operation = OperationBr{}
 	_ Operation = OperationBrIf{}
@@ -727,8 +761,8 @@ var (
 	_ Operation = OperationSelect{}
 	_ Operation = OperationPick{}
 	_ Operation = OperationSet{}
-	_ Operation = OperationGlobalGet{}
-	_ Operation = OperationGlobalSet{}
+	//_ Operation = OperationGlobalGet{}
+	//_ Operation = OperationGlobalSet{}
 	_ Operation = OperationLoad{}
 	_ Operation = OperationLoad8{}
 	_ Operation = OperationLoad16{}
@@ -854,21 +888,25 @@ var (
 	_ Operation = OperationV128Dot{}
 	_ Operation = OperationV128Narrow{}
 	_ Operation = OperationV128ITruncSatFromF{}
-	_ Operation = OperationBuiltinFunctionCheckExitCode{}
+	//_ Operation = OperationBuiltinFunctionCheckExitCode{}
 )
 
-// OperationBuiltinFunctionCheckExitCode implements Operation.
+//// OperationBuiltinFunctionCheckExitCode implements Operation.
+////
+//// OperationBuiltinFunctionCheckExitCode corresponds to the instruction to check the api.Module is already closed due to
+//// context.DeadlineExceeded, context.Canceled, or the explicit call of CloseWithExitCode on api.Module.
+//type OperationBuiltinFunctionCheckExitCode struct{}
 //
-// OperationBuiltinFunctionCheckExitCode corresponds to the instruction to check the api.Module is already closed due to
-// context.DeadlineExceeded, context.Canceled, or the explicit call of CloseWithExitCode on api.Module.
-type OperationBuiltinFunctionCheckExitCode struct{}
+//// String implements fmt.Stringer.
+//func (o OperationBuiltinFunctionCheckExitCode) String() string { return o.Kind().String() }
+//
+//// Kind implements Operation.Kind
+//func (OperationBuiltinFunctionCheckExitCode) Kind() OperationKind {
+//	return OperationKindBuiltinFunctionCheckExitCode
+//}
 
-// String implements fmt.Stringer.
-func (o OperationBuiltinFunctionCheckExitCode) String() string { return o.Kind().String() }
-
-// Kind implements Operation.Kind
-func (OperationBuiltinFunctionCheckExitCode) Kind() OperationKind {
-	return OperationKindBuiltinFunctionCheckExitCode
+func NewOperationBuiltinFunctionCheckExitCode() OperationUnion {
+	return OperationUnion{OpKind: OperationKindBuiltinFunctionCheckExitCode}
 }
 
 // Label is the label of each block in wazeroir where "block" consists of multiple operations,
@@ -948,19 +986,23 @@ func (b BranchTargetDrop) String() (ret string) {
 	return
 }
 
-// OperationUnreachable implements Operation.
+//// OperationUnreachable implements Operation.
+////
+//// This corresponds to wasm.OpcodeUnreachable.
+////
+//// The engines are expected to exit the execution with wasmruntime.ErrRuntimeUnreachable error.
+//type OperationUnreachable struct{}
 //
-// This corresponds to wasm.OpcodeUnreachable.
+//// String implements fmt.Stringer.
+//func (o OperationUnreachable) String() string { return o.Kind().String() }
 //
-// The engines are expected to exit the execution with wasmruntime.ErrRuntimeUnreachable error.
-type OperationUnreachable struct{}
+//// Kind implements Operation.Kind
+//func (OperationUnreachable) Kind() OperationKind {
+//	return OperationKindUnreachable
+//}
 
-// String implements fmt.Stringer.
-func (o OperationUnreachable) String() string { return o.Kind().String() }
-
-// Kind implements Operation.Kind
-func (OperationUnreachable) Kind() OperationKind {
-	return OperationKindUnreachable
+func NewOperationUnreachable() OperationUnion {
+	return OperationUnion{OpKind: OperationKindUnreachable}
 }
 
 // OperationLabel implements Operation.
@@ -1171,40 +1213,48 @@ func (OperationSet) Kind() OperationKind {
 	return OperationKindSet
 }
 
-// OperationGlobalGet implements Operation.
+//// OperationGlobalGet implements Operation.
+////
+//// The engines are expected to read the global value specified by OperationGlobalGet.Index,
+//// and push the copy of the value onto the stack.
+////
+//// See wasm.OpcodeGlobalGet.
+//type OperationGlobalGet struct{ Index uint32 }
 //
-// The engines are expected to read the global value specified by OperationGlobalGet.Index,
-// and push the copy of the value onto the stack.
+//// String implements fmt.Stringer.
+//func (o OperationGlobalGet) String() string {
+//	return fmt.Sprintf("%s %d", o.Kind(), o.Index)
+//}
 //
-// See wasm.OpcodeGlobalGet.
-type OperationGlobalGet struct{ Index uint32 }
+//// Kind implements Operation.Kind
+//func (OperationGlobalGet) Kind() OperationKind {
+//	return OperationKindGlobalGet
+//}
 
-// String implements fmt.Stringer.
-func (o OperationGlobalGet) String() string {
-	return fmt.Sprintf("%s %d", o.Kind(), o.Index)
+func NewOperationGlobalGet(index uint32) OperationUnion {
+	return OperationUnion{OpKind: OperationKindGlobalGet, U1: uint64(index)}
 }
 
-// Kind implements Operation.Kind
-func (OperationGlobalGet) Kind() OperationKind {
-	return OperationKindGlobalGet
-}
-
-// OperationGlobalSet implements Operation.
+//// OperationGlobalSet implements Operation.
+////
+//// The engines are expected to consume the value from the top of the stack,
+//// and write the value into the global specified by OperationGlobalSet.Index.
+////
+//// See wasm.OpcodeGlobalSet.
+//type OperationGlobalSet struct{ Index uint32 }
 //
-// The engines are expected to consume the value from the top of the stack,
-// and write the value into the global specified by OperationGlobalSet.Index.
+//// String implements fmt.Stringer.
+//func (o OperationGlobalSet) String() string {
+//	return fmt.Sprintf("%s %d", o.Kind(), o.Index)
+//}
 //
-// See wasm.OpcodeGlobalSet.
-type OperationGlobalSet struct{ Index uint32 }
+//// Kind implements Operation.Kind
+//func (OperationGlobalSet) Kind() OperationKind {
+//	return OperationKindGlobalSet
+//}
 
-// String implements fmt.Stringer.
-func (o OperationGlobalSet) String() string {
-	return fmt.Sprintf("%s %d", o.Kind(), o.Index)
-}
-
-// Kind implements Operation.Kind
-func (OperationGlobalSet) Kind() OperationKind {
-	return OperationKindGlobalSet
+func NewOperationGlobalSet(index uint32) OperationUnion {
+	return OperationUnion{OpKind: OperationKindGlobalSet, U1: uint64(index)}
 }
 
 // MemoryArg is the "memarg" to all memory instructions.

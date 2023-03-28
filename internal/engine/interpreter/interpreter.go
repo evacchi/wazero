@@ -300,8 +300,8 @@ func (e *engine) lowerIR(ir *wazeroir.CompilationResult) (*code, error) {
 			op.SourcePC = ir.IROperationSourceOffsetsInWasmBinary[i]
 		}
 		switch o := original.(type) {
-		case wazeroir.OperationBuiltinFunctionCheckExitCode:
-		case wazeroir.OperationUnreachable:
+		// case wazeroir.OperationBuiltinFunctionCheckExitCode:
+		// case wazeroir.OperationUnreachable:
 		case wazeroir.OperationLabel:
 			labelID := o.Label.ID()
 			address := uint64(len(ret.body))
@@ -399,10 +399,10 @@ func (e *engine) lowerIR(ir *wazeroir.CompilationResult) (*code, error) {
 		case wazeroir.OperationSet:
 			op.U1 = uint64(o.Depth)
 			op.B3 = o.IsTargetVector
-		case wazeroir.OperationGlobalGet:
-			op.U1 = uint64(o.Index)
-		case wazeroir.OperationGlobalSet:
-			op.U1 = uint64(o.Index)
+		// case wazeroir.OperationGlobalGet:
+		//	op.U1 = uint64(o.Index)
+		// case wazeroir.OperationGlobalSet:
+		//	op.U1 = uint64(o.Index)
 		case wazeroir.OperationLoad:
 			op.B1 = byte(o.Type)
 			op.U1 = uint64(o.Arg.Alignment)
@@ -681,6 +681,10 @@ func (e *engine) lowerIR(ir *wazeroir.CompilationResult) (*code, error) {
 		case wazeroir.OperationV128ITruncSatFromF:
 			op.B1 = o.OriginShape
 			op.B3 = o.Signed
+		case wazeroir.OperationUnion:
+			op.Us = o.Us
+			op.U1 = o.U1
+			op.U2 = o.U2
 		default:
 			panic(fmt.Errorf("BUG: unimplemented operation %s", op.KindOp.String()))
 		}

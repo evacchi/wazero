@@ -1093,9 +1093,9 @@ func compileWasmFunction(cmp compiler, ir *wazeroir.CompilationResult) (*code, e
 		var err error
 		switch o := op.(type) {
 		case wazeroir.OperationLabel:
-			// Label op is already handled ^^.
-		case wazeroir.OperationUnreachable:
-			err = cmp.compileUnreachable()
+		// Label op is already handled ^^.
+		// case wazeroir.OperationUnreachable:
+		//	err = cmp.compileUnreachable()
 		case wazeroir.OperationBr:
 			err = cmp.compileBr(o)
 		case wazeroir.OperationBrIf:
@@ -1114,10 +1114,10 @@ func compileWasmFunction(cmp compiler, ir *wazeroir.CompilationResult) (*code, e
 			err = cmp.compilePick(o)
 		case wazeroir.OperationSet:
 			err = cmp.compileSet(o)
-		case wazeroir.OperationGlobalGet:
-			err = cmp.compileGlobalGet(o)
-		case wazeroir.OperationGlobalSet:
-			err = cmp.compileGlobalSet(o)
+		// case wazeroir.OperationGlobalGet:
+		//	err = cmp.compileGlobalGet(o)
+		// case wazeroir.OperationGlobalSet:
+		//	err = cmp.compileGlobalSet(o)
 		case wazeroir.OperationLoad:
 			err = cmp.compileLoad(o)
 		case wazeroir.OperationLoad8:
@@ -1368,8 +1368,19 @@ func compileWasmFunction(cmp compiler, ir *wazeroir.CompilationResult) (*code, e
 			err = cmp.compileV128Narrow(o)
 		case wazeroir.OperationV128ITruncSatFromF:
 			err = cmp.compileV128ITruncSatFromF(o)
-		case wazeroir.OperationBuiltinFunctionCheckExitCode:
-			err = cmp.compileBuiltinFunctionCheckExitCode()
+		// case wazeroir.OperationBuiltinFunctionCheckExitCode:
+		//	err = cmp.compileBuiltinFunctionCheckExitCode()
+		case wazeroir.OperationUnion:
+			switch op.Kind() {
+			case wazeroir.OperationKindUnreachable:
+				err = cmp.compileUnreachable()
+			case wazeroir.OperationKindGlobalGet:
+				err = cmp.compileGlobalGet(o)
+			case wazeroir.OperationKindGlobalSet:
+				err = cmp.compileGlobalSet(o)
+			case wazeroir.OperationKindBuiltinFunctionCheckExitCode:
+				err = cmp.compileBuiltinFunctionCheckExitCode()
+			}
 		default:
 			err = errors.New("unsupported")
 		}

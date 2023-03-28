@@ -425,7 +425,7 @@ func (c *compiler) handleInstruction() error {
 operatorSwitch:
 	switch op {
 	case wasm.OpcodeUnreachable:
-		c.emit(OperationUnreachable{})
+		c.emit(NewOperationUnreachable())
 		c.markUnreachable()
 	case wasm.OpcodeNop:
 		// Nop is noop!
@@ -497,7 +497,7 @@ operatorSwitch:
 		// exist. However, in reality, that shouldn't be an issue since such "noop" loop header will highly likely be
 		// optimized out by almost all guest language compilers which have the control flow optimization passes.
 		if c.ensureTermination {
-			c.emit(OperationBuiltinFunctionCheckExitCode{})
+			c.emit(NewOperationBuiltinFunctionCheckExitCode())
 		}
 	case wasm.OpcodeIf:
 		c.br.Reset(c.body[c.pc+1:])
@@ -913,11 +913,11 @@ operatorSwitch:
 		}
 	case wasm.OpcodeGlobalGet:
 		c.emit(
-			OperationGlobalGet{Index: index},
+			NewOperationGlobalGet(index),
 		)
 	case wasm.OpcodeGlobalSet:
 		c.emit(
-			OperationGlobalSet{Index: index},
+			NewOperationGlobalSet(index),
 		)
 	case wasm.OpcodeI32Load:
 		imm, err := c.readMemoryArg(wasm.OpcodeI32LoadName)

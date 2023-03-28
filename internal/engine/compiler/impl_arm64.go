@@ -517,15 +517,16 @@ func (c *arm64Compiler) compileSet(o wazeroir.OperationSet) error {
 }
 
 // compileGlobalGet implements compiler.compileGlobalGet for the arm64 architecture.
-func (c *arm64Compiler) compileGlobalGet(o wazeroir.OperationGlobalGet) error {
+func (c *arm64Compiler) compileGlobalGet(o wazeroir.OperationUnion) error {
 	if err := c.maybeCompileMoveTopConditionalToGeneralPurposeRegister(); err != nil {
 		return err
 	}
 
-	wasmValueType := c.ir.Globals[o.Index].ValType
+	index := uint32(o.U1)
+	wasmValueType := c.ir.Globals[index].ValType
 	isV128 := wasmValueType == wasm.ValueTypeV128
 	// Get the address of globals[index] into globalAddressReg.
-	globalAddressReg, err := c.compileReadGlobalAddress(o.Index)
+	globalAddressReg, err := c.compileReadGlobalAddress(index)
 	if err != nil {
 		return err
 	}
@@ -582,8 +583,9 @@ func (c *arm64Compiler) compileGlobalGet(o wazeroir.OperationGlobalGet) error {
 }
 
 // compileGlobalSet implements compiler.compileGlobalSet for the arm64 architecture.
-func (c *arm64Compiler) compileGlobalSet(o wazeroir.OperationGlobalSet) error {
-	wasmValueType := c.ir.Globals[o.Index].ValType
+func (c *arm64Compiler) compileGlobalSet(o wazeroir.OperationUnion) error {
+	index := uint32(o.U1)
+	wasmValueType := c.ir.Globals[index].ValType
 	isV128 := wasmValueType == wasm.ValueTypeV128
 
 	var val *runtimeValueLocation
@@ -596,7 +598,7 @@ func (c *arm64Compiler) compileGlobalSet(o wazeroir.OperationGlobalSet) error {
 		return err
 	}
 
-	globalInstanceAddressRegister, err := c.compileReadGlobalAddress(o.Index)
+	globalInstanceAddressRegister, err := c.compileReadGlobalAddress(index)
 	if err != nil {
 		return err
 	}
@@ -607,7 +609,7 @@ func (c *arm64Compiler) compileGlobalSet(o wazeroir.OperationGlobalSet) error {
 			arm64.VectorArrangementQ)
 	} else {
 		var str asm.Instruction
-		switch c.ir.Globals[o.Index].ValType {
+		switch c.ir.Globals[index].ValType {
 		case wasm.ValueTypeI32:
 			str = arm64.STRW
 		case wasm.ValueTypeI64, wasm.ValueTypeExternref, wasm.ValueTypeFuncref:
