@@ -399,9 +399,9 @@ func (e *engine) lowerIR(ir *wazeroir.CompilationResult) (*code, error) {
 		case wazeroir.OperationSet:
 			op.u1 = uint64(o.Depth)
 			op.b3 = o.IsTargetVector
-		//case wazeroir.OperationGlobalGet:
+		// case wazeroir.OperationGlobalGet:
 		//	op.u1 = uint64(o.Index)
-		//case wazeroir.OperationGlobalSet:
+		// case wazeroir.OperationGlobalSet:
 		//	op.u1 = uint64(o.Index)
 		case wazeroir.OperationLoad:
 			op.b1 = byte(o.Type)
@@ -683,6 +683,8 @@ func (e *engine) lowerIR(ir *wazeroir.CompilationResult) (*code, error) {
 			op.b3 = o.Signed
 		case wazeroir.OperationUnion:
 			op.us = o.Us
+			op.u1 = o.U1
+			op.u2 = o.U2
 		default:
 			panic(fmt.Errorf("BUG: unimplemented operation %s", op.kind.String()))
 		}
