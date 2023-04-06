@@ -191,8 +191,15 @@ func processFDEvent(mod api.Module, inBuf []byte, value pollValue, result chan p
 			if f, ok := fsc.LookupFile(fd); ok {
 				st, _ := f.Stat()
 				// if fd is a pipe, then it is not a char device (a tty)
-				if st.Mode&fs.ModeCharDevice == 0 {
-					errno = syscall.EBADF
+				if st.Mode&fs.ModeCharDevice != 0 {
+					if reader, ok := f.File.(*internalsys.StdioFileReader); ok {
+						a, err := reader.BufferedReader.ReadByte()
+						println(a)
+						if err == nil {
+							reader.BufferedReader.UnreadByte()
+							errno = syscall.EBADF
+						}
+					}
 				}
 			} else {
 				errno = syscall.EBADF
