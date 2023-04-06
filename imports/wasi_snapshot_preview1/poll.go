@@ -144,7 +144,7 @@ func processEvent(ctx context.Context, mod api.Module, argBuf []byte, outBuf []b
 		// +8 past userdata +8 contents_offset
 		//value.errno = byte(wasip1.ErrnoNotsup)
 		//write(outBuf, value) // ack back immediately
-		processFDEvent(mod, argBuf, value, result)
+		processFDEvent(mod, argBuf, outBuf, value, result)
 
 	default:
 		return syscall.EINVAL, true
@@ -188,40 +188,55 @@ func processClockEvent(mod api.Module, inBuf []byte, value pollValue, result cha
 
 // processFDEvent returns a validation error or syscall.ENOTSUP as file or socket
 // subscriptions are not yet supported.
-func processFDEvent(mod api.Module, inBuf []byte, value pollValue, result chan pollValue) {
+func processFDEvent(mod api.Module, inBuf []byte, outBuf []byte, value pollValue, result chan pollValue) {
 	fd := le.Uint32(inBuf)
 	fsc := mod.(*wasm.ModuleInstance).Sys.FS()
 
-	go func() {
-		// Choose the best error, which falls back to unsupported, until we support
-		// files.
-		errno := syscall.ENOTSUP
-		if value.eventType == wasip1.EventTypeFdRead {
-			// if we return this, we are inhibiting already the timer
-			// because it returns right away
-			if f, ok := fsc.LookupFile(fd); ok {
-				st, _ := f.Stat()
-				// if fd is a pipe, then it is not a char device (a tty)
-				if st.Mode&fs.ModeCharDevice != 0 {
-					if reader, ok := f.File.(*internalsys.StdioFileReader); ok {
+	// Choose the best error, which falls back to unsupported, until we support
+	// files.
+	errno := syscall.ENOTSUP
+	proceed := false
+	if value.eventType == wasip1.EventTypeFdRead {
+		// if we return this, we are inhibiting already the timer
+		// because it returns right away
+		if f, ok := fsc.LookupFile(fd); ok {
+			st, _ := f.Stat()
+			// if fd is a pipe, then it is not a char device (a tty)
+			if st.Mode&fs.ModeCharDevice != 0 {
+				if reader, ok := f.File.(*internalsys.StdioFileReader); ok {
+					go func() {
 						b, err := reader.BufferedReader.Peek(1)
 						println(b[0])
 						println(err)
 						if err == nil {
 							//errno = syscall.EBADF
 							errno = 0
+							value.errno = byte(wasip1.ToErrno(errno))
+							result <- value
 						}
-					}
-				} else {
-					errno = 0
+					}()
 				}
 			} else {
-				errno = syscall.EBADF
+				value.errno = 0
+				//write(outBuf, value)
+				proceed = true
 			}
-		} else if value.eventType == wasip1.EventTypeFdWrite && internalsys.WriterForFile(fsc, fd) == nil {
+		} else {
 			errno = syscall.EBADF
+			value.errno = byte(wasip1.ToErrno(errno))
+			//write(outBuf, value)
+			proceed = true
 		}
+	} else if value.eventType == wasip1.EventTypeFdWrite && internalsys.WriterForFile(fsc, fd) == nil {
+		errno = syscall.EBADF
 		value.errno = byte(wasip1.ToErrno(errno))
-		result <- value
-	}()
+		//write(outBuf, value)
+		proceed = true
+	}
+	//value.errno = byte(wasip1.ToErrno(errno))
+	if proceed {
+		go func() {
+			result <- value
+		}()
+	}
 }

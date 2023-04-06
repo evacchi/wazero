@@ -4,7 +4,6 @@ import (
 	"bytes"
 	_ "embed"
 	"io/fs"
-	"os"
 	"strconv"
 	"strings"
 	"testing"
@@ -219,16 +218,16 @@ func compileAndRun(t *testing.T, config wazero.ModuleConfig, bin []byte) (consol
 func Test_Poll(t *testing.T) {
 	moduleConfig := wazero.NewModuleConfig().WithArgs("wasi", "poll")
 	console := compileAndRun(t, moduleConfig, wasmZigCc)
-	// The "real" expected behavior is to return "NOINPUT",
-	// however the poll API is currently relying on stat'ing the file
-	// descriptor for stdin which makes the behavior platform-specific
-	// **during tests** and unfortunately hard to mock.
-	// For now, we just make sure the result is consistent.
-	if stat, err := os.Stdin.Stat(); err != nil {
-		if stat.Mode()&fs.ModeCharDevice != 0 {
-			require.Equal(t, "NOINPUT\n", console)
-			return
-		}
-	}
-	require.Equal(t, "STDIN\n", console)
+	//// The "real" expected behavior is to return "NOINPUT",
+	//// however the poll API is currently relying on stat'ing the file
+	//// descriptor for stdin which makes the behavior platform-specific
+	//// **during tests** and unfortunately hard to mock.
+	//// For now, we just make sure the result is consistent.
+	//if stat, err := os.Stdin.Stat(); err != nil {
+	//	if stat.Mode()&fs.ModeCharDevice != 0 {
+	//		require.Equal(t, "NOINPUT\n", console)
+	//		return
+	//	}
+	//}
+	require.Equal(t, "NOINPUT\n", console)
 }
