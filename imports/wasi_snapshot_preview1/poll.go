@@ -100,6 +100,8 @@ func pollOneoffFn(ctx context.Context, mod api.Module, params []uint64) syscall.
 			outOffset: outOffset,
 		}
 
+		write(outBuf, v)
+
 		errno, done := processEvent(ctx, mod, argBuf, outBuf, v, resultChannel)
 		if done {
 			return errno

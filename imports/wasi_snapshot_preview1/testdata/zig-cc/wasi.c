@@ -63,7 +63,7 @@ int main(int argc, char** argv) {
   } else if (strcmp(argv[1],"poll")==0) {
     int timeout = 0;
     if (argc > 2) {
-        timeout = atoi(argv[2])
+        timeout = atoi(argv[2]);
     }
     main_poll(timeout);
   } else {
