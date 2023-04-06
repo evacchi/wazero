@@ -2,6 +2,7 @@ package wasi_snapshot_preview1
 
 import (
 	"context"
+	"fmt"
 	"io/fs"
 	"syscall"
 	"time"
@@ -99,16 +100,21 @@ func pollOneoffFn(ctx context.Context, mod api.Module, params []uint64) syscall.
 			outOffset: outOffset,
 		}
 
-		errno, done := processEvent(ctx, mod, argBuf, v, resultChannel)
+		errno, done := processEvent(ctx, mod, argBuf, outBuf, v, resultChannel)
 		if done {
 			return errno
 		}
 	}
 
 	value := <-resultChannel
+	fmt.Printf("%x\n", value)
 
 	write(outBuf, value)
 
+	//value2 := <-resultChannel
+	//fmt.Printf("%x\n", value2)
+	//
+	//write(outBuf, value2)
 	return 0
 }
 
@@ -126,7 +132,7 @@ func write(outBuf []byte, value pollValue) {
 	// TODO: When FD events are supported, write outOffset+16
 }
 
-func processEvent(ctx context.Context, mod api.Module, argBuf []byte, value pollValue, result chan pollValue) (syscall.Errno, bool) {
+func processEvent(ctx context.Context, mod api.Module, argBuf []byte, outBuf []byte, value pollValue, result chan pollValue) (syscall.Errno, bool) {
 	var errno syscall.Errno // errno for this specific event (1-byte)
 	switch value.eventType {
 	case wasip1.EventTypeClock: // handle later
@@ -134,7 +140,10 @@ func processEvent(ctx context.Context, mod api.Module, argBuf []byte, value poll
 		processClockEvent(mod, argBuf, value, result)
 	case wasip1.EventTypeFdRead, wasip1.EventTypeFdWrite:
 		// +8 past userdata +8 contents_offset
+		//value.errno = byte(wasip1.ErrnoNotsup)
+		//write(outBuf, value) // ack back immediately
 		processFDEvent(mod, argBuf, value, result)
+
 	default:
 		return syscall.EINVAL, true
 	}
@@ -193,13 +202,17 @@ func processFDEvent(mod api.Module, inBuf []byte, value pollValue, result chan p
 				// if fd is a pipe, then it is not a char device (a tty)
 				if st.Mode&fs.ModeCharDevice != 0 {
 					if reader, ok := f.File.(*internalsys.StdioFileReader); ok {
-						a, err := reader.BufferedReader.ReadByte()
-						println(a)
+						b, err := reader.BufferedReader.Peek(1)
+						println(b[0])
+						println(err)
 						if err == nil {
-							reader.BufferedReader.UnreadByte()
-							errno = syscall.EBADF
+							//errno = syscall.EBADF
+							println("errno 0")
+							errno = 0
 						}
 					}
+				} else {
+					errno = 0
 				}
 			} else {
 				errno = syscall.EBADF

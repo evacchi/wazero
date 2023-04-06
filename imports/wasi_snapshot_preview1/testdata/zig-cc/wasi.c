@@ -37,7 +37,7 @@ void main_stat() {
   printf("/ isatty: %s\n", formatBool(isatty(3)));
 }
 
-void main_poll() {
+void main_poll(int timeout) {
   int ret = 0;
   fd_set rfds;
   struct timeval tv;
@@ -45,7 +45,7 @@ void main_poll() {
   FD_ZERO(&rfds);
   FD_SET(0, &rfds);
 
-  tv.tv_sec = 0;
+  tv.tv_sec = timeout;
   tv.tv_usec = 0;
   ret = select(1, &rfds, NULL, NULL, &tv);
   if ((ret > 0) && FD_ISSET(0, &rfds)) {
@@ -61,7 +61,11 @@ int main(int argc, char** argv) {
   } else if (strcmp(argv[1],"stat")==0) {
     main_stat();
   } else if (strcmp(argv[1],"poll")==0) {
-    main_poll();
+    int timeout = 0;
+    if (argc > 2) {
+        timeout = atoi(argv[2])
+    }
+    main_poll(timeout);
   } else {
     fprintf(stderr, "unknown command: %s\n", argv[1]);
     return 1;
