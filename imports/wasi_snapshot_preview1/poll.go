@@ -2,6 +2,7 @@ package wasi_snapshot_preview1
 
 import (
 	"context"
+	"fmt"
 	"io/fs"
 	"syscall"
 	"time"
@@ -99,7 +100,7 @@ func pollOneoffFn(ctx context.Context, mod api.Module, params []uint64) syscall.
 			outOffset: outOffset,
 		}
 
-		write(outBuf, v)
+		//write(outBuf, v)
 
 		errno, done := processEvent(ctx, mod, argBuf, outBuf, v, resultChannel)
 		if done {
@@ -108,8 +109,12 @@ func pollOneoffFn(ctx context.Context, mod api.Module, params []uint64) syscall.
 	}
 
 	value := <-resultChannel
-	//fmt.Printf("%x\n", value)
-
+	fmt.Printf("%x\n", value)
+	//if value.eventType == wasip1.EventTypeClock {
+	//	for i := uint32(0); i < nsubscriptions; i++ {
+	//		outBuf[value.outOffset+8] = byte(wasip1.ToErrno(syscall.EBADF))
+	//	}
+	//}
 	write(outBuf, value)
 
 	//value2 := <-resultChannel
@@ -122,12 +127,8 @@ func pollOneoffFn(ctx context.Context, mod api.Module, params []uint64) syscall.
 func write(outBuf []byte, value pollValue) {
 	// Write the event corresponding to the processed subscription.
 	// https://github.com/WebAssembly/WASI/blob/snapshot-01/phases/snapshot/docs.md#-event-struct
-	copy(outBuf, value.userData) // userdata
-	//if errno != 0 {
+	copy(outBuf, value.userData)            // userdata
 	outBuf[value.outOffset+8] = value.errno // uint16, but safe as < 255
-	//} else { // special case ass ErrnoSuccess is zero
-	//	outBuf[outOffset+8] = 0
-	//}
 	outBuf[value.outOffset+9] = 0
 	le.PutUint32(outBuf[value.outOffset+10:], uint32(value.eventType))
 	// TODO: When FD events are supported, write outOffset+16
@@ -208,7 +209,6 @@ func processFDEvent(mod api.Module, inBuf []byte, value pollValue, result chan p
 						println(err)
 						if err == nil {
 							//errno = syscall.EBADF
-							println("errno 0")
 							errno = 0
 						}
 					}
@@ -218,11 +218,6 @@ func processFDEvent(mod api.Module, inBuf []byte, value pollValue, result chan p
 			} else {
 				errno = syscall.EBADF
 			}
-			//alt:
-			//if _, ok := fsc.LookupFile(fd); !ok {
-			//	errno = syscall.EBADF
-			//}
-			//sy
 		} else if value.eventType == wasip1.EventTypeFdWrite && internalsys.WriterForFile(fsc, fd) == nil {
 			errno = syscall.EBADF
 		}

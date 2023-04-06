@@ -5,6 +5,7 @@
 #include <unistd.h>
 #include <stdbool.h>
 #include <sys/select.h>
+#include <stdlib.h>
 
 #define formatBool(b) ((b) ? "true" : "false")
 
