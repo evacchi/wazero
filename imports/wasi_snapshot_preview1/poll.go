@@ -81,7 +81,7 @@ func pollOneoffFn(ctx context.Context, mod api.Module, params []uint64) syscall.
 
 	// Loop through all subscriptions and write their output.
 
-	resultChannel := make(chan pollValue)
+	resultChannel := make(chan pollValue, 1)
 
 	// Layout is subscription_u: Union
 	// https://github.com/WebAssembly/WASI/blob/snapshot-01/phases/snapshot/docs.md#subscription_u
@@ -100,27 +100,26 @@ func pollOneoffFn(ctx context.Context, mod api.Module, params []uint64) syscall.
 			outOffset: outOffset,
 		}
 
-		//write(outBuf, v)
+		//var errno syscall.Errno // errno for this specific event (1-byte)
+		switch eventType {
+		case wasip1.EventTypeClock: // handle later
+			// +8 past userdata +8 contents_offset
+			go processClockEvent(mod, argBuf, v, resultChannel)
+		case wasip1.EventTypeFdRead, wasip1.EventTypeFdWrite:
+			// +8 past userdata +8 contents_offset
+			//value.errno = byte(wasip1.ErrnoNotsup)
+			//write(outBuf, value) // ack back immediately
+			go processFDEvent(mod, argBuf, v, resultChannel)
 
-		errno, done := processEvent(ctx, mod, argBuf, outBuf, v, resultChannel)
-		if done {
-			return errno
+		default:
+			return syscall.EINVAL
 		}
 	}
 
 	value := <-resultChannel
 	fmt.Printf("%x\n", value)
-	//if value.eventType == wasip1.EventTypeClock {
-	//	for i := uint32(0); i < nsubscriptions; i++ {
-	//		outBuf[value.outOffset+8] = byte(wasip1.ToErrno(syscall.EBADF))
-	//	}
-	//}
 	write(outBuf, value)
 
-	//value2 := <-resultChannel
-	//fmt.Printf("%x\n", value2)
-	//
-	//write(outBuf, value2)
 	return 0
 }
 
@@ -134,24 +133,6 @@ func write(outBuf []byte, value pollValue) {
 	// TODO: When FD events are supported, write outOffset+16
 }
 
-func processEvent(ctx context.Context, mod api.Module, argBuf []byte, outBuf []byte, value pollValue, result chan pollValue) (syscall.Errno, bool) {
-	var errno syscall.Errno // errno for this specific event (1-byte)
-	switch value.eventType {
-	case wasip1.EventTypeClock: // handle later
-		// +8 past userdata +8 contents_offset
-		processClockEvent(mod, argBuf, value, result)
-	case wasip1.EventTypeFdRead, wasip1.EventTypeFdWrite:
-		// +8 past userdata +8 contents_offset
-		//value.errno = byte(wasip1.ErrnoNotsup)
-		//write(outBuf, value) // ack back immediately
-		processFDEvent(mod, argBuf, outBuf, value, result)
-
-	default:
-		return syscall.EINVAL, true
-	}
-	return errno, false
-}
-
 // processClockEvent supports only relative name events, as that's what's used
 // to implement sleep in various compilers including Rust, Zig and TinyGo.
 func processClockEvent(mod api.Module, inBuf []byte, value pollValue, result chan pollValue) {
@@ -160,42 +141,39 @@ func processClockEvent(mod api.Module, inBuf []byte, value pollValue, result cha
 	_ /* precision */ = le.Uint64(inBuf[16:24]) // Unused
 	flags := le.Uint16(inBuf[24:32])
 
-	go func() {
-		var err syscall.Errno
-		// subclockflags has only one flag defined:  subscription_clock_abstime
-		switch flags {
-		case 0: // relative time
-		case 1: // subscription_clock_abstime
-			err = syscall.ENOTSUP
-		default: // subclockflags has only one flag defined.
-			err = syscall.EINVAL
-		}
+	var err syscall.Errno
+	// subclockflags has only one flag defined:  subscription_clock_abstime
+	switch flags {
+	case 0: // relative time
+	case 1: // subscription_clock_abstime
+		err = syscall.ENOTSUP
+	default: // subclockflags has only one flag defined.
+		err = syscall.EINVAL
+	}
 
-		if err != 0 {
-			value.errno = byte(wasip1.ToErrno(err))
-			result <- value
-		} else {
-			// https://linux.die.net/man/3/clock_settime says relative timers are
-			// unaffected. Since this function only supports relative timeout, we can
-			// skip name ID validation and use a single sleep function.
-			_ = <-time.After(time.Duration(timeout))
-			value.errno = 0
-			result <- value
-		}
-	}()
+	if err != 0 {
+		value.errno = byte(wasip1.ToErrno(err))
+		result <- value
+	} else {
+		// https://linux.die.net/man/3/clock_settime says relative timers are
+		// unaffected. Since this function only supports relative timeout, we can
+		// skip name ID validation and use a single sleep function.
+		_ = <-time.After(time.Duration(timeout))
+		value.errno = 0
+		result <- value
+	}
 
 }
 
 // processFDEvent returns a validation error or syscall.ENOTSUP as file or socket
 // subscriptions are not yet supported.
-func processFDEvent(mod api.Module, inBuf []byte, outBuf []byte, value pollValue, result chan pollValue) {
+func processFDEvent(mod api.Module, inBuf []byte, value pollValue, result chan pollValue) {
 	fd := le.Uint32(inBuf)
 	fsc := mod.(*wasm.ModuleInstance).Sys.FS()
 
 	// Choose the best error, which falls back to unsupported, until we support
 	// files.
 	errno := syscall.ENOTSUP
-	proceed := false
 	if value.eventType == wasip1.EventTypeFdRead {
 		// if we return this, we are inhibiting already the timer
 		// because it returns right away
@@ -204,39 +182,20 @@ func processFDEvent(mod api.Module, inBuf []byte, outBuf []byte, value pollValue
 			// if fd is a pipe, then it is not a char device (a tty)
 			if st.Mode&fs.ModeCharDevice != 0 {
 				if reader, ok := f.File.(*internalsys.StdioFileReader); ok {
-					go func() {
-						b, err := reader.BufferedReader.Peek(1)
-						println(b[0])
-						println(err)
-						if err == nil {
-							//errno = syscall.EBADF
-							errno = 0
-							value.errno = byte(wasip1.ToErrno(errno))
-							result <- value
-						}
-					}()
+					_, err := reader.BufferedReader.Peek(1)
+					if err != nil {
+						return
+					}
 				}
-			} else {
-				value.errno = 0
-				//write(outBuf, value)
-				proceed = true
 			}
+			value.errno = 0
 		} else {
 			errno = syscall.EBADF
 			value.errno = byte(wasip1.ToErrno(errno))
-			//write(outBuf, value)
-			proceed = true
 		}
 	} else if value.eventType == wasip1.EventTypeFdWrite && internalsys.WriterForFile(fsc, fd) == nil {
 		errno = syscall.EBADF
 		value.errno = byte(wasip1.ToErrno(errno))
-		//write(outBuf, value)
-		proceed = true
 	}
-	//value.errno = byte(wasip1.ToErrno(errno))
-	if proceed {
-		go func() {
-			result <- value
-		}()
-	}
+	result <- value
 }
