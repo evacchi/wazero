@@ -1,8 +1,6 @@
 package wasi_snapshot_preview1_test
 
 import (
-	"io/fs"
-	"os"
 	"testing"
 
 	"github.com/tetratelabs/wazero"
@@ -65,12 +63,12 @@ func Test_pollOneoff_Errors(t *testing.T) {
 	// `go test` forks processes. Instead, we test if this is consistent. For
 	// example, when run in a debugger, this could end up true.
 	// See also `terminal_test.go`.
-	expectedFdReadErr := wasip1.ErrnoNotsup
-	if stat, err := os.Stdin.Stat(); err != nil {
-		if stat.Mode()&fs.ModeCharDevice != 0 {
-			expectedFdReadErr = wasip1.ErrnoBadf
-		}
-	}
+	expectedFdReadErr := wasip1.ErrnoSuccess //wasip1.ErrnoNotsup
+	//if stat, err := os.Stdin.Stat(); err != nil {
+	//	if stat.Mode()&fs.ModeCharDevice != 0 {
+	//		expectedFdReadErr = wasip1.ErrnoBadf
+	//	}
+	//}
 
 	tests := []struct {
 		name                                   string

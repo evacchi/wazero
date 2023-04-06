@@ -2,7 +2,6 @@ package wasi_snapshot_preview1
 
 import (
 	"context"
-	"fmt"
 	"io/fs"
 	"syscall"
 	"time"
@@ -109,7 +108,7 @@ func pollOneoffFn(ctx context.Context, mod api.Module, params []uint64) syscall.
 	}
 
 	value := <-resultChannel
-	fmt.Printf("%x\n", value)
+	//fmt.Printf("%x\n", value)
 
 	write(outBuf, value)
 
