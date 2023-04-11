@@ -140,9 +140,7 @@ func pollOneoffFn(ctx context.Context, mod api.Module, params []uint64) syscall.
 		timeoutCtx, cancelFunc := context.WithTimeout(ctx, timeout)
 		defer cancelFunc()
 
-		for _, s := range stdinSubs {
-			go processDelayedStdinReader(s, outBuf, timeoutCtx, cancelFunc)
-		}
+		go processDelayedStdinReader(stdinSubs, outBuf, timeoutCtx, cancelFunc)
 
 		<-timeoutCtx.Done()
 	}
@@ -210,22 +208,25 @@ func processFDEvent(fsc *internalsys.FSContext, fd uint32, e *event) *internalsy
 // from tty, otherwise it returns ErrnoBadf. The function blocks
 // until the underlying reader succeeds or fails. It then writes back the event to
 // given outBuf and cancels cancelFunc
-func processDelayedStdinReader(stdinEvent stdinEvent, outBuf []byte, ctx context.Context, cancelFunc context.CancelFunc) {
-	e := stdinEvent.event
-	reader := stdinEvent.reader
-	for {
-		_, err := reader.Peek(1) // blocks until a byte is available without consuming
-		err = errors.Unwrap(err)
-		if err == nil {
-			e.errno = wasip1.ErrnoSuccess
-		} else if err == syscall.EAGAIN {
-			continue
-		} else {
-			e.errno = wasip1.ErrnoBadf
+func processDelayedStdinReader(stdinEvents []stdinEvent, outBuf []byte, ctx context.Context, cancelFunc context.CancelFunc) {
+	for i := range stdinEvents {
+		evt := &stdinEvents[i]
+		e := evt.event
+		reader := evt.reader
+		for {
+			_, err := reader.Peek(1) // blocks until a byte is available without consuming
+			err = errors.Unwrap(err)
+			if err == nil {
+				e.errno = wasip1.ErrnoSuccess
+			} else if err == syscall.EAGAIN {
+				continue
+			} else {
+				e.errno = wasip1.ErrnoBadf
+			}
+			writeEvent(outBuf, e)
+			cancelFunc()
+			return
 		}
-		writeEvent(outBuf, e)
-		cancelFunc()
-		return
 	}
 }
 
