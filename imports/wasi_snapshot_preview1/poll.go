@@ -2,6 +2,7 @@ package wasi_snapshot_preview1
 
 import (
 	"context"
+	"errors"
 	"syscall"
 	"time"
 
@@ -135,12 +136,12 @@ func pollOneoffFn(ctx context.Context, mod api.Module, params []uint64) syscall.
 	}
 
 	// process timeout and interactive inputs (if any)
-	if timeout > 0 && readySubs == 0 {
+	if readySubs == 0 {
 		timeoutCtx, cancelFunc := context.WithTimeout(ctx, timeout)
 		defer cancelFunc()
 
 		for _, s := range stdinSubs {
-			go processDelayedStdinReader(s, outBuf, cancelFunc)
+			go processDelayedStdinReader(s, outBuf, timeoutCtx, cancelFunc)
 		}
 
 		<-timeoutCtx.Done()
@@ -182,8 +183,17 @@ func processFDEvent(fsc *internalsys.FSContext, fd uint32, e *event) *internalsy
 	if e.eventType == wasip1.EventTypeFdRead {
 		if f, ok := fsc.LookupFile(fd); ok {
 			// if fd corresponds to an interactive StdioFileReader then return it
-			if reader, ok := f.File.(*internalsys.StdioFileReader); ok && reader.IsInteractive() {
-				return reader
+			if reader, ok := f.File.(*internalsys.StdioFileReader); ok {
+				if reader.IsInteractive() {
+					return reader
+				} else {
+					peek, err := reader.Peek(1)
+					if err != nil || len(peek) == 0 {
+						e.errno = wasip1.ErrnoBadf
+					} else {
+						e.errno = wasip1.ErrnoSuccess
+					}
+				}
 			} else {
 				e.errno = wasip1.ErrnoSuccess
 			}
@@ -200,17 +210,23 @@ func processFDEvent(fsc *internalsys.FSContext, fd uint32, e *event) *internalsy
 // from tty, otherwise it returns ErrnoBadf. The function blocks
 // until the underlying reader succeeds or fails. It then writes back the event to
 // given outBuf and cancels cancelFunc
-func processDelayedStdinReader(stdinEvent stdinEvent, outBuf []byte, cancelFunc context.CancelFunc) {
+func processDelayedStdinReader(stdinEvent stdinEvent, outBuf []byte, ctx context.Context, cancelFunc context.CancelFunc) {
 	e := stdinEvent.event
 	reader := stdinEvent.reader
-	_, err := reader.Peek(1) // blocks until a byte is available without consuming
-	if err == nil {
-		e.errno = wasip1.ErrnoSuccess
-	} else {
-		e.errno = wasip1.ErrnoBadf
+	for {
+		_, err := reader.Peek(1) // blocks until a byte is available without consuming
+		err = errors.Unwrap(err)
+		if err == nil {
+			e.errno = wasip1.ErrnoSuccess
+		} else if err == syscall.EAGAIN {
+			continue
+		} else {
+			e.errno = wasip1.ErrnoBadf
+		}
+		writeEvent(outBuf, e)
+		cancelFunc()
+		return
 	}
-	writeEvent(outBuf, e)
-	cancelFunc()
 }
 
 // writeEvent writes the event corresponding to the processed subscription.
