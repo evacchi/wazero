@@ -6,7 +6,6 @@ import (
 	_ "embed"
 	"io"
 	"io/fs"
-	"os"
 	"strconv"
 	"strings"
 	"testing"
@@ -223,19 +222,9 @@ func compileAndRun(t *testing.T, config wazero.ModuleConfig, bin []byte) (consol
 func Test_Poll(t *testing.T) {
 	moduleConfig := wazero.NewModuleConfig().WithArgs("wasi", "poll")
 	console := compileAndRun(t, moduleConfig, wasmZigCc)
-	// The "real" expected behavior is to return "NOINPUT",
-	// however the default configuration of the poll API
-	// stat's the file descriptor for stdin
-	// which makes the behavior platform-specific
-	// **during tests** and unfortunately hard to mock.
-	// For now, we just make sure the result is consistent.
-	if stat, err := os.Stdin.Stat(); err != nil {
-		if stat.Mode()&fs.ModeCharDevice != 0 {
-			require.Equal(t, "NOINPUT\n", console)
-			return
-		}
-	}
-	require.Equal(t, "STDIN\n", console)
+	// Always returns NOINPUT regardless it's a tty or not,
+	// because `poll_oneoff` returns 0 when the input is empty
+	require.Equal(t, "NOINPUT\n", console)
 
 	// the following test cases replace Stdin with a custom reader
 	// for more precise coverage, see poll_test.go
@@ -283,7 +272,7 @@ func Test_Poll(t *testing.T) {
 			name:            "eofReader, not tty, .2sec",
 			args:            []string{"wasi", "poll", "0", "200"},
 			stdin:           nil,
-			expectedOutput:  "STDIN",
+			expectedOutput:  "NOINPUT",
 			expectedTimeout: 0 * time.Millisecond,
 		},
 	}

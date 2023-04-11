@@ -85,10 +85,10 @@ func pollOneoffFn(ctx context.Context, mod api.Module, params []uint64) syscall.
 
 	// Loop through all subscriptions and write their output.
 
-	var stdinSubs []stdinEvent
+	var stdinEvents []*event
 	var timeout time.Duration = 1<<63 - 1 // max timeout
 	readySubs := 0
-
+	fsc := mod.(*wasm.ModuleInstance).Sys.FS()
 	// Layout is subscription_u: Union
 	// https://github.com/WebAssembly/WASI/blob/snapshot-01/phases/snapshot/docs.md#subscription_u
 	for i := uint32(0); i < nsubscriptions; i++ {
@@ -118,17 +118,16 @@ func pollOneoffFn(ctx context.Context, mod api.Module, params []uint64) syscall.
 			}
 			writeEvent(outBuf, evt)
 		case wasip1.EventTypeFdRead, wasip1.EventTypeFdWrite:
-			fsc := mod.(*wasm.ModuleInstance).Sys.FS()
 			fd := le.Uint32(argBuf)
 
-			stdinReader := processFDEvent(fsc, fd, evt)
-			if stdinReader == nil {
-				// if stdinReader is not an interactive session, then write back immediately
+			isInteractiveStdin := processFDEvent(fsc, fd, evt)
+			if isInteractiveStdin {
+				// if stdinReader is an interactive session, then delay processing with the timeout
+				stdinEvents = append(stdinEvents, evt)
+			} else {
+				// otherwise, write back immediately
 				readySubs++
 				writeEvent(outBuf, evt)
-			} else {
-				// otherwise, delay processing with the timeout
-				stdinSubs = append(stdinSubs, stdinEvent{evt, stdinReader})
 			}
 		default:
 			return syscall.EINVAL
@@ -140,7 +139,13 @@ func pollOneoffFn(ctx context.Context, mod api.Module, params []uint64) syscall.
 		timeoutCtx, cancelFunc := context.WithTimeout(ctx, timeout)
 		defer cancelFunc()
 
-		go processDelayedStdinReader(stdinSubs, outBuf, timeoutCtx, cancelFunc)
+		if len(stdinEvents) > 0 {
+			// retrieve the stdin reader
+			fileEntry, _ := fsc.LookupFile(0)
+			stdinReader := fileEntry.File.(*internalsys.StdioFileReader)
+			syscall.SetNonblock(0, true)
+			go processDelayedStdinReader(stdinReader, stdinEvents, outBuf, timeoutCtx, cancelFunc)
+		}
 
 		<-timeoutCtx.Done()
 	}
@@ -177,13 +182,13 @@ func processClockEvent(inBuf []byte) (time.Duration, syscall.Errno) {
 	}
 }
 
-func processFDEvent(fsc *internalsys.FSContext, fd uint32, e *event) *internalsys.StdioFileReader {
+func processFDEvent(fsc *internalsys.FSContext, fd uint32, e *event) bool {
 	if e.eventType == wasip1.EventTypeFdRead {
 		if f, ok := fsc.LookupFile(fd); ok {
 			// if fd corresponds to an interactive StdioFileReader then return it
 			if reader, ok := f.File.(*internalsys.StdioFileReader); ok {
 				if reader.IsInteractive() {
-					return reader
+					return true
 				} else {
 					peek, err := reader.Peek(1)
 					if err != nil || len(peek) == 0 {
@@ -201,32 +206,34 @@ func processFDEvent(fsc *internalsys.FSContext, fd uint32, e *event) *internalsy
 	} else if e.eventType == wasip1.EventTypeFdWrite && internalsys.WriterForFile(fsc, fd) == nil {
 		e.errno = wasip1.ErrnoBadf
 	}
-	return nil
+	return false
 }
 
 // processDelayedStdinReader returns ErrnoSuccess in case it was successful at reading 1 byte
 // from tty, otherwise it returns ErrnoBadf. The function blocks
 // until the underlying reader succeeds or fails. It then writes back the event to
 // given outBuf and cancels cancelFunc
-func processDelayedStdinReader(stdinEvents []stdinEvent, outBuf []byte, ctx context.Context, cancelFunc context.CancelFunc) {
-	for i := range stdinEvents {
-		evt := &stdinEvents[i]
-		e := evt.event
-		reader := evt.reader
+func processDelayedStdinReader(reader *internalsys.StdioFileReader, stdinEvents []*event, outBuf []byte, ctx context.Context, cancelFunc context.CancelFunc) {
+	var errno wasip1.Errno
+	if len(stdinEvents) > 0 {
 		for {
 			_, err := reader.Peek(1) // blocks until a byte is available without consuming
 			err = errors.Unwrap(err)
 			if err == nil {
-				e.errno = wasip1.ErrnoSuccess
+				errno = wasip1.ErrnoSuccess
 			} else if err == syscall.EAGAIN {
 				continue
 			} else {
-				e.errno = wasip1.ErrnoBadf
+				errno = wasip1.ErrnoBadf
 			}
-			writeEvent(outBuf, e)
-			cancelFunc()
-			return
+			break
 		}
+		for i := range stdinEvents {
+			e := stdinEvents[i]
+			e.errno = errno
+			writeEvent(outBuf, e)
+		}
+		cancelFunc()
 	}
 }
 
