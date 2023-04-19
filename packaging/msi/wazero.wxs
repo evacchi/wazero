@@ -1,5 +1,4 @@
-<?xml version="1.0" encoding="UTF-8"?>
-<!--
+﻿<!--
     Copyright 2023 Tetrate
 
     Licensed under the Apache License, Version 2.0 (the "License");
@@ -23,7 +22,7 @@
 
      In order to allow single-host builds, we restrict to syntax that works with GNOME msitools.
      Raise issues on incompatibilies here https://gitlab.gnome.org/GNOME/msitools/-/issues -->
-<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
 
     <?ifndef var.Version?>
     <?error Version must be defined. Ex. wixl -D Version=0.6.1?>
@@ -45,64 +44,61 @@
          Language="1033" - English Codepage="1252" - ANSI US English
          https://docs.microsoft.com/en-us/openspecs/windows_protocols/ms-ucoderef/28fefe92-d66c-4b03-90a9-97b473223d43
          -->
-    <Product Id="*" Name="wazero" Manufacturer="Tetrate"  Version="$(var.Version)" UpgradeCode="$(var.UpgradeCode)"
-             Language="1033" Codepage="1252">
-        <!-- TODO: set <Property Id="ALLUSERS"... after https://gitlab.gnome.org/GNOME/msitools/-/issues/40 -->
-
-             InstallScope="perUser" is default (Id="ALLUSERS" doesn't work on msitools 0.101) -->
-        <Package Id="*" Keywords="Installer" Description="wazero installer" Manufacturer="Tetrate"
-                 InstallerVersion="310" Languages="1033" Compressed="yes" SummaryCodepage="1252"/>
+    <Package Name="wazero" Manufacturer="Tetrate" Version="$(var.Version)" UpgradeCode="$(var.UpgradeCode)" Language="1033" Codepage="1252" InstallerVersion="310"><!-- TODO: set <Property Id="ALLUSERS"... after https://gitlab.gnome.org/GNOME/msitools/-/issues/40 -->InstallScope="perUser" is default (Id="ALLUSERS" doesn't work on msitools 0.101) --&gt;<SummaryInformation Keywords="Installer" Description="wazero installer" Manufacturer="Tetrate" />
 
         <!-- wazero.exe is embedded inside the installer: wazero.msi
              Cabinet="Wazero.cab" because light.exe fails on "wazero.cab" -->
-        <Media Id="1" Cabinet="Wazero.cab" EmbedCab="yes"/>
+        <Media Id="1" Cabinet="Wazero.cab" EmbedCab="yes" />
 
         <!-- We allow the special version 0.0.1 in order to run tests. Releases will always be real versions. -->
         <Upgrade Id="$(var.UpgradeCode)">
-            <UpgradeVersion Minimum="$(var.Version)" OnlyDetect="yes" Property="NEWERVERSIONDETECTED"/>
-            <UpgradeVersion Minimum="0.0.0" Maximum="$(var.Version)" IncludeMinimum="yes" IncludeMaximum="no"
-                            Property="OLDERVERSIONBEINGUPGRADED"/>
+            <UpgradeVersion Minimum="$(var.Version)" OnlyDetect="yes" Property="NEWERVERSIONDETECTED" />
+            <UpgradeVersion Minimum="0.0.0" Maximum="$(var.Version)" IncludeMinimum="yes" IncludeMaximum="no" Property="OLDERVERSIONBEINGUPGRADED" />
         </Upgrade>
-        <Condition Message="A newer version of wazero is already installed.">NOT NEWERVERSIONDETECTED</Condition>
+        <Launch Condition="NOT NEWERVERSIONDETECTED" Message="A newer version of wazero is already installed." />
 
         <!-- Use standard properties as it is easier to comment values vs XML attributes.
              See https://docs.microsoft.com/en-us/windows/win32/msi/property-reference -->
-        <Property Id="ARPURLINFOABOUT" Value="https://wazero.io"/>
+        <Property Id="ARPURLINFOABOUT" Value="https://wazero.io" />
 
         <!-- There's currently no use case for control-panel based repair or modify -->
-        <Property Id="ARPNOREPAIR" Value="1"/>
-        <Property Id="ARPNOMODIFY" Value="1"/>
+        <Property Id="ARPNOREPAIR" Value="1" />
+        <Property Id="ARPNOMODIFY" Value="1" />
 
         <!-- On Windows, when Id="TARGETDIR" Name="SourceDir": it will error otherwise -->
-        <Directory Id="TARGETDIR" Name="SourceDir">
-            <Directory Id="ProgramFiles64Folder">
-                <Directory Id="INSTALLDIR" Name="wazero">
-                    <Component Id="WazeroBin" Guid="*">
-                        <RemoveFolder Id="INSTALLDIR" On="uninstall"/>
-                        <!-- KeyPath="yes" - means this will be looked at to see if it is already installed -->
-                        <File Id="ExecutableFile" Name="wazero.exe" KeyPath="yes" Source="$(var.Bin)"/>
-                    </Component>
-                </Directory>
-            </Directory>
-        </Directory>
+        
 
         <!-- Use most common size 48x48 for the Add/Remove programs -->
-        <Icon Id="icon.ico" SourceFile="packaging/icon@48w.ico"/>
-        <Property Id="ARPPRODUCTICON" Value="icon.ico"/>
+        <Icon Id="icon.ico" SourceFile="packaging/icon@48w.ico" />
+        <Property Id="ARPPRODUCTICON" Value="icon.ico" />
 
         <Feature Id="Complete" Level="1">
-            <ComponentRef Id="WazeroBin"/>
+            <ComponentRef Id="WazeroBin" />
+                        <ComponentRef Id="Path" />
+
         </Feature>
 
-        <!-- Add wazero to the default PATH once installation succeeds.
-             Replace with <Component><Environment> after https://gitlab.gnome.org/GNOME/msitools/-/merge_requests/42 -->
-        <Property Id="setx" Value="setx.exe"/>
-        <CustomAction Id="ChangePath" ExeCommand="PATH &quot;%PATH%;[INSTALLDIR]&quot;" Property="setx"
-                      Execute="deferred"/>
         <InstallExecuteSequence>
-            <RemoveExistingProducts Before="InstallInitialize"/>
+            <RemoveExistingProducts Before="InstallInitialize" /> 
             <!-- Add PATH remove after after https://gitlab.gnome.org/GNOME/msitools/-/merge_requests/42 -->
-            <Custom Action="ChangePath" After="InstallServices">NOT Installed</Custom>
-        </InstallExecuteSequence>
-    </Product>
+            <!-- <Custom Action="ChangePath" After="InstallServices" Condition="NOT Installed" /> -->
+        </InstallExecuteSequence> 
+
+
+
+    
+            <StandardDirectory Id="ProgramFiles64Folder">
+                <Directory Id="INSTALLDIR" Name="wazero">
+                    <Component Id="WazeroBin">
+                        <RemoveFolder Id="INSTALLDIR" On="uninstall" />
+                        <!-- KeyPath="yes" - means this will be looked at to see if it is already installed -->
+                        <File Id="ExecutableFile" Name="wazero.exe" KeyPath="yes" Source="$(var.Bin)" />
+                    </Component>
+                    <Component Id="Path" Guid="{615bc687-6df3-4500-b0f2-0efdf66991e0}">
+                         <Environment Id="PATH" Name="PATH" Value="[INSTALLDIR]" Permanent="no" Part="last" Action="set" System="no" />
+                    </Component>
+
+                </Directory>
+            </StandardDirectory>
+        </Package>
 </Wix>
