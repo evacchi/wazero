@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="UTF-8"?>
+﻿<?xml version="1.0" encoding="UTF-8"?>
 <!--
     Copyright 2023 Tetrate
 
@@ -49,9 +49,9 @@
              Language="1033" Codepage="1252">
         <!-- TODO: set <Property Id="ALLUSERS"... after https://gitlab.gnome.org/GNOME/msitools/-/issues/40 -->
 
-             InstallScope="perUser" is default (Id="ALLUSERS" doesn't work on msitools 0.101) -->
+            <!-- InstallScope="perUser" is default (Id="ALLUSERS" doesn't work on msitools 0.101) -->
         <Package Id="*" Keywords="Installer" Description="wazero installer" Manufacturer="Tetrate"
-                 InstallerVersion="310" Languages="1033" Compressed="yes" SummaryCodepage="1252"/>
+                 InstallerVersion="310" Languages="1033" Compressed="yes" SummaryCodepage="1252" Platform="x64" />
 
         <!-- wazero.exe is embedded inside the installer: wazero.msi
              Cabinet="Wazero.cab" because light.exe fails on "wazero.cab" -->
@@ -84,6 +84,11 @@
                     </Component>
                 </Directory>
             </Directory>
+
+            <Component Id="Path" Guid="{fb130dec-3828-4ebc-b253-e7368cba14e8}">
+                <Environment Id="PATH" Name="PATH" Value="[INSTALLDIR]" Permanent="no" Part="last" Action="set" System="no" />
+            </Component>
+
         </Directory>
 
         <!-- Use most common size 48x48 for the Add/Remove programs -->
@@ -92,17 +97,11 @@
 
         <Feature Id="Complete" Level="1">
             <ComponentRef Id="WazeroBin"/>
+            <ComponentRef Id="Path" />
         </Feature>
 
-        <!-- Add wazero to the default PATH once installation succeeds.
-             Replace with <Component><Environment> after https://gitlab.gnome.org/GNOME/msitools/-/merge_requests/42 -->
-        <Property Id="setx" Value="setx.exe"/>
-        <CustomAction Id="ChangePath" ExeCommand="PATH &quot;%PATH%;[INSTALLDIR]&quot;" Property="setx"
-                      Execute="deferred"/>
         <InstallExecuteSequence>
             <RemoveExistingProducts Before="InstallInitialize"/>
-            <!-- Add PATH remove after after https://gitlab.gnome.org/GNOME/msitools/-/merge_requests/42 -->
-            <Custom Action="ChangePath" After="InstallServices">NOT Installed</Custom>
         </InstallExecuteSequence>
     </Product>
 </Wix>
