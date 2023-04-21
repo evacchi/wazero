@@ -89,6 +89,12 @@ jobs:
         run: echo "VERSION=${VERSION}" >> "$GITHUB_OUTPUT"
         shell: bash
 
+      - name: Upload MSI
+        uses: actions/upload-artifact@v3
+        with:
+          name: release-artifacts-${{ github.run_id }}
+          path: dist/*.msi
+
       # In order to share the built artifacts in the subsequent tests, we use cache instead of actions/upload-artifacts.
       # The reason is that upload-artifacts are not globally consistent and sometimes pre_release_test won't be able to
       # find the artifacts uploaded here. See https://github.com/actions/upload-artifact/issues/21 for more context.
