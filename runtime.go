@@ -249,7 +249,7 @@ func buildListeners(ctx context.Context, internal *wasm.Module) ([]experimentala
 	importCount := internal.ImportFunctionCount
 	listeners := make([]experimentalapi.FunctionListener, len(internal.FunctionSection))
 	for i := 0; i < len(listeners); i++ {
-		listeners[i] = factory.NewListener(&internal.FunctionDefinitionSection[uint32(i)+importCount])
+		listeners[i] = factory.NewListener(internal.FunctionDefinition(uint32(i) + importCount))
 	}
 	return listeners, nil
 }
