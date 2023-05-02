@@ -108,7 +108,6 @@ func RunTestEngineMemoryGrowInRecursiveCall(t *testing.T, et EngineTester) {
 		ImportSection:   []wasm.Import{{Module: hostModuleName, Name: hostFnName, DescFunc: 0}},
 		ImportPerModule: map[string][]*wasm.Import{hostModuleName: {{Module: hostModuleName, Name: hostFnName, DescFunc: 0}}},
 	}
-	m.BuildFunctionDefinitions()
 	m.BuildMemoryDefinitions()
 
 	err = s.Engine.CompileModule(testCtx, m, nil, false)
@@ -154,7 +153,6 @@ func RunTestModuleEngineCall(t *testing.T, et EngineTester) {
 		},
 	}
 
-	m.BuildFunctionDefinitions()
 	listeners := buildListeners(et.ListenerFactory(), m)
 	err := e.CompileModule(testCtx, m, listeners, false)
 	require.NoError(t, err)
@@ -208,7 +206,6 @@ func RunTestModuleEngineCallWithStack(t *testing.T, et EngineTester) {
 		},
 	}
 
-	m.BuildFunctionDefinitions()
 	listeners := buildListeners(et.ListenerFactory(), m)
 	err := e.CompileModule(testCtx, m, listeners, false)
 	require.NoError(t, err)
@@ -250,7 +247,6 @@ func RunTestModuleEngineLookupFunction(t *testing.T, et EngineTester) {
 		},
 	}
 
-	mod.BuildFunctionDefinitions()
 	err := e.CompileModule(testCtx, mod, nil, false)
 	require.NoError(t, err)
 	m := &wasm.ModuleInstance{
@@ -647,7 +643,6 @@ func RunTestModuleEngineBeforeListenerStackIterator(t *testing.T, et EngineTeste
 		},
 		ID: wasm.ModuleID{0},
 	}
-	m.BuildFunctionDefinitions()
 
 	listeners := buildListeners(fnListener, m)
 	err := e.CompileModule(testCtx, m, listeners, false)
@@ -767,7 +762,6 @@ func RunTestModuleEngineBeforeListenerGlobals(t *testing.T, et EngineTester) {
 		},
 		ID: wasm.ModuleID{0},
 	}
-	m.BuildFunctionDefinitions()
 
 	listeners := buildListeners(fnListener, m)
 	err := e.CompileModule(testCtx, m, listeners, false)
@@ -861,7 +855,6 @@ func RunTestModuleEngineMemory(t *testing.T, et EngineTester) {
 			{Name: "init", Type: wasm.ExternTypeFunc, Index: 1},
 		},
 	}
-	m.BuildFunctionDefinitions()
 	listeners := buildListeners(et.ListenerFactory(), m)
 
 	err := e.CompileModule(testCtx, m, listeners, false)
@@ -992,7 +985,6 @@ func setupCallTests(t *testing.T, e wasm.Engine, divBy *wasm.Code, fnlf experime
 		},
 		ID: wasm.ModuleID{0},
 	}
-	hostModule.BuildFunctionDefinitions()
 	lns := buildListeners(fnlf, hostModule)
 	err := e.CompileModule(testCtx, hostModule, lns, false)
 	require.NoError(t, err)
@@ -1026,7 +1018,6 @@ func setupCallTests(t *testing.T, e wasm.Engine, divBy *wasm.Code, fnlf experime
 		},
 		ID: wasm.ModuleID{1},
 	}
-	importedModule.BuildFunctionDefinitions()
 	lns = buildListeners(fnlf, importedModule)
 	err = e.CompileModule(testCtx, importedModule, lns, false)
 	require.NoError(t, err)
@@ -1060,7 +1051,6 @@ func setupCallTests(t *testing.T, e wasm.Engine, divBy *wasm.Code, fnlf experime
 		},
 		ID: wasm.ModuleID{2},
 	}
-	importingModule.BuildFunctionDefinitions()
 	lns = buildListeners(fnlf, importingModule)
 	err = e.CompileModule(testCtx, importingModule, lns, false)
 	require.NoError(t, err)
@@ -1093,7 +1083,6 @@ func setupCallMemTests(t *testing.T, e wasm.Engine, readMem *wasm.Code) *wasm.Mo
 		},
 		ID: wasm.ModuleID{0},
 	}
-	hostModule.BuildFunctionDefinitions()
 	err := e.CompileModule(testCtx, hostModule, nil, false)
 	require.NoError(t, err)
 	host := &wasm.ModuleInstance{ModuleName: hostModule.NameSection.ModuleName, TypeIDs: []wasm.FunctionTypeID{0}}
@@ -1127,7 +1116,6 @@ func setupCallMemTests(t *testing.T, e wasm.Engine, readMem *wasm.Code) *wasm.Mo
 		MemorySection: &wasm.Memory{Min: 1},
 		ID:            wasm.ModuleID{1},
 	}
-	importingModule.BuildFunctionDefinitions()
 	err = e.CompileModule(testCtx, importingModule, nil, false)
 	require.NoError(t, err)
 
@@ -1162,7 +1150,7 @@ func buildListeners(factory experimental.FunctionListenerFactory, m *wasm.Module
 	listeners := make([]experimental.FunctionListener, len(m.FunctionSection))
 	importCount := m.ImportFunctionCount
 	for i := 0; i < len(listeners); i++ {
-		listeners[i] = factory.NewListener(&m.FunctionDefinitionSection[uint32(i)+importCount])
+		listeners[i] = factory.NewListener(m.FunctionDefinition(uint32(i) + importCount))
 	}
 	return listeners
 }

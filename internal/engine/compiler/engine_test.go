@@ -215,7 +215,6 @@ func TestCompiler_CompileModule(t *testing.T) {
 			},
 			ID: wasm.ModuleID{},
 		}
-		errModule.BuildFunctionDefinitions()
 
 		e := et.NewEngine(api.CoreFeaturesV1).(*engine)
 		err := e.CompileModule(testCtx, errModule, nil, false)
@@ -332,7 +331,6 @@ func TestCompiler_SliceAllocatedOnHeap(t *testing.T) {
 		},
 		ID: wasm.ModuleID{1},
 	}
-	m.BuildFunctionDefinitions()
 
 	err = s.Engine.CompileModule(testCtx, m, nil, false)
 	require.NoError(t, err)
