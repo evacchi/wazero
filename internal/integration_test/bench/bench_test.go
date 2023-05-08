@@ -22,6 +22,9 @@ var testCtx = context.WithValue(context.Background(), struct{}{}, "arbitrary")
 //go:embed testdata/case.wasm
 var caseWasm []byte
 
+//go:embed testdata/sqlite3.wasm
+var sqlite3Wasm []byte
+
 func BenchmarkInvocation(b *testing.B) {
 	b.Run("interpreter", func(b *testing.B) {
 		m := instantiateHostFunctionModuleWithEngine(b, wazero.NewRuntimeConfigInterpreter())
@@ -94,8 +97,34 @@ func BenchmarkCompilation(b *testing.B) {
 	})
 }
 
+func BenchmarkCompilation_Sqlite3(b *testing.B) {
+	if !platform.CompilerSupported() {
+		b.Skip()
+	}
+
+	b.Run("interpreter", func(b *testing.B) {
+		r := createRuntime(b, wazero.NewRuntimeConfigInterpreter())
+		runCompilationSqlite3(b, r)
+	})
+
+	if platform.CompilerSupported() {
+		b.Run("compiler", func(b *testing.B) {
+			r := createRuntime(b, wazero.NewRuntimeConfigCompiler())
+			runCompilationSqlite3(b, r)
+		})
+	}
+}
+
 func runCompilation(b *testing.B, r wazero.Runtime) wazero.CompiledModule {
 	compiled, err := r.CompileModule(testCtx, caseWasm)
+	if err != nil {
+		b.Fatal(err)
+	}
+	return compiled
+}
+
+func runCompilationSqlite3(b *testing.B, r wazero.Runtime) wazero.CompiledModule {
+	compiled, err := r.CompileModule(testCtx, sqlite3Wasm)
 	if err != nil {
 		b.Fatal(err)
 	}
