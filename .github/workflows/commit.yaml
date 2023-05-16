@@ -62,10 +62,10 @@ jobs:
     strategy:
       fail-fast: false  # don't fail fast as sometimes failures are arch/OS specific
       matrix:  # Use versions consistent with wazero's Go support policy.
-        os: [ windows-2022] #ubuntu-22.04, macos-12,
+        os: [ubuntu-22.04, macos-12, windows-2022]
         go-version:
           - "1.20"  # Current Go version
-          #- "1.18"  # Floor Go version of wazero (current - 2)
+          - "1.18"  # Floor Go version of wazero (current - 2)
 
     steps:
 
@@ -78,9 +78,7 @@ jobs:
 
       # Run -race could be really slow without -short, so run them together on this workflow.
       # Since -short is not added in the scratch tests, all the tests are run in CI in practice.
-      # - run: make test go_test_options='-timeout 10m -race -short'
-      - name: Setup tmate session
-        uses: mxschmitt/action-tmate@v3
+      - run: make test go_test_options='-timeout 10m -race -short'
 
       - name: "Generate coverage report"  # only once (not per OS)
         if: runner.os == 'Linux'
