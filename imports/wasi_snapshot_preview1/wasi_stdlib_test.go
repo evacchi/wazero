@@ -41,6 +41,9 @@ var wasmZigCc []byte
 //go:embed testdata/zig/wasi.wasm
 var wasmZig []byte
 
+//go:embed testdata/gotip/tcpecho.wasm
+var wasmEcho []byte
+
 func Test_fdReaddir_ls(t *testing.T) {
 	for toolchain, bin := range map[string][]byte{
 		"cargo-wasi": wasmCargoWasi,
@@ -376,4 +379,42 @@ func Test_Sock(t *testing.T) {
 	require.NotEqual(t, 0, n)
 	require.NoError(t, err)
 	require.Equal(t, "wazero\nOK\n", console)
+}
+
+func Test_Sock_Echo_Gotip(t *testing.T) {
+	moduleConfig := wazero.NewModuleConfig().WithArgs("wasi", "socket")
+	// Instruct wazero to create the listener using the addr:port pair that was created and destroyed earlier.
+	// We assume that nobody stole that port in the meantime.
+	netCfg := experimentalnet.NewConfig().WithTCPListener("127.0.0.1", 0)
+	ctx := experimentalnet.WithConfig(testCtx, netCfg)
+	tcpAddrCh := make(chan *net.TCPAddr, 1)
+	ch := make(chan string, 1)
+	go func() {
+		ch <- compileAndRunWithPreStart(t, ctx, moduleConfig, wasmEcho, func(t *testing.T, mod api.Module) {
+			tcpAddrCh <- requireTCPListenerAddr(t, mod)
+		})
+	}()
+	tcpAddr := <-tcpAddrCh
+
+	// Give a little time for _start to complete
+	time.Sleep(800 * time.Millisecond)
+
+	// Now dial to the initial address, which should be now held by wazero.
+	conn, err := net.Dial("tcp", tcpAddr.String())
+	require.NoError(t, err)
+	defer conn.Close()
+
+	n, err := conn.Write([]byte("wazero"))
+	require.Equal(t, 6, n)
+	require.NoError(t, err)
+
+	console := <-ch
+	res := make([]byte, 6)
+	n, err = conn.Read(res)
+	require.NoError(t, err)
+	require.Equal(t, 6, n)
+	require.NotEqual(t, 0, n)
+	require.NoError(t, err)
+	require.Equal(t, "", console)
+	require.Equal(t, "wazero", string(res))
 }
