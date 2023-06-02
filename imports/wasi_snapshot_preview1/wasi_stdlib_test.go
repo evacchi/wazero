@@ -1,13 +1,17 @@
 package wasi_snapshot_preview1_test
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	_ "embed"
+	"fmt"
 	"io"
 	"io/fs"
+	"math/rand"
 	"net"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"syscall"
@@ -45,6 +49,9 @@ var wasmZig []byte
 
 // wasmGotip is conditionally compiled from testdata/gotip/wasi.go
 var wasmGotip []byte
+
+//go:embed testdata/gotip/nonblock.wasm
+var wasmGotipNonblock []byte
 
 func Test_fdReaddir_ls(t *testing.T) {
 	for toolchain, bin := range map[string][]byte{
@@ -430,4 +437,88 @@ func Test_Nonblock(t *testing.T) {
 	// Check if the first line starts with at least one dot.
 	require.True(t, strings.HasPrefix(lines[0], "."))
 	require.Equal(t, "wazero", lines[1])
+}
+
+func Test_NonblockGotip(t *testing.T) {
+	// This test creates a set of FIFOs and writes to them in reverse order. It
+	// checks that the output order matches the write order. The test binary opens
+	// the FIFOs in their original order and spawns a goroutine for each that reads
+	// from the FIFO and writes the result to stderr. If I/O was blocking, all
+	// goroutines would be blocked waiting for one read call to return, and the
+	// output order wouldn't match.
+
+	type fifo struct {
+		file *os.File
+		path string
+	}
+
+	for _, mode := range []string{"os.OpenFile", "os.NewFile"} {
+		t.Run(mode, func(t *testing.T) {
+			args := []string{"self", mode}
+
+			fifos := make([]*fifo, 8)
+			for i := range fifos {
+				path := filepath.Join(t.TempDir(), fmt.Sprintf("wasip1-nonblock-fifo-%d-%d", rand.Uint32(), i))
+				if err := syscall.Mkfifo(path, 0o666); err != nil {
+					t.Fatal(err)
+				}
+
+				file, err := os.OpenFile(path, os.O_RDWR, 0)
+				if err != nil {
+					t.Fatal(err)
+				}
+				defer file.Close()
+
+				args = append(args, path)
+				fifos[len(fifos)-i-1] = &fifo{file, path}
+			}
+
+			pr, pw := io.Pipe()
+			defer pw.Close()
+
+			moduleConfig := wazero.NewModuleConfig().
+				WithArgs(args...).
+				WithFSConfig(wazero.NewFSConfig().WithDirMount("/", "/")).
+				WithStderr(pw).
+				WithStartFunctions()
+
+			go func() {
+				ctx := testCtx
+				r := wazero.NewRuntime(ctx)
+				defer r.Close(ctx)
+
+				_, err := wasi_snapshot_preview1.Instantiate(ctx, r)
+				require.NoError(t, err)
+
+				mod, err := r.InstantiateWithConfig(ctx, wasmGotipNonblock, moduleConfig) // clear
+				require.NoError(t, err)
+
+				_, err = mod.ExportedFunction("_start").Call(ctx)
+
+				if exitErr, ok := err.(*sys.ExitError); ok {
+					require.Zero(t, exitErr.ExitCode())
+				} else {
+					require.NoError(t, err)
+				}
+			}()
+
+			scanner := bufio.NewScanner(pr)
+			if !scanner.Scan() {
+				t.Fatal("expected line:", scanner.Err())
+			} else if scanner.Text() != "waiting" {
+				t.Fatal("unexpected output:", scanner.Text())
+			}
+
+			for _, fifo := range fifos {
+				if _, err := fifo.file.WriteString(fifo.path + "\n"); err != nil {
+					t.Fatal(err)
+				}
+				if !scanner.Scan() {
+					t.Fatal("expected line:", scanner.Err())
+				} else if scanner.Text() != fifo.path {
+					t.Fatal("unexpected line:", scanner.Text())
+				}
+			}
+		})
+	}
 }

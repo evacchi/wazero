@@ -821,6 +821,9 @@ func readv(mem api.Memory, iovs uint32, iovsCount uint32, reader func(buf []byte
 		if errno == syscall.ENOSYS {
 			return 0, syscall.EBADF // e.g. unimplemented for read
 		} else if errno != 0 {
+			if errno == syscall.EAGAIN {
+				println("try again")
+			}
 			return 0, errno
 		} else if n < int(l) {
 			break // stop when we read less than capacity.
