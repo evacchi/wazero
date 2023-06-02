@@ -7,8 +7,10 @@ import (
 	"io"
 	"io/fs"
 	"net"
+	"os"
 	"strconv"
 	"strings"
+	"syscall"
 	"testing"
 	"testing/fstest"
 	"time"
@@ -395,4 +397,37 @@ func testSock(t *testing.T, bin []byte) {
 	require.NotEqual(t, 0, n)
 	require.NoError(t, err)
 	require.Equal(t, "wazero\n", console)
+}
+
+func Test_Nonblock(t *testing.T) {
+	const fifo = "/test-fifo"
+	tempDir := t.TempDir()
+	fifoAbsPath := tempDir + fifo
+
+	moduleConfig := wazero.NewModuleConfig().
+		WithArgs("wasi", "nonblock", fifo).
+		WithFSConfig(wazero.NewFSConfig().WithDirMount(tempDir, "/")).
+		WithSysNanosleep()
+
+	err := syscall.Mkfifo(fifoAbsPath, 0o666)
+	require.NoError(t, err)
+
+	ch := make(chan string, 1)
+	go func() { ch <- compileAndRun(t, testCtx, moduleConfig, wasmZigCc) }()
+
+	// The test writes a few dots on the console until the pipe has data ready for reading,
+	// so we wait for a little to ensure those dots are printed.
+	time.Sleep(500 * time.Millisecond)
+
+	f, err := os.OpenFile(fifoAbsPath, os.O_APPEND|os.O_WRONLY, 0)
+	require.NoError(t, err)
+	n, err := f.Write([]byte("wazero"))
+	require.NoError(t, err)
+	require.NotEqual(t, 0, n)
+	console := <-ch
+	lines := strings.Split(console, "\n")
+
+	// Check if the first line starts with at least one dot.
+	require.True(t, strings.HasPrefix(lines[0], "."))
+	require.Equal(t, "wazero", lines[1])
 }
