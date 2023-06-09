@@ -20,9 +20,13 @@ func TestTcpConnFile_Write(t *testing.T) {
 	require.NoError(t, err)
 	defer tcp.Close() //nolint
 
-	f, err := tcp.File()
+	f, err := tcp.SyscallConn()
+	fd := uintptr(0)
+	f.Control(func(fdd uintptr) {
+		fd = fdd
+	})
 	require.NoError(t, err)
-	file := tcpConnFile{fd: Sysfd(f.Fd())}
+	file := tcpConnFile{fd: Sysfd(fd)}
 	errno := syscall.Errno(0)
 	for {
 		_, errno = file.Write([]byte("wazero"))
@@ -69,12 +73,18 @@ func TestTcpConnFile_Read(t *testing.T) {
 
 	f, err := conn.(*net.TCPConn).SyscallConn()
 	require.NoError(t, err)
+	errno := syscall.Errno(0)
 	err = f.Control(func(fd uintptr) {
 		file := tcpConnFile{fd: Sysfd(fd)}
-		n, errno := file.Read(bytes)
-		require.Zero(t, errno)
-		require.NotEqual(t, 0, n)
+		for {
+			_, errno = file.Read(bytes)
+			if errno != syscall.EAGAIN {
+				break
+			}
+			time.Sleep(100 * time.Millisecond)
+		}
 	})
+	require.Zero(t, errno)
 	require.NoError(t, err)
 	require.Equal(t, "waze", string(bytes))
 }
