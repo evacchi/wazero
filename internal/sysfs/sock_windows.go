@@ -3,14 +3,14 @@
 package sysfs
 
 import (
-	"github.com/tetratelabs/wazero/internal/fsapi"
-	socketapi "github.com/tetratelabs/wazero/internal/sock"
 	"net"
 	"os"
 	"syscall"
 	"unsafe"
 
+	"github.com/tetratelabs/wazero/internal/fsapi"
 	"github.com/tetratelabs/wazero/internal/platform"
+	socketapi "github.com/tetratelabs/wazero/internal/sock"
 )
 
 // MSG_PEEK is the flag PEEK for syscall.Recvfrom on Windows.
@@ -121,6 +121,10 @@ type winTcpConnFile struct {
 
 	// closed is true when closed was called. This ensures proper syscall.EBADF
 	closed bool
+}
+
+func newTcpConn(conn *net.TCPConn) socketapi.TCPConn {
+	return &winTcpConnFile{tc: conn}
 }
 
 // IsDir implements the same method as documented on File.IsDir

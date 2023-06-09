@@ -79,6 +79,14 @@ type tcpConnFile struct {
 	closed bool
 }
 
+func newTcpConn(tc *net.TCPConn) socketapi.TCPConn {
+	f, err := tc.File()
+	if err != nil {
+		panic(err)
+	}
+	return &tcpConnFile{fd: Sysfd(f.Fd())}
+}
+
 // IsDir implements the same method as documented on File.IsDir
 func (*tcpConnFile) IsDir() (bool, syscall.Errno) {
 	// We need to override this method because WASI-libc prestats the FD
