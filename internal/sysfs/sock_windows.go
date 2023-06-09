@@ -123,8 +123,8 @@ type winTcpConnFile struct {
 	closed bool
 }
 
-func newTcpConn(conn *net.TCPConn) socketapi.TCPConn {
-	return &winTcpConnFile{tc: conn}
+func newTcpConn(tc *net.TCPConn) socketapi.TCPConn {
+	return &winTcpConnFile{tc: tc}
 }
 
 // IsDir implements the same method as documented on File.IsDir
