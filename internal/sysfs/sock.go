@@ -15,13 +15,8 @@ func NewTCPListenerFile(tl *net.TCPListener) socketapi.TCPSock {
 	if err != nil {
 		panic(err)
 	}
-	fd := conn.Fd()
-	ffd, err := syscall.Dup(int(fd))
-	if err != nil {
-		panic(err)
-	}
-	addr := tl.Addr().(*net.TCPAddr)
-	return &tcpListenerFile{fd: uintptr(ffd), addr: addr}
+	sysfd := getSysfd(conn)
+	return &tcpListenerFile{fd: sysfd, tl: tl}
 }
 
 var _ socketapi.TCPSock = (*tcpListenerFile)(nil)
@@ -29,17 +24,17 @@ var _ socketapi.TCPSock = (*tcpListenerFile)(nil)
 type tcpListenerFile struct {
 	fsapi.UnimplementedFile
 
-	fd   uintptr
-	addr *net.TCPAddr
+	fd Sysfd
+	tl *net.TCPListener
 }
 
 // Accept implements the same method as documented on socketapi.TCPSock
 func (f *tcpListenerFile) Accept() (socketapi.TCPConn, syscall.Errno) {
-	nfd, _, err := syscall.Accept(int(f.fd))
-	if err != nil {
-		return nil, platform.UnwrapOSError(err)
+	nfd, err := syscallAccept(f.fd)
+	if err != 0 {
+		return nil, err
 	}
-	return &tcpConnFile{fd: uintptr(nfd)}, 0
+	return &tcpConnFile{fd: nfd}, 0
 }
 
 // IsDir implements the same method as documented on File.IsDir
@@ -63,12 +58,12 @@ func (f *tcpListenerFile) SetNonblock(enabled bool) syscall.Errno {
 
 // Close implements the same method as documented on fsapi.File
 func (f *tcpListenerFile) Close() syscall.Errno {
-	return platform.UnwrapOSError(syscall.Close(int(f.fd)))
+	return platform.UnwrapOSError(syscallClose(f.fd))
 }
 
 // Addr is exposed for testing.
 func (f *tcpListenerFile) Addr() *net.TCPAddr {
-	return f.addr
+	return f.tl.Addr().(*net.TCPAddr)
 }
 
 var _ socketapi.TCPConn = (*tcpConnFile)(nil)
@@ -76,7 +71,7 @@ var _ socketapi.TCPConn = (*tcpConnFile)(nil)
 type tcpConnFile struct {
 	fsapi.UnimplementedFile
 
-	fd uintptr
+	fd Sysfd
 
 	// closed is true when closed was called. This ensures proper syscall.EBADF
 	closed bool
@@ -103,10 +98,9 @@ func (f *tcpConnFile) SetNonblock(enabled bool) (errno syscall.Errno) {
 
 // Read implements the same method as documented on fsapi.File
 func (f *tcpConnFile) Read(buf []byte) (n int, errno syscall.Errno) {
-	n, err := syscall.Read(int(f.fd), buf)
-	if err != nil {
+	n, errno = syscallRead(f.fd, buf)
+	if errno != 0 {
 		// Defer validation overhead until we've already had an error.
-		errno = platform.UnwrapOSError(err)
 		errno = fileError(f, f.closed, errno)
 	}
 	return n, errno
@@ -114,8 +108,8 @@ func (f *tcpConnFile) Read(buf []byte) (n int, errno syscall.Errno) {
 
 // Write implements the same method as documented on fsapi.File
 func (f *tcpConnFile) Write(buf []byte) (n int, errno syscall.Errno) {
-	n, err := syscall.Write(int(f.fd), buf)
-	if err != nil {
+	n, errno = syscallWrite(f.fd, buf)
+	if errno != 0 {
 		// Defer validation overhead until we've alwritey had an error.
 		errno = fileError(f, f.closed, errno)
 	}
@@ -137,7 +131,7 @@ func (f *tcpConnFile) Shutdown(how int) syscall.Errno {
 	var err error
 	switch how {
 	case syscall.SHUT_RD, syscall.SHUT_WR:
-		err = syscall.Shutdown(int(f.fd), how)
+		err = syscallShutdown(f.fd, how)
 	case syscall.SHUT_RDWR:
 		return f.close()
 	default:
@@ -156,5 +150,5 @@ func (f *tcpConnFile) close() syscall.Errno {
 		return 0
 	}
 	f.closed = true
-	return platform.UnwrapOSError(syscall.Shutdown(int(f.fd), syscall.SHUT_RDWR))
+	return platform.UnwrapOSError(syscallShutdown(f.fd, syscall.SHUT_RDWR))
 }

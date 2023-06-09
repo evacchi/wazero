@@ -2,7 +2,9 @@ package sysfs
 
 import (
 	"net"
+	"syscall"
 	"testing"
+	"time"
 
 	"github.com/tetratelabs/wazero/internal/testing/require"
 )
@@ -20,10 +22,16 @@ func TestTcpConnFile_Write(t *testing.T) {
 
 	f, err := tcp.File()
 	require.NoError(t, err)
-	file := tcpConnFile{fd: f.Fd()}
-	n, errno := file.Write([]byte("wazero"))
+	file := tcpConnFile{fd: Sysfd(f.Fd())}
+	errno := syscall.Errno(0)
+	for {
+		_, errno = file.Write([]byte("wazero"))
+		if errno != syscall.EAGAIN {
+			break
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
 	require.Zero(t, errno)
-	require.NotEqual(t, 0, n)
 
 	conn, err := listen.Accept()
 	require.NoError(t, err)
@@ -31,7 +39,7 @@ func TestTcpConnFile_Write(t *testing.T) {
 
 	bytes := make([]byte, 4)
 
-	n, err = conn.Read(bytes)
+	n, err := conn.Read(bytes)
 	require.NoError(t, err)
 	require.NotEqual(t, 0, n)
 
@@ -62,7 +70,7 @@ func TestTcpConnFile_Read(t *testing.T) {
 	f, err := conn.(*net.TCPConn).SyscallConn()
 	require.NoError(t, err)
 	err = f.Control(func(fd uintptr) {
-		file := tcpConnFile{fd: fd}
+		file := tcpConnFile{fd: Sysfd(fd)}
 		n, errno := file.Read(bytes)
 		require.Zero(t, errno)
 		require.NotEqual(t, 0, n)
@@ -88,7 +96,7 @@ func TestTcpConnFile_Stat(t *testing.T) {
 
 	f, err := tcp.File()
 	require.NoError(t, err)
-	file := tcpConnFile{fd: f.Fd()}
+	file := tcpConnFile{fd: Sysfd(f.Fd())}
 	_, errno := file.Stat()
 	require.Zero(t, errno, "Stat should not fail")
 }

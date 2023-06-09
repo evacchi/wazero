@@ -417,25 +417,12 @@ func Test_HTTP(t *testing.T) {
 	}
 }
 
-type h struct{}
-
-func (h h) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
-	all, err := io.ReadAll(request.Body)
-	if err != nil {
-		panic(err)
-	}
-	_, err = writer.Write(all)
-	if err != nil {
-		panic(err)
-	}
-}
-
 func testHTTP(t *testing.T, bin []byte) {
 	sockCfg := experimentalsock.NewConfig().WithTCPListener("127.0.0.1", 0)
 	ctx := experimentalsock.WithConfig(testCtx, sockCfg)
 	ctx, cancelFunc := context.WithCancel(ctx)
 	// Set context to one that has an experimental listener that logs all host functions.
-	//ctx = context.WithValue(ctx, experimental.FunctionListenerFactoryKey{},
+	// ctx = context.WithValue(ctx, experimental.FunctionListenerFactoryKey{},
 	//	logging.NewHostLoggingListenerFactory(os.Stdout, logging.LogScopeAll))
 
 	moduleConfig := wazero.NewModuleConfig().
@@ -470,7 +457,6 @@ func testHTTP(t *testing.T, bin []byte) {
 
 	cancelFunc()
 
-	//console := <-ch
-	//require.Equal(t, "", console)
-
+	// console := <-ch
+	// require.Equal(t, "", console)
 }

@@ -3,7 +3,7 @@
 package sysfs
 
 import (
-	"net"
+	"os"
 	"syscall"
 	"unsafe"
 
@@ -14,23 +14,11 @@ import (
 // This constant is not exported on this platform.
 const MSG_PEEK = 0x2
 
-// recvfromPeek exposes syscall.Recvfrom with flag MSG_PEEK on Windows.
-func recvfromPeek(conn *net.TCPConn, p []byte) (n int, errno syscall.Errno) {
-	syscallConn, err := conn.SyscallConn()
-	if err != nil {
-		errno = platform.UnwrapOSError(err)
-		return
-	}
+type Sysfd = syscall.Handle
 
-	// Prioritize the error from recvfrom over Control
-	if controlErr := syscallConn.Control(func(fd uintptr) {
-		var recvfromErr error
-		n, recvfromErr = recvfrom(syscall.Handle(fd), p, MSG_PEEK)
-		errno = platform.UnwrapOSError(recvfromErr)
-	}); errno == 0 {
-		errno = platform.UnwrapOSError(controlErr)
-	}
-	return
+// recvfromPeek exposes syscall.Recvfrom with flag MSG_PEEK on Windows.
+func recvfromPeek(fd Sysfd, p []byte) (n int, errno syscall.Errno) {
+	return recvfrom(fd, p, MSG_PEEK)
 }
 
 var (
@@ -60,4 +48,39 @@ func recvfrom(s syscall.Handle, buf []byte, flags int32) (n int, errno syscall.E
 		0, // from *sockaddr (optional)
 		0) // fromlen *int (optional)
 	return int(r0), e1
+}
+
+func getSysfd(conn *os.File) Sysfd {
+	return Sysfd(conn.Fd())
+}
+
+func syscallAccept(fd Sysfd) (Sysfd, syscall.Errno) {
+	nfd, _, err := syscall.Accept(fd)
+	return nfd, platform.UnwrapOSError(err)
+}
+
+func syscallClose(fd Sysfd) error {
+	return platform.UnwrapOSError(syscall.Close(fd))
+}
+
+func syscallRead(fd Sysfd, buf []byte) (n int, errno syscall.Errno) {
+	n, err := syscall.Read(fd, buf)
+	if err != nil {
+		// Defer validation overhead until we've already had an error.
+		errno = platform.UnwrapOSError(err)
+	}
+	return n, errno
+}
+
+func syscallWrite(fd Sysfd, buf []byte) (n int, errno syscall.Errno) {
+	n, err := syscall.Write(fd, buf)
+	if err != nil {
+		// Defer validation overhead until we've already had an error.
+		errno = platform.UnwrapOSError(err)
+	}
+	return n, errno
+}
+
+func syscallShutdown(fd Sysfd, how int) syscall.Errno {
+	return platform.UnwrapOSError(syscall.Shutdown(fd, how))
 }
