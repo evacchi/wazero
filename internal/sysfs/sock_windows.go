@@ -3,6 +3,9 @@
 package sysfs
 
 import (
+	"github.com/tetratelabs/wazero/internal/fsapi"
+	socketapi "github.com/tetratelabs/wazero/internal/sock"
+	"net"
 	"os"
 	"syscall"
 	"unsafe"
@@ -17,8 +20,22 @@ const MSG_PEEK = 0x2
 type Sysfd = syscall.Handle
 
 // recvfromPeek exposes syscall.Recvfrom with flag MSG_PEEK on Windows.
-func recvfromPeek(fd Sysfd, p []byte) (n int, errno syscall.Errno) {
-	return recvfrom(fd, p, MSG_PEEK)
+func recvfromPeek(conn *net.TCPConn, p []byte) (n int, errno syscall.Errno) {
+	syscallConn, err := conn.SyscallConn()
+	if err != nil {
+		errno = platform.UnwrapOSError(err)
+		return
+	}
+
+	// Prioritize the error from recvfrom over Control
+	if controlErr := syscallConn.Control(func(fd uintptr) {
+		var recvfromErr error
+		n, recvfromErr = recvfrom(syscall.Handle(fd), p, MSG_PEEK)
+		errno = platform.UnwrapOSError(recvfromErr)
+	}); errno == 0 {
+		errno = platform.UnwrapOSError(controlErr)
+	}
+	return
 }
 
 var (
@@ -50,37 +67,145 @@ func recvfrom(s syscall.Handle, buf []byte, flags int32) (n int, errno syscall.E
 	return int(r0), e1
 }
 
-func getSysfd(conn *os.File) Sysfd {
-	return Sysfd(conn.Fd())
+func NewTCPListenerFile(tl *net.TCPListener) socketapi.TCPSock {
+	return &winTcpListenerFile{tl: tl}
 }
 
-func syscallAccept(fd Sysfd) (Sysfd, syscall.Errno) {
-	nfd, _, err := syscall.Accept(fd)
-	return nfd, platform.UnwrapOSError(err)
+var _ socketapi.TCPSock = (*winTcpListenerFile)(nil)
+
+type winTcpListenerFile struct {
+	fsapi.UnimplementedFile
+
+	tl *net.TCPListener
 }
 
-func syscallClose(fd Sysfd) error {
-	return platform.UnwrapOSError(syscall.Close(fd))
-}
-
-func syscallRead(fd Sysfd, buf []byte) (n int, errno syscall.Errno) {
-	n, err := syscall.Read(fd, buf)
+// Accept implements the same method as documented on socketapi.TCPSock
+func (f *winTcpListenerFile) Accept() (socketapi.TCPConn, syscall.Errno) {
+	conn, err := f.tl.Accept()
 	if err != nil {
-		// Defer validation overhead until we've already had an error.
-		errno = platform.UnwrapOSError(err)
+		return nil, platform.UnwrapOSError(err)
 	}
-	return n, errno
+	return &winTcpConnFile{tc: conn.(*net.TCPConn)}, 0
 }
 
-func syscallWrite(fd Sysfd, buf []byte) (n int, errno syscall.Errno) {
-	n, err := syscall.Write(fd, buf)
+// IsDir implements the same method as documented on File.IsDir
+func (*winTcpListenerFile) IsDir() (bool, syscall.Errno) {
+	// We need to override this method because WASI-libc prestats the FD
+	// and the default impl returns ENOSYS otherwise.
+	return false, 0
+}
+
+// Stat implements the same method as documented on File.Stat
+func (f *winTcpListenerFile) Stat() (fs fsapi.Stat_t, errno syscall.Errno) {
+	// The mode is not really important, but it should be neither a regular file nor a directory.
+	fs.Mode = os.ModeIrregular
+	return
+}
+
+// Close implements the same method as documented on fsapi.File
+func (f *winTcpListenerFile) Close() syscall.Errno {
+	return platform.UnwrapOSError(f.tl.Close())
+}
+
+// Addr is exposed for testing.
+func (f *winTcpListenerFile) Addr() *net.TCPAddr {
+	return f.tl.Addr().(*net.TCPAddr)
+}
+
+var _ socketapi.TCPConn = (*winTcpConnFile)(nil)
+
+type winTcpConnFile struct {
+	fsapi.UnimplementedFile
+
+	tc *net.TCPConn
+
+	// closed is true when closed was called. This ensures proper syscall.EBADF
+	closed bool
+}
+
+// IsDir implements the same method as documented on File.IsDir
+func (*winTcpConnFile) IsDir() (bool, syscall.Errno) {
+	// We need to override this method because WASI-libc prestats the FD
+	// and the default impl returns ENOSYS otherwise.
+	return false, 0
+}
+
+// Stat implements the same method as documented on File.Stat
+func (f *winTcpConnFile) Stat() (fs fsapi.Stat_t, errno syscall.Errno) {
+	// The mode is not really important, but it should be neither a regular file nor a directory.
+	fs.Mode = os.ModeIrregular
+	return
+}
+
+// SetNonblock implements the same method as documented on fsapi.File
+func (f *winTcpConnFile) SetNonblock(enabled bool) (errno syscall.Errno) {
+	syscallConn, err := f.tc.SyscallConn()
 	if err != nil {
-		// Defer validation overhead until we've already had an error.
-		errno = platform.UnwrapOSError(err)
+		return platform.UnwrapOSError(err)
 	}
-	return n, errno
+
+	// Prioritize the error from setNonblock over Control
+	if controlErr := syscallConn.Control(func(fd uintptr) {
+		errno = platform.UnwrapOSError(setNonblock(Sysfd(fd), enabled))
+	}); errno == 0 {
+		errno = platform.UnwrapOSError(controlErr)
+	}
+	return
 }
 
-func syscallShutdown(fd Sysfd, how int) syscall.Errno {
-	return platform.UnwrapOSError(syscall.Shutdown(fd, how))
+// Read implements the same method as documented on fsapi.File
+func (f *winTcpConnFile) Read(buf []byte) (n int, errno syscall.Errno) {
+	if n, errno = read(f.tc, buf); errno != 0 {
+		// Defer validation overhead until we've already had an error.
+		errno = fileError(f, f.closed, errno)
+	}
+	return
+}
+
+// Write implements the same method as documented on fsapi.File
+func (f *winTcpConnFile) Write(buf []byte) (n int, errno syscall.Errno) {
+	if n, errno = write(f.tc, buf); errno != 0 {
+		// Defer validation overhead until we've alwritey had an error.
+		errno = fileError(f, f.closed, errno)
+	}
+	return
+}
+
+// Recvfrom implements the same method as documented on socketapi.TCPConn
+func (f *winTcpConnFile) Recvfrom(p []byte, flags int) (n int, errno syscall.Errno) {
+	if flags != MSG_PEEK {
+		errno = syscall.EINVAL
+		return
+	}
+	return recvfromPeek(f.tc, p)
+}
+
+// Shutdown implements the same method as documented on fsapi.Conn
+func (f *winTcpConnFile) Shutdown(how int) syscall.Errno {
+	// FIXME: can userland shutdown listeners?
+	var err error
+	switch how {
+	case syscall.SHUT_RD:
+		err = f.tc.CloseRead()
+	case syscall.SHUT_WR:
+		err = f.tc.CloseWrite()
+	case syscall.SHUT_RDWR:
+		return f.close()
+	default:
+		return syscall.EINVAL
+	}
+	return platform.UnwrapOSError(err)
+}
+
+// Close implements the same method as documented on fsapi.File
+func (f *winTcpConnFile) Close() syscall.Errno {
+	return f.close()
+}
+
+func (f *winTcpConnFile) close() syscall.Errno {
+	if f.closed {
+		return 0
+	}
+	f.closed = true
+	return f.Shutdown(syscall.SHUT_RDWR)
 }
