@@ -102,6 +102,11 @@ func (f *winTcpListenerFile) Stat() (fs fsapi.Stat_t, errno syscall.Errno) {
 	return
 }
 
+// SetNonblock implements the same method as documented on fsapi.File
+func (f *winTcpListenerFile) SetNonblock(enabled bool) syscall.Errno {
+	return 0 // setNonblock() is a no-op on Windows
+}
+
 // Close implements the same method as documented on fsapi.File
 func (f *winTcpListenerFile) Close() syscall.Errno {
 	return platform.UnwrapOSError(f.tl.Close())

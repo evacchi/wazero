@@ -8,6 +8,7 @@ import (
 	"io/fs"
 	"net"
 	"net/http"
+	"runtime"
 	"strconv"
 	"strings"
 	"testing"
@@ -403,6 +404,11 @@ func testSock(t *testing.T, bin []byte) {
 }
 
 func Test_HTTP(t *testing.T) {
+	// If we do not skip this test, this will panic on Windows.
+	// The reason is, contrary to expectations, that syscall.Non
+	if runtime.GOOS == "windows" {
+		t.Skip("syscall.Nonblocking() is not supported on wasip1+windows.")
+	}
 	toolchains := map[string][]byte{}
 	if wasmGotip != nil {
 		toolchains["gotip"] = wasmGotip
