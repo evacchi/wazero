@@ -4,13 +4,10 @@ import (
 	"bytes"
 	"context"
 	_ "embed"
-	"github.com/tetratelabs/wazero/experimental"
-	"github.com/tetratelabs/wazero/experimental/logging"
 	"io"
 	"io/fs"
 	"net"
 	"net/http"
-	"os"
 	"strconv"
 	"strings"
 	"testing"
@@ -436,19 +433,18 @@ func (h h) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
 func testHTTP(t *testing.T, bin []byte) {
 	sockCfg := experimentalsock.NewConfig().WithTCPListener("127.0.0.1", 0)
 	ctx := experimentalsock.WithConfig(testCtx, sockCfg)
+	ctx, cancelFunc := context.WithCancel(ctx)
 	// Set context to one that has an experimental listener that logs all host functions.
-	ctx = context.WithValue(ctx, experimental.FunctionListenerFactoryKey{},
-		logging.NewHostLoggingListenerFactory(os.Stdout, logging.LogScopeAll))
+	//ctx = context.WithValue(ctx, experimental.FunctionListenerFactoryKey{},
+	//	logging.NewHostLoggingListenerFactory(os.Stdout, logging.LogScopeAll))
 
 	moduleConfig := wazero.NewModuleConfig().
 		WithSysWalltime().WithSysNanotime(). // HTTP middleware uses both clocks
 		WithArgs("wasi", "http")
 	tcpAddrCh := make(chan *net.TCPAddr, 1)
 	ch := make(chan string, 1)
-	var m api.Module
 	go func() {
 		ch <- compileAndRunWithPreStart(t, ctx, moduleConfig, bin, func(t *testing.T, mod api.Module) {
-			m = mod
 			tcpAddrCh <- requireTCPListenerAddr(t, mod)
 		})
 	}()
@@ -457,18 +453,10 @@ func testHTTP(t *testing.T, bin []byte) {
 	// Give a little time for _start to complete
 	sleepALittle()
 
-	println(m.Name())
-
-	//listen, err := net.Listen("tcp", "127.0.0.1:0")
-	//go http.Serve(listen, h{})
-	//tcpAddr := listen.Addr()
-
 	// Now, send a POST to the address which we had pre-opened.
 	body := bytes.NewReader([]byte("wazero"))
 	req, err := http.NewRequest(http.MethodPost, "http://"+tcpAddr.String(), body)
 	require.NoError(t, err)
-	// NOTE this !!
-	req.Close = true
 
 	// TODO: test hangs here
 	resp, err := http.DefaultClient.Do(req)
@@ -478,8 +466,11 @@ func testHTTP(t *testing.T, bin []byte) {
 	require.Equal(t, 200, resp.StatusCode)
 	b, err := io.ReadAll(resp.Body)
 	require.NoError(t, err)
-	require.Equal(t, "wazero", string(b))
+	require.Equal(t, "wazero\n", string(b))
+
+	cancelFunc()
 
 	//console := <-ch
 	//require.Equal(t, "", console)
+
 }
