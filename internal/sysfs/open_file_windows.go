@@ -164,11 +164,16 @@ type windowsOsFile struct {
 
 // Readdir implements File.Readdir
 func (f *windowsOsFile) Readdir() (readdir fsapi.Readdir, errno syscall.Errno) {
-	if errno = f.maybeInitDir(); errno != 0 {
-		return
+	if readdir, errno = newReaddirForWinFile(f, f.path); errno != 0 {
+		errno = adjustReaddirErr(f, f.closed, errno)
 	}
+	return
+}
 
-	return f.osFile.Readdir()
+func newReaddirForWinFile(f *windowsOsFile, path string) (dirs fsapi.Readdir, errno syscall.Errno) {
+	return NewWindowedReaddir(
+		func() syscall.Errno { return f.maybeInitDir() },
+		func(n uint64) (fsapi.Readdir, syscall.Errno) { return readdir(f.file, path, n) })
 }
 
 func (f *windowsOsFile) maybeInitDir() syscall.Errno {

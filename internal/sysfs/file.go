@@ -270,7 +270,7 @@ func (f *fsFile) Readdir() (dirs fsapi.Readdir, errno syscall.Errno) {
 		// We can't use f.name here because it is the path up to the fsapi.FS,
 		// not necessarily the real path. For this reason, Windows may not be
 		// able to populate inodes. However, Darwin and Linux will.
-		if dirs, errno = readdir(of, ""); errno != 0 {
+		if dirs, errno = newReaddirForFile(of, ""); errno != 0 {
 			errno = adjustReaddirErr(f, f.closed, errno)
 		}
 		return
@@ -400,7 +400,7 @@ func seek(s io.Seeker, offset int64, whence int) (int64, syscall.Errno) {
 	return newOffset, platform.UnwrapOSError(err)
 }
 
-func readdir(f *os.File, path string) (dirs fsapi.Readdir, errno syscall.Errno) {
+func newReaddirForFile(f *os.File, path string) (dirs fsapi.Readdir, errno syscall.Errno) {
 	return NewWindowedReaddir(
 		func() syscall.Errno {
 			// Ensure we always rewind to the beginning when we re-init.
@@ -409,24 +409,26 @@ func readdir(f *os.File, path string) (dirs fsapi.Readdir, errno syscall.Errno) 
 			}
 			return 0
 		},
-		func(n uint64) (fsapi.Readdir, syscall.Errno) {
-			fis, err := f.Readdir(int(n))
-			if errno = platform.UnwrapOSError(err); errno != 0 {
-				return nil, errno
-			}
-			dirents := make([]fsapi.Dirent, 0, len(fis))
+		func(n uint64) (fsapi.Readdir, syscall.Errno) { return readdir(f, path, n) })
+}
 
-			// linux/darwin won't have to fan out to lstat, but windows will.
-			var ino uint64
-			for fi := range fis {
-				t := fis[fi]
-				if ino, errno = inoFromFileInfo(path, t); errno != 0 {
-					return nil, errno
-				}
-				dirents = append(dirents, fsapi.Dirent{Name: t.Name(), Ino: ino, Type: t.Mode().Type()})
-			}
-			return NewReaddirFromSlice(dirents), 0
-		})
+func readdir(f *os.File, path string, n uint64) (readdir fsapi.Readdir, errno syscall.Errno) {
+	fis, err := f.Readdir(int(n))
+	if errno = platform.UnwrapOSError(err); errno != 0 {
+		return nil, errno
+	}
+	dirents := make([]fsapi.Dirent, 0, len(fis))
+
+	// linux/darwin won't have to fan out to lstat, but windows will.
+	var ino uint64
+	for fi := range fis {
+		t := fis[fi]
+		if ino, errno = inoFromFileInfo(path, t); errno != 0 {
+			return nil, errno
+		}
+		dirents = append(dirents, fsapi.Dirent{Name: t.Name(), Ino: ino, Type: t.Mode().Type()})
+	}
+	return NewReaddirFromSlice(dirents), 0
 }
 
 func write(w io.Writer, buf []byte) (n int, errno syscall.Errno) {
