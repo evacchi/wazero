@@ -404,8 +404,8 @@ func newReaddirForFile(f *os.File, path string) (dirs fsapi.Readdir, errno sysca
 	return NewWindowedReaddir(
 		func() syscall.Errno {
 			// Ensure we always rewind to the beginning when we re-init.
-			if _, errno := f.Seek(0, io.SeekStart); errno != nil {
-				return platform.UnwrapOSError(errno)
+			if _, errno := seek(f, 0, io.SeekStart); errno != 0 {
+				return errno
 			}
 			return 0
 		},
