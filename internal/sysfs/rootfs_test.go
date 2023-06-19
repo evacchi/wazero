@@ -55,7 +55,10 @@ func TestNewRootFS(t *testing.T) {
 		f, errno = rootFS.OpenFile("/", os.O_RDONLY, 0)
 		require.EqualErrno(t, 0, errno)
 
-		dirents, errno := f.Readdir(-1)
+		dirs, errno := f.Readdir()
+		require.EqualErrno(t, 0, errno)
+
+		dirents, errno := fsapi.Collect(dirs)
 		require.EqualErrno(t, 0, errno)
 		require.Equal(t, 1, len(dirents))
 		require.Equal(t, "tmp", dirents[0].Name)
@@ -109,8 +112,12 @@ func TestNewRootFS(t *testing.T) {
 			require.EqualErrno(t, 0, errno)
 			defer f.Close()
 
-			entries, errno := f.Readdir(-1)
+			dirs, errno := f.Readdir()
 			require.EqualErrno(t, 0, errno)
+
+			entries, errno := fsapi.Collect(dirs)
+			require.EqualErrno(t, 0, errno)
+
 			names := make([]string, 0, len(entries))
 			for _, e := range entries {
 				names = append(names, e.Name)

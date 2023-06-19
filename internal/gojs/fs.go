@@ -325,10 +325,18 @@ func syscallReaddir(_ context.Context, mod api.Module, name string) (*objectArra
 	}
 	defer f.Close() //nolint
 
-	if dirents, errno := f.Readdir(-1); errno != 0 {
+	dirs, errno := f.Readdir()
+	if errno != 0 {
 		return nil, errno
-	} else {
-		entries := make([]interface{}, 0, len(dirents))
+	}
+
+	dirents, errno := fsapi.Collect(dirs)
+	if errno != 0 {
+		return nil, errno
+	}
+
+	{
+		var entries []interface{}
 		for _, e := range dirents {
 			entries = append(entries, e.Name)
 		}

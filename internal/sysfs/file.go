@@ -265,12 +265,12 @@ func (f *fsFile) reopen() syscall.Errno {
 
 // Readdir implements File.Readdir. Notably, this uses fs.ReadDirFile if
 // available.
-func (f *fsFile) Readdir(n int) (dirents []fsapi.Dirent, errno syscall.Errno) {
+func (f *fsFile) Readdir() (dirs fsapi.Readdir, errno syscall.Errno) {
 	if of, ok := f.file.(*os.File); ok {
 		// We can't use f.name here because it is the path up to the fsapi.FS,
 		// not necessarily the real path. For this reason, Windows may not be
 		// able to populate inodes. However, Darwin and Linux will.
-		if dirents, errno = readdir(of, "", n); errno != 0 {
+		if dirs, errno = readdir(of, ""); errno != 0 {
 			errno = adjustReaddirErr(f, f.closed, errno)
 		}
 		return
@@ -279,19 +279,24 @@ func (f *fsFile) Readdir(n int) (dirents []fsapi.Dirent, errno syscall.Errno) {
 	// Try with fs.ReadDirFile which is available on api.FS implementations
 	// like embed:fs.
 	if rdf, ok := f.file.(fs.ReadDirFile); ok {
-		entries, e := rdf.ReadDir(n)
+		entries, e := rdf.ReadDir(-1)
 		if errno = adjustReaddirErr(f, f.closed, e); errno != 0 {
 			return
 		}
-		dirents = make([]fsapi.Dirent, 0, len(entries))
+		dirents := make([]fsapi.Dirent, 0, 2+len(entries))
+		// fixme just checking a theory; reads that are >1 require . and ..
+		//if n > 0 {
+		//	result, _ := synthesizeDotEntries(f)
+		//	dirents = append(dirents, result...)
+		//}
 		for _, e := range entries {
 			// By default, we don't attempt to read inode data
 			dirents = append(dirents, fsapi.Dirent{Name: e.Name(), Type: e.Type()})
 		}
+		return NewReaddirFromSlice(dirents), 0
 	} else {
-		errno = syscall.ENOTDIR
+		return nil, syscall.ENOTDIR
 	}
-	return
 }
 
 // Write implements File.Write
@@ -395,24 +400,33 @@ func seek(s io.Seeker, offset int64, whence int) (int64, syscall.Errno) {
 	return newOffset, platform.UnwrapOSError(err)
 }
 
-func readdir(f *os.File, path string, n int) (dirents []fsapi.Dirent, errno syscall.Errno) {
-	fis, e := f.Readdir(n)
-	if errno = platform.UnwrapOSError(e); errno != 0 {
-		return
-	}
+func readdir(f *os.File, path string) (dirs fsapi.Readdir, errno syscall.Errno) {
+	return NewWindowedReaddir(
+		func() syscall.Errno {
+			// Ensure we always rewind to the beginning when we re-init.
+			if _, errno := f.Seek(0, io.SeekStart); errno != nil {
+				return platform.UnwrapOSError(errno)
+			}
+			return 0
+		},
+		func(n uint64) (fsapi.Readdir, syscall.Errno) {
+			fis, err := f.Readdir(int(n))
+			if errno = platform.UnwrapOSError(err); errno != 0 {
+				return nil, errno
+			}
+			dirents := make([]fsapi.Dirent, 0, len(fis))
 
-	dirents = make([]fsapi.Dirent, 0, len(fis))
-
-	// linux/darwin won't have to fan out to lstat, but windows will.
-	var ino uint64
-	for fi := range fis {
-		t := fis[fi]
-		if ino, errno = inoFromFileInfo(path, t); errno != 0 {
-			return
-		}
-		dirents = append(dirents, fsapi.Dirent{Name: t.Name(), Ino: ino, Type: t.Mode().Type()})
-	}
-	return
+			// linux/darwin won't have to fan out to lstat, but windows will.
+			var ino uint64
+			for fi := range fis {
+				t := fis[fi]
+				if ino, errno = inoFromFileInfo(path, t); errno != 0 {
+					return nil, errno
+				}
+				dirents = append(dirents, fsapi.Dirent{Name: t.Name(), Ino: ino, Type: t.Mode().Type()})
+			}
+			return NewReaddirFromSlice(dirents), 0
+		})
 }
 
 func write(w io.Writer, buf []byte) (n int, errno syscall.Errno) {
@@ -431,4 +445,313 @@ func pwrite(w io.WriterAt, buf []byte, off int64) (n int, errno syscall.Errno) {
 
 	n, err := w.WriteAt(buf, off)
 	return n, platform.UnwrapOSError(err)
+}
+
+// emptyReaddir implements fsapi.Readdir
+//
+// emptyReaddir is an empty fsapi.Readdir.
+type emptyReaddir struct{}
+
+// Reset implements the method of the same name in fsapi.Readdir.
+func (e emptyReaddir) Reset() syscall.Errno { return 0 }
+
+// Skip implements the method of the same name in fsapi.Readdir.
+func (e emptyReaddir) Skip(uint64) {}
+
+// Cookie implements the method of the same name in fsapi.Readdir.
+func (e emptyReaddir) Cookie() uint64 { return 0 }
+
+// Rewind implements the method of the same name in fsapi.Readdir.
+func (e emptyReaddir) Rewind(int64) syscall.Errno { return 0 }
+
+// Peek implements the method of the same name in fsapi.Readdir.
+func (e emptyReaddir) Peek() (*fsapi.Dirent, syscall.Errno) { return nil, syscall.ENOENT }
+
+// Advance implements the method of the same name in fsapi.Readdir.
+func (e emptyReaddir) Advance() syscall.Errno { return syscall.ENOENT }
+
+// NewReaddirFromSlice is a constructor for fsapi.Readdir that only takes a []fsapi.Dirent.
+func NewReaddirFromSlice(dirents []fsapi.Dirent) fsapi.Readdir {
+	return &sliceReaddir{dirents: dirents}
+}
+
+// sliceReaddir implements fsapi.Readdir
+//
+// sliceReaddir iterates a given slice of fsapi.Dirent
+type sliceReaddir struct {
+	// cursor is the current position in the buffer.
+	cursor  uint64
+	dirents []fsapi.Dirent
+}
+
+// Reset implements the method of the same name in fsapi.Readdir.
+func (s *sliceReaddir) Reset() syscall.Errno {
+	s.cursor = 0
+	return 0
+}
+
+// Skip implements the method of the same name in fsapi.Readdir.
+func (s *sliceReaddir) Skip(n uint64) {
+	s.cursor += n
+}
+
+// Cookie implements the method of the same name in fsapi.Readdir.
+func (s *sliceReaddir) Cookie() uint64 {
+	return s.cursor
+}
+
+// Rewind implements the method of the same name in fsapi.Readdir.
+func (s *sliceReaddir) Rewind(cookie int64) syscall.Errno {
+	unsignedCookie := uint64(cookie)
+	switch {
+	case cookie < 0 || unsignedCookie > s.cursor:
+		// the cookie can neither be negative nor can it be larger than cursor.
+		return syscall.EINVAL
+	case cookie == 0 && s.cursor == 0:
+		return 0
+	case cookie == 0 && s.cursor != 0:
+		// This means that there was a previous call to the dir, but cookie is reset.
+		// This happens when the program calls rewinddir, for example:
+		// https://github.com/WebAssembly/wasi-libc/blob/659ff414560721b1660a19685110e484a081c3d4/libc-bottom-half/cloudlibc/src/libc/dirent/rewinddir.c#L10-L12
+		return s.Reset()
+	case unsignedCookie < s.cursor:
+		// We are allowed to rewind back to a previous offset within the current window.
+		s.cursor = unsignedCookie
+		return 0
+	default:
+		// The cookie is valid.
+		return 0
+	}
+}
+
+// Peek implements the method of the same name in fsapi.Readdir.
+func (s *sliceReaddir) Peek() (*fsapi.Dirent, syscall.Errno) {
+	if s.cursor >= uint64(len(s.dirents)) {
+		return nil, syscall.ENOENT
+	}
+	return &s.dirents[s.cursor], 0
+}
+
+// Advance implements the method of the same name in fsapi.Readdir.
+func (s *sliceReaddir) Advance() syscall.Errno {
+	if s.cursor == uint64(len(s.dirents)) {
+		return syscall.ENOENT
+	}
+	s.cursor++
+	return 0
+}
+
+// concatReaddir implements fsapi.Readdir
+//
+// concatReaddir concatenates two fsapi.Readdir instances.
+type concatReaddir struct {
+	first, second, current fsapi.Readdir
+}
+
+// NewConcatReaddir is a constructor for an fsapi.Readdir that concatenates
+// two fsapi.Readdir.
+func NewConcatReaddir(first fsapi.Readdir, second fsapi.Readdir) fsapi.Readdir {
+	return &concatReaddir{first: first, second: second, current: first}
+}
+
+// Reset implements the method of the same name in fsapi.Readdir.
+func (c *concatReaddir) Reset() syscall.Errno {
+	errno := c.first.Reset()
+	if errno != 0 {
+		return errno
+	}
+	errno = c.second.Reset()
+	if errno != 0 {
+		return errno
+	}
+	return 0
+}
+
+// Skip implements the method of the same name in fsapi.Readdir.
+func (c *concatReaddir) Skip(n uint64) {
+	for i := uint64(0); i < n; i++ {
+		_ = c.Advance()
+	}
+}
+
+// Cookie implements the method of the same name in fsapi.Readdir.
+func (c *concatReaddir) Cookie() uint64 {
+	return c.first.Cookie() + c.second.Cookie()
+}
+
+// Rewind implements the method of the same name in fsapi.Readdir.
+func (c *concatReaddir) Rewind(cookie int64) syscall.Errno {
+	ck := cookie - int64(c.first.Cookie())
+	if ck > 0 {
+		return c.second.Rewind(ck)
+	} else {
+		c.current = c.first
+		if errno := c.second.Rewind(0); errno != 0 {
+			return errno
+		}
+		return c.first.Rewind(cookie)
+	}
+}
+
+// Peek implements the method of the same name in fsapi.Readdir.
+func (c *concatReaddir) Peek() (*fsapi.Dirent, syscall.Errno) {
+	el, errno := c.current.Peek()
+	if errno != 0 {
+		if c.current != c.second {
+			c.current = c.second
+			el, errno = c.current.Peek()
+		}
+		return el, errno
+	}
+	return el, 0
+}
+
+// Advance implements the method of the same name in fsapi.Readdir.
+func (c *concatReaddir) Advance() syscall.Errno {
+	errno := c.current.Advance()
+	if errno != 0 {
+		if c.current != c.second {
+			c.current = c.second
+			errno = c.current.Advance()
+		}
+		return errno
+	}
+	return 0
+}
+
+const direntBufSize = 16
+
+// windowedReaddir implements fsapi.Readdir
+//
+// windowedReaddir iterates over the contents of a directory
+// lazily fetching data over a sliding window.
+type windowedReaddir struct {
+	// cursor is the total count of files read including Dirents.
+	//
+	// Notes:
+	//
+	// * cursor is the index of the next file in the list. This is
+	//   also the value that Cookie returns, so it should always be
+	//   higher or equal than the cookie given in Rewind.
+	//
+	// * this can overflow to negative, which means our implementation
+	//   doesn't support writing greater than max int64 entries.
+	//   cursor uint64
+	cursor uint64
+
+	init func() syscall.Errno
+
+	// window is an fsapi.Readdir over a fixed buffer of size direntBufSize.
+	// Notably, directory listing are not rewindable, so we keep entries around
+	// in case the caller mis-estimated their buffer and needs a few still cached.
+	//
+	// Note: This is wasi-specific and needs to be refactored.
+	// In wasi preview1, dot and dot-dot entries are required to exist, but the
+	// reverse is true for preview2. More importantly, preview2 holds separate
+	// stateful dir-entry-streams per file.
+	window fsapi.Readdir
+
+	// fetch fetches a new batch of direntBufSize elements.
+	fetch func(n uint64) (fsapi.Readdir, syscall.Errno)
+}
+
+// NewWindowedReaddir is a constructor for Readdir. It takes a dirInit
+func NewWindowedReaddir(
+	init func() syscall.Errno,
+	fetch func(n uint64) (fsapi.Readdir, syscall.Errno),
+) (fsapi.Readdir, syscall.Errno) {
+	d := &windowedReaddir{init: init, fetch: fetch}
+	return d, d.Reset()
+}
+
+// init resets the cursor and invokes the fetch method to reset
+// the internal state of the Readdir struct.
+//
+// Note: this is different from Reset, because it will not short-circuit
+// when cursor is already 0, but it will force an unconditional reload.
+
+// Reset implements the method of the same name in fsapi.Readdir.
+func (d *windowedReaddir) Reset() syscall.Errno {
+	errno := d.init()
+	if errno != 0 {
+		return errno
+	}
+	d.cursor = 0
+	dir, errno := d.fetch(uint64(direntBufSize))
+	if errno != 0 {
+		return errno
+	}
+	d.window = dir
+	return 0
+}
+
+// Skip implements the method of the same name in fsapi.Readdir.
+func (d *windowedReaddir) Skip(n uint64) {
+	end := d.cursor + n
+	var err syscall.Errno = 0
+	for d.cursor < end && err == 0 {
+		err = d.Advance()
+	}
+}
+
+// Cookie implements the method of the same name in fsapi.Readdir.
+//
+// Note: this returns the cursor field, but it is an implementation detail.
+func (d *windowedReaddir) Cookie() uint64 {
+	return d.cursor
+}
+
+// Rewind implements the method of the same name in fsapi.Readdir.
+func (d *windowedReaddir) Rewind(cookie int64) syscall.Errno {
+	unsignedCookie := uint64(cookie)
+	switch {
+	case cookie < 0 || unsignedCookie > d.cursor:
+		// the cookie can neither be negative nor can it be larger than cursor.
+		return syscall.EINVAL
+	// case cookie == 0 && d.cursor == 0:
+	//	return 0
+	case cookie == 0: // && d.cursor != 0:
+		// This means that there was a previous call to the dir, but cookie is reset.
+		// This happens when the program calls rewinddir, for example:
+		// https://github.com/WebAssembly/wasi-libc/blob/659ff414560721b1660a19685110e484a081c3d4/libc-bottom-half/cloudlibc/src/libc/dirent/rewinddir.c#L10-L12
+		return d.Reset()
+	case unsignedCookie < d.cursor:
+		if cookie/direntBufSize != int64(d.cursor)/direntBufSize {
+			// The cookie is not 0, but it points into a window before the current one.
+			return syscall.ENOSYS
+		}
+		// We are allowed to rewind back to a previous offset within the current window.
+		d.cursor = unsignedCookie
+		// d.cursor = d.cursor % direntBufSize
+		return d.window.Rewind(int64(d.cursor % direntBufSize))
+	default:
+		// The cookie is valid.
+		return 0
+	}
+}
+
+// Peek implements the method of the same name in fsapi.Readdir.
+func (d *windowedReaddir) Peek() (*fsapi.Dirent, syscall.Errno) {
+	if dirent, errno := d.window.Peek(); errno == syscall.ENOENT {
+		dir, errno := d.fetch(direntBufSize)
+		if errno != 0 {
+			return nil, errno
+		}
+		d.window = dir
+		return d.window.Peek()
+	} else {
+		return dirent, errno
+	}
+}
+
+// Advance implements the method of the same name in fsapi.Readdir.
+func (d *windowedReaddir) Advance() syscall.Errno {
+	if errno := d.window.Advance(); errno == syscall.ENOENT {
+		d.window, errno = d.fetch(direntBufSize)
+		return errno
+	} else if errno != 0 {
+		return errno
+	}
+	d.cursor++
+	return 0
 }

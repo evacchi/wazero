@@ -171,7 +171,7 @@ func (d *openRootDir) Seek(offset int64, whence int) (newOffset int64, errno sys
 }
 
 // Readdir implements the same method as documented on fsapi.File
-func (d *openRootDir) Readdir(count int) (dirents []fsapi.Dirent, errno syscall.Errno) {
+func (d *openRootDir) Readdir() (dirs fsapi.Readdir, errno syscall.Errno) {
 	if d.dirents == nil {
 		if errno = d.readdir(); errno != 0 {
 			return
@@ -183,22 +183,26 @@ func (d *openRootDir) Readdir(count int) (dirents []fsapi.Dirent, errno syscall.
 	if n == 0 {
 		return
 	}
-	if count > 0 && n > count {
-		n = count
-	}
-	dirents = make([]fsapi.Dirent, n)
+
+	dirents := make([]fsapi.Dirent, n)
 	for i := range dirents {
 		dirents[i] = d.dirents[d.direntsI+i]
 	}
 	d.direntsI += n
-	return
+	return NewReaddirFromSlice(dirents), 0
 }
 
-func (d *openRootDir) readdir() (errno syscall.Errno) {
+func (d *openRootDir) readdir() syscall.Errno {
 	// readDir reads the directory fully into d.dirents, replacing any entries that
 	// correspond to prefix matches or appending them to the end.
-	if d.dirents, errno = d.f.Readdir(-1); errno != 0 {
-		return
+	dirs, errno := d.f.Readdir()
+	if errno != 0 {
+		return errno
+	}
+
+	d.dirents, errno = fsapi.Collect(dirs)
+	if errno != 0 {
+		return errno
 	}
 
 	remaining := make(map[string]int, len(d.c.rootGuestPaths))
@@ -210,7 +214,7 @@ func (d *openRootDir) readdir() (errno syscall.Errno) {
 		e := d.dirents[i]
 		if fsI, ok := remaining[e.Name]; ok {
 			if d.dirents[i], errno = d.rootEntry(e.Name, fsI); errno != 0 {
-				return
+				return errno
 			}
 			delete(remaining, e.Name)
 		}
@@ -219,11 +223,11 @@ func (d *openRootDir) readdir() (errno syscall.Errno) {
 	var di fsapi.Dirent
 	for n, fsI := range remaining {
 		if di, errno = d.rootEntry(n, fsI); errno != 0 {
-			return
+			return errno
 		}
 		d.dirents = append(d.dirents, di)
 	}
-	return
+	return errno
 }
 
 // Sync implements the same method as documented on fsapi.File
@@ -524,8 +528,8 @@ func (fakeRootDir) Stat() (fsapi.Stat_t, syscall.Errno) {
 }
 
 // Readdir implements the same method as documented on fsapi.File
-func (fakeRootDir) Readdir(int) (dirents []fsapi.Dirent, errno syscall.Errno) {
-	return // empty
+func (fakeRootDir) Readdir() (dirents fsapi.Readdir, errno syscall.Errno) {
+	return emptyReaddir{}, 0
 }
 
 // Sync implements the same method as documented on fsapi.File

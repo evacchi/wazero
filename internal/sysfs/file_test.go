@@ -1059,3 +1059,95 @@ func dirEmbedMapFS(t *testing.T, tmpDir string) (fs.FS, fs.FS, fs.FS) {
 	dirFS := os.DirFS(tmpDir)
 	return dirFS, embedFS, mapFS
 }
+
+func TestReaddDir_Rewind(t *testing.T) {
+	tests := []struct {
+		name           string
+		f              fsapi.Readdir
+		cookie         int64
+		expectedCookie int64
+		expectedErrno  syscall.Errno
+	}{
+		{
+			name: "no prior call",
+		},
+		{
+			name:          "no prior call, but passed a cookie",
+			cookie:        1,
+			expectedErrno: syscall.EINVAL,
+		},
+		{
+			name: "cookie is negative",
+			f: &windowedReaddir{
+				cursor: 3,
+				window: emptyReaddir{},
+			},
+			cookie:        -1,
+			expectedErrno: syscall.EINVAL,
+		},
+		{
+			name: "cookie is greater than last d_next",
+			f: &windowedReaddir{
+				cursor: 3,
+				window: emptyReaddir{},
+			},
+			cookie:        5,
+			expectedErrno: syscall.EINVAL,
+		},
+		{
+			name: "cookie is last pos",
+			f: &windowedReaddir{
+				cursor: 3,
+				window: emptyReaddir{},
+			},
+			cookie: 3,
+		},
+		{
+			name: "cookie is one before last pos",
+			f: &windowedReaddir{
+				cursor: 3,
+				window: emptyReaddir{},
+			},
+			cookie: 2,
+		},
+		{
+			name: "cookie is before current entries",
+			f: &windowedReaddir{
+				cursor: direntBufSize + 2,
+				window: emptyReaddir{},
+			},
+			cookie:        1,
+			expectedErrno: syscall.ENOSYS, // not implemented
+		},
+		{
+			name: "read from the beginning (cookie=0)",
+			f: &windowedReaddir{
+				init: func() syscall.Errno { return 0 },
+				fetch: func(n uint64) (fsapi.Readdir, syscall.Errno) {
+					return NewReaddirFromSlice([]fsapi.Dirent{{Name: "."}, {Name: ".."}}), 0
+				},
+				cursor: 3,
+				window: emptyReaddir{},
+			},
+			cookie: 0,
+		},
+	}
+
+	for _, tt := range tests {
+		tc := tt
+
+		t.Run(tc.name, func(t *testing.T) {
+			f := tc.f
+			if f == nil {
+				f = &windowedReaddir{
+					init:   func() syscall.Errno { return 0 },
+					fetch:  func(n uint64) (fsapi.Readdir, syscall.Errno) { return nil, 0 },
+					window: emptyReaddir{},
+				}
+			}
+
+			errno := f.Rewind(tc.cookie)
+			require.EqualErrno(t, tc.expectedErrno, errno)
+		})
+	}
+}

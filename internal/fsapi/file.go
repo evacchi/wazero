@@ -225,7 +225,7 @@ type File interface {
 	//   - For portability reasons, no error is returned at the end of the
 	//     directory, when the file is closed or removed while open.
 	//     See https://github.com/ziglang/zig/blob/0.10.1/lib/std/fs.zig#L635-L637
-	Readdir(n int) (dirents []Dirent, errno syscall.Errno)
+	Readdir() (dirs Readdir, errno syscall.Errno)
 	// ^-- TODO: consider being more like POSIX, for example, returning a
 	// closeable Dirent object that can iterate on demand. This would
 	// centralize sizing logic needed by wasi, particularly extra dirents
@@ -379,4 +379,47 @@ type File interface {
 	//   - This is like syscall.Close and `close` in POSIX. See
 	//     https://pubs.opengroup.org/onlinepubs/9699919799/functions/close.html
 	Close() syscall.Errno
+}
+
+// Readdir is the status of a prior fs.ReadDirFile call.
+type Readdir interface {
+	// Reset seeks the internal cursor to 0 and refills the buffer.
+	Reset() syscall.Errno
+	// Skip is equivalent to calling n times Advance.
+	Skip(n uint64)
+	// Cookie returns a cookie representing the current state of the ReadDir struct.
+	Cookie() uint64
+	// Rewind seeks the internal cursor to the state represented by the cookie.
+	// It returns a syscall.Errno if the cursor was reset and an I/O error occurred while trying to re-init.
+	Rewind(cookie int64) syscall.Errno
+	// Peek emits the current value.
+	// It returns syscall.ENOENT when there are no entries left in the directory.
+	Peek() (*Dirent, syscall.Errno)
+	// Advance advances the internal counters and indices to the next value.
+	// It also empties and refill the buffer with the next set of values when the internal cursor
+	// reaches the end of it.
+	Advance() syscall.Errno
+}
+
+// Collect reads eagerly all the values returned byt the given
+// Readdir instance and returns a slice or a syscall.Errno.
+func Collect(dirs Readdir) ([]Dirent, syscall.Errno) {
+	var dirents []Dirent
+	for {
+		e, errno := dirs.Peek()
+		if errno == syscall.ENOENT {
+			return dirents, 0
+		} else if errno != 0 {
+			return dirents, errno
+		}
+		if e == nil {
+			break
+		}
+		dirents = append(dirents, *e)
+		errno = dirs.Advance()
+		if errno != 0 {
+			return dirents, errno
+		}
+	}
+	return dirents, 0
 }

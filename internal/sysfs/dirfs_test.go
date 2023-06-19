@@ -35,7 +35,7 @@ func TestNewDirFS(t *testing.T) {
 		testFS := NewDirFS(arg0)
 		d, errno := testFS.OpenFile(".", os.O_RDONLY, 0)
 		require.EqualErrno(t, 0, errno)
-		_, errno = d.Readdir(-1)
+		_, errno = d.Readdir()
 		require.EqualErrno(t, syscall.ENOTDIR, errno)
 	})
 }
@@ -823,7 +823,10 @@ func Test_fdReaddir_opened_file_written(t *testing.T) {
 	require.NoError(t, err)
 	defer f.Close()
 
-	dirents, errno := dirFile.Readdir(-1)
+	dirs, errno := dirFile.Readdir()
+	require.EqualErrno(t, 0, errno)
+
+	dirents, errno := fsapi.Collect(dirs)
 	require.EqualErrno(t, 0, errno)
 
 	require.Equal(t, 1, len(dirents))
