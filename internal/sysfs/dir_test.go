@@ -143,7 +143,7 @@ func TestReaddir(t *testing.T) {
 	t.Run("removed while open", func(t *testing.T) {
 		dirF, errno := sysfs.OpenFSFile(dirFS, "dir", syscall.O_RDONLY, 0)
 		require.EqualErrno(t, 0, errno)
-		defer dirF.Close()
+		//defer dirF.Close()
 
 		dirs, errno := dirF.Readdir()
 		require.EqualErrno(t, 0, errno)
