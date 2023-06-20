@@ -241,7 +241,7 @@ func (f *fsFile) Seek(offset int64, whence int) (newOffset int64, errno syscall.
 		if isDir, errno = f.IsDir(); errno != 0 {
 			return
 		} else if isDir {
-			return 0, f.reopen()
+			return 0, f.reopen() // It may return file not found if the file has been deleted in the meantime.
 		}
 	}
 
@@ -266,11 +266,11 @@ func (f *fsFile) reopen() syscall.Errno {
 // Readdir implements File.Readdir. Notably, this uses fs.ReadDirFile if
 // available.
 func (f *fsFile) Readdir() (dirs fsapi.Readdir, errno syscall.Errno) {
-	if of, ok := f.file.(*os.File); ok {
+	if _, ok := f.file.(*os.File); ok {
 		// We can't use f.name here because it is the path up to the fsapi.FS,
 		// not necessarily the real path. For this reason, Windows may not be
 		// able to populate inodes. However, Darwin and Linux will.
-		if dirs, errno = readdir(of, ""); errno != 0 {
+		if dirs, errno = readdirFS(f, ""); errno != 0 {
 			errno = adjustReaddirErr(f, f.closed, errno)
 		}
 		return
@@ -335,6 +335,9 @@ func (f *fsFile) Close() syscall.Errno {
 }
 
 func (f *fsFile) close() syscall.Errno {
+	if f.file == nil {
+		return 0
+	}
 	return platform.UnwrapOSError(f.file.Close())
 }
 
@@ -400,17 +403,18 @@ func seek(s io.Seeker, offset int64, whence int) (int64, syscall.Errno) {
 	return newOffset, platform.UnwrapOSError(err)
 }
 
-func readdir(f *os.File, path string) (dirs fsapi.Readdir, errno syscall.Errno) {
+func readdirFS(f *fsFile, path string) (dirs fsapi.Readdir, errno syscall.Errno) {
 	return NewWindowedReaddir(
 		func() syscall.Errno {
 			// Ensure we always rewind to the beginning when we re-init.
-			if _, errno := f.Seek(0, io.SeekStart); errno != nil {
-				return platform.UnwrapOSError(errno)
+			if _, errno := f.Seek(0, io.SeekStart); errno != 0 {
+				return errno
 			}
 			return 0
 		},
 		func(n uint64) (fsapi.Readdir, syscall.Errno) {
-			fis, err := f.Readdir(int(n))
+			ff := f.file.(*os.File)
+			fis, err := ff.Readdir(int(n))
 			if errno = platform.UnwrapOSError(err); errno != 0 {
 				return nil, errno
 			}
@@ -428,6 +432,64 @@ func readdir(f *os.File, path string) (dirs fsapi.Readdir, errno syscall.Errno) 
 			return NewReaddirFromSlice(dirents), 0
 		})
 }
+
+func readdir0(f *osFile, path string) (dirs fsapi.Readdir, errno syscall.Errno) {
+	return NewWindowedReaddir(
+		func() syscall.Errno {
+			// Ensure we always rewind to the beginning when we re-init.
+			if _, errno := f.Seek(0, io.SeekStart); errno != 0 {
+				return errno
+			}
+			return 0
+		},
+		func(n uint64) (fsapi.Readdir, syscall.Errno) {
+			fis, err := f.file.Readdir(int(n))
+			if errno = platform.UnwrapOSError(err); errno != 0 {
+				return nil, errno
+			}
+			dirents := make([]fsapi.Dirent, 0, len(fis))
+
+			// linux/darwin won't have to fan out to lstat, but windows will.
+			var ino uint64
+			for fi := range fis {
+				t := fis[fi]
+				if ino, errno = inoFromFileInfo(path, t); errno != 0 {
+					return nil, errno
+				}
+				dirents = append(dirents, fsapi.Dirent{Name: t.Name(), Ino: ino, Type: t.Mode().Type()})
+			}
+			return NewReaddirFromSlice(dirents), 0
+		})
+}
+
+//func readdir(f *os.File, path string) (dirs fsapi.Readdir, errno syscall.Errno) {
+//	return NewWindowedReaddir(
+//		func() syscall.Errno {
+//			// Ensure we always rewind to the beginning when we re-init.
+//			if _, errno := f.Seek(0, io.SeekStart); errno != nil {
+//				return platform.UnwrapOSError(errno)
+//			}
+//			return 0
+//		},
+//		func(n uint64) (fsapi.Readdir, syscall.Errno) {
+//			fis, err := f.Readdir(int(n))
+//			if errno = platform.UnwrapOSError(err); errno != 0 {
+//				return nil, errno
+//			}
+//			dirents := make([]fsapi.Dirent, 0, len(fis))
+//
+//			// linux/darwin won't have to fan out to lstat, but windows will.
+//			var ino uint64
+//			for fi := range fis {
+//				t := fis[fi]
+//				if ino, errno = inoFromFileInfo(path, t); errno != 0 {
+//					return nil, errno
+//				}
+//				dirents = append(dirents, fsapi.Dirent{Name: t.Name(), Ino: ino, Type: t.Mode().Type()})
+//			}
+//			return NewReaddirFromSlice(dirents), 0
+//		})
+//}
 
 func write(w io.Writer, buf []byte) (n int, errno syscall.Errno) {
 	if len(buf) == 0 {
@@ -660,8 +722,13 @@ func NewWindowedReaddir(
 	init func() syscall.Errno,
 	fetch func(n uint64) (fsapi.Readdir, syscall.Errno),
 ) (fsapi.Readdir, syscall.Errno) {
-	d := &windowedReaddir{init: init, fetch: fetch}
-	return d, d.Reset()
+	d := &windowedReaddir{init: init, fetch: fetch, window: emptyReaddir{}}
+	errno := d.Reset()
+	if errno != 0 {
+		return nil, errno
+	} else {
+		return d, 0
+	}
 }
 
 // init resets the cursor and invokes the fetch method to reset

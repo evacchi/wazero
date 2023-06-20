@@ -157,9 +157,11 @@ func (f *osFile) Seek(offset int64, whence int) (newOffset int64, errno syscall.
 		// Defer validation overhead until we've already had an error.
 		errno = fileError(f, f.closed, errno)
 
+		isDir, _ := f.IsDir()
+
 		// If the error was trying to rewind a directory, re-open it. Notably,
 		// seeking to zero on a directory doesn't work on Windows with Go 1.18.
-		if errno == syscall.EISDIR && offset == 0 && whence == io.SeekStart {
+		if errno == syscall.EISDIR || (isDir && f.closed) && offset == 0 && whence == io.SeekStart {
 			return 0, f.reopen()
 		}
 	}
@@ -183,8 +185,9 @@ func (f *osFile) PollRead(timeout *time.Duration) (ready bool, errno syscall.Err
 // Readdir implements File.Readdir. Notably, this uses "Readdir", not
 // "ReadDir", from os.File.
 func (f *osFile) Readdir() (dirs fsapi.Readdir, errno syscall.Errno) {
-	if dirs, errno = readdir(f.file, f.path); errno != 0 {
+	if dirs, errno = readdir0(f, f.path); errno != 0 {
 		errno = adjustReaddirErr(f, f.closed, errno)
+		dirs = emptyReaddir{}
 	}
 	return
 }
