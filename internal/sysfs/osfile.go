@@ -42,6 +42,11 @@ func (f *osFile) cachedStat() (fileType fs.FileMode, ino uint64, errno syscall.E
 	return f.cachedSt.fileType, f.cachedSt.ino, 0
 }
 
+// osFile implements the method of the same name in withRawFile.
+func (f *osFile) rawOsFile() *os.File {
+	return f.file
+}
+
 // Ino implements the same method as documented on fsapi.File
 func (f *osFile) Ino() (uint64, syscall.Errno) {
 	if _, ino, errno := f.cachedStat(); errno != 0 {
@@ -185,10 +190,10 @@ func (f *osFile) PollRead(timeout *time.Duration) (ready bool, errno syscall.Err
 // Readdir implements File.Readdir. Notably, this uses "Readdir", not
 // "ReadDir", from os.File.
 func (f *osFile) Readdir() (dirs fsapi.Readdir, errno syscall.Errno) {
-	dirs, errno = NewWindowedReaddir(
-		func() syscall.Errno { return resetFile(f) },
-		func(n uint64) (fsapi.Readdir, syscall.Errno) { return fetch(f.file, n) })
-	if errno != 0 {
+	if dirs, errno = newReaddirFromFile(f); errno != 0 {
+		// We can't use f.name here because it is the path up to the fsapi.FS,
+		// not necessarily the real path. For this reason, Windows may not be
+		// able to populate inodes. However, Darwin and Linux will.
 		errno = adjustReaddirErr(f, f.closed, errno)
 		dirs = emptyReaddir{}
 	}

@@ -115,6 +115,11 @@ type cachedStat struct {
 	ino uint64
 }
 
+// rawOsFile implements the method of the same name in withRawFile.
+func (f *fsFile) rawOsFile() *os.File {
+	return f.file.(*os.File)
+}
+
 // cachedStat returns the cacheable parts of platform.sys.Stat_t or an error if
 // they couldn't be retrieved.
 func (f *fsFile) cachedStat() (fileType fs.FileMode, ino uint64, errno syscall.Errno) {
@@ -267,15 +272,12 @@ func (f *fsFile) reopen() syscall.Errno {
 // available.
 func (f *fsFile) Readdir() (dirs fsapi.Readdir, errno syscall.Errno) {
 	if _, ok := f.file.(*os.File); ok {
-		dirs, errno = NewWindowedReaddir(
-			func() syscall.Errno { return resetFile(f) },
-			func(n uint64) (fsapi.Readdir, syscall.Errno) { return fetch(f.file.(*os.File), n) })
-
 		// We can't use f.name here because it is the path up to the fsapi.FS,
 		// not necessarily the real path. For this reason, Windows may not be
 		// able to populate inodes. However, Darwin and Linux will.
-		if errno != 0 {
+		if dirs, errno = newReaddirFromFile(f); errno != 0 {
 			errno = adjustReaddirErr(f, f.closed, errno)
+			dirs = emptyReaddir{}
 		}
 		return
 	}
@@ -288,11 +290,6 @@ func (f *fsFile) Readdir() (dirs fsapi.Readdir, errno syscall.Errno) {
 			return
 		}
 		dirents := make([]fsapi.Dirent, 0, 2+len(entries))
-		// fixme just checking a theory; reads that are >1 require . and ..
-		//if n > 0 {
-		//	result, _ := synthesizeDotEntries(f)
-		//	dirents = append(dirents, result...)
-		//}
 		for _, e := range entries {
 			// By default, we don't attempt to read inode data
 			dirents = append(dirents, fsapi.Dirent{Name: e.Name(), Type: e.Type()})
@@ -407,10 +404,10 @@ func seek(s io.Seeker, offset int64, whence int) (int64, syscall.Errno) {
 	return newOffset, platform.UnwrapOSError(err)
 }
 
-func resetFile(f fsapi.File) syscall.Errno {
-	_, errno := f.Seek(0, io.SeekStart)
-	return errno
-}
+//func resetFile(f fsapi.File) syscall.Errno {
+//	_, errno := f.Seek(0, io.SeekStart)
+//	return errno
+//}
 
 //	func readdir0(f *osFile, path string) (dirs fsapi.Readdir, errno syscall.Errno) {
 //		return NewWindowedReaddir(
@@ -423,24 +420,24 @@ func resetFile(f fsapi.File) syscall.Errno {
 //		func(n uint64) (fsapi.Readdir, syscall.Errno) { return fetch(f.file.(*os.File), path, n) })
 //}
 
-func fetch(f *os.File, n uint64) (fsapi.Readdir, syscall.Errno) {
-	fis, err := f.Readdir(int(n))
-	if errno := platform.UnwrapOSError(err); errno != 0 {
-		return nil, errno
-	}
-	dirents := make([]fsapi.Dirent, 0, len(fis))
-
-	// linux/darwin won't have to fan out to lstat, but windows will.
-	for fi := range fis {
-		t := fis[fi]
-		if ino, errno := inoFromFileInfo("", t); errno != 0 {
-			return nil, errno
-		} else {
-			dirents = append(dirents, fsapi.Dirent{Name: t.Name(), Ino: ino, Type: t.Mode().Type()})
-		}
-	}
-	return NewReaddirFromSlice(dirents), 0
-}
+//func fetch(f *os.File, n uint64) (fsapi.Readdir, syscall.Errno) {
+//	fis, err := f.Readdir(int(n))
+//	if errno := platform.UnwrapOSError(err); errno != 0 {
+//		return nil, errno
+//	}
+//	dirents := make([]fsapi.Dirent, 0, len(fis))
+//
+//	// linux/darwin won't have to fan out to lstat, but windows will.
+//	for fi := range fis {
+//		t := fis[fi]
+//		if ino, errno := inoFromFileInfo("", t); errno != 0 {
+//			return nil, errno
+//		} else {
+//			dirents = append(dirents, fsapi.Dirent{Name: t.Name(), Ino: ino, Type: t.Mode().Type()})
+//		}
+//	}
+//	return NewReaddirFromSlice(dirents), 0
+//}
 
 //func readdir(f *os.File, path string) (dirs fsapi.Readdir, errno syscall.Errno) {
 //	return NewWindowedReaddir(
@@ -695,6 +692,38 @@ type windowedReaddir struct {
 
 	// fetch fetches a new batch of direntBufSize elements.
 	fetch func(n uint64) (fsapi.Readdir, syscall.Errno)
+}
+
+type withRawFile interface {
+	fsapi.File
+	rawOsFile() *os.File
+}
+
+func newReaddirFromFile(f withRawFile) (fsapi.Readdir, syscall.Errno) {
+	init := func() syscall.Errno {
+		_, errno := f.Seek(0, io.SeekStart)
+		return errno
+	}
+	fetch := func(n uint64) (fsapi.Readdir, syscall.Errno) {
+		fis, err := f.rawOsFile().Readdir(int(n))
+		if errno := platform.UnwrapOSError(err); errno != 0 {
+			return nil, errno
+		}
+		dirents := make([]fsapi.Dirent, 0, len(fis))
+
+		// linux/darwin won't have to fan out to lstat, but windows will.
+		for fi := range fis {
+			t := fis[fi]
+			if ino, errno := inoFromFileInfo("", t); errno != 0 {
+				return nil, errno
+			} else {
+				dirents = append(dirents, fsapi.Dirent{Name: t.Name(), Ino: ino, Type: t.Mode().Type()})
+			}
+		}
+		return NewReaddirFromSlice(dirents), 0
+	}
+
+	return NewWindowedReaddir(init, fetch)
 }
 
 // NewWindowedReaddir is a constructor for Readdir. It takes a dirInit
