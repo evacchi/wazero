@@ -4,6 +4,7 @@ import (
 	"io"
 	"io/fs"
 	"os"
+	"reflect"
 	"syscall"
 
 	"github.com/tetratelabs/wazero/internal/fsapi"
@@ -266,11 +267,11 @@ func (f *fsFile) reopen() syscall.Errno {
 // Readdir implements File.Readdir. Notably, this uses fs.ReadDirFile if
 // available.
 func (f *fsFile) Readdir() (dirs fsapi.Readdir, errno syscall.Errno) {
-	if of, ok := f.file.(*os.File); ok {
+	if _, ok := f.file.(*os.File); ok {
 		// We can't use f.name here because it is the path up to the fsapi.FS,
 		// not necessarily the real path. For this reason, Windows may not be
 		// able to populate inodes. However, Darwin and Linux will.
-		if dirs, errno = newReaddirForFile(of, ""); errno != 0 {
+		if dirs, errno = newReaddirForFile(f, ""); errno != 0 {
 			errno = adjustReaddirErr(f, f.closed, errno)
 		}
 		return
@@ -284,11 +285,6 @@ func (f *fsFile) Readdir() (dirs fsapi.Readdir, errno syscall.Errno) {
 			return
 		}
 		dirents := make([]fsapi.Dirent, 0, 2+len(entries))
-		// fixme just checking a theory; reads that are >1 require . and ..
-		//if n > 0 {
-		//	result, _ := synthesizeDotEntries(f)
-		//	dirents = append(dirents, result...)
-		//}
 		for _, e := range entries {
 			// By default, we don't attempt to read inode data
 			dirents = append(dirents, fsapi.Dirent{Name: e.Name(), Type: e.Type()})
@@ -400,16 +396,21 @@ func seek(s io.Seeker, offset int64, whence int) (int64, syscall.Errno) {
 	return newOffset, platform.UnwrapOSError(err)
 }
 
-func newReaddirForFile(f *os.File, path string) (dirs fsapi.Readdir, errno syscall.Errno) {
+func newReaddirForFile(f fsapi.File, path string) (dirs fsapi.Readdir, errno syscall.Errno) {
 	return NewWindowedReaddir(
 		func() syscall.Errno {
 			// Ensure we always rewind to the beginning when we re-init.
-			if _, errno := seek(f, 0, io.SeekStart); errno != 0 {
-				return errno
-			}
-			return 0
+			_, errno := f.Seek(0, io.SeekStart)
+			return errno
 		},
-		func(n uint64) (fsapi.Readdir, syscall.Errno) { return readdir(f, path, n) })
+		func(n uint64) (fsapi.Readdir, syscall.Errno) {
+			switch t := f.(type) {
+			case *osFile:
+				return readdir(t.file, path, n)
+			default:
+				panic(reflect.TypeOf(t))
+			}
+		})
 }
 
 func readdir(f *os.File, path string, n uint64) (readdir fsapi.Readdir, errno syscall.Errno) {
