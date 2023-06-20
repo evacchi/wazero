@@ -407,6 +407,12 @@ func newReaddirForFile(f fsapi.File, path string) (dirs fsapi.Readdir, errno sys
 			switch t := f.(type) {
 			case *osFile:
 				return readdir(t.file, path, n)
+			case *fsFile:
+				if of, ok := t.file.(*os.File); ok {
+					return readdir(of, path, n)
+				} else {
+					panic(reflect.TypeOf(of))
+				}
 			default:
 				panic(reflect.TypeOf(t))
 			}
