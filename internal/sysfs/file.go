@@ -270,7 +270,7 @@ func (f *fsFile) Readdir() (dirs fsapi.Readdir, errno syscall.Errno) {
 		// We can't use f.name here because it is the path up to the fsapi.FS,
 		// not necessarily the real path. For this reason, Windows may not be
 		// able to populate inodes. However, Darwin and Linux will.
-		if dirs, errno = readdirFS(f, ""); errno != 0 {
+		if dirs, errno = newReaddirFromFile(f, ""); errno != 0 {
 			errno = adjustReaddirErr(f, f.closed, errno)
 		}
 		return
@@ -403,93 +403,29 @@ func seek(s io.Seeker, offset int64, whence int) (int64, syscall.Errno) {
 	return newOffset, platform.UnwrapOSError(err)
 }
 
-func readdirFS(f *fsFile, path string) (dirs fsapi.Readdir, errno syscall.Errno) {
-	return NewWindowedReaddir(
-		func() syscall.Errno {
-			// Ensure we always rewind to the beginning when we re-init.
-			if _, errno := f.Seek(0, io.SeekStart); errno != 0 {
-				return errno
-			}
-			return 0
-		},
-		func(n uint64) (fsapi.Readdir, syscall.Errno) {
-			ff := f.file.(*os.File)
-			fis, err := ff.Readdir(int(n))
-			if errno = platform.UnwrapOSError(err); errno != 0 {
-				return nil, errno
-			}
-			dirents := make([]fsapi.Dirent, 0, len(fis))
-
-			// linux/darwin won't have to fan out to lstat, but windows will.
-			var ino uint64
-			for fi := range fis {
-				t := fis[fi]
-				if ino, errno = inoFromFileInfo(path, t); errno != 0 {
-					return nil, errno
-				}
-				dirents = append(dirents, fsapi.Dirent{Name: t.Name(), Ino: ino, Type: t.Mode().Type()})
-			}
-			return NewReaddirFromSlice(dirents), 0
-		})
-}
-
-func readdir0(f *osFile, path string) (dirs fsapi.Readdir, errno syscall.Errno) {
-	return NewWindowedReaddir(
-		func() syscall.Errno {
-			// Ensure we always rewind to the beginning when we re-init.
-			if _, errno := f.Seek(0, io.SeekStart); errno != 0 {
-				return errno
-			}
-			return 0
-		},
-		func(n uint64) (fsapi.Readdir, syscall.Errno) {
-			fis, err := f.file.Readdir(int(n))
-			if errno = platform.UnwrapOSError(err); errno != 0 {
-				return nil, errno
-			}
-			dirents := make([]fsapi.Dirent, 0, len(fis))
-
-			// linux/darwin won't have to fan out to lstat, but windows will.
-			var ino uint64
-			for fi := range fis {
-				t := fis[fi]
-				if ino, errno = inoFromFileInfo(path, t); errno != 0 {
-					return nil, errno
-				}
-				dirents = append(dirents, fsapi.Dirent{Name: t.Name(), Ino: ino, Type: t.Mode().Type()})
-			}
-			return NewReaddirFromSlice(dirents), 0
-		})
-}
-
-//func readdir(f *os.File, path string) (dirs fsapi.Readdir, errno syscall.Errno) {
-//	return NewWindowedReaddir(
-//		func() syscall.Errno {
-//			// Ensure we always rewind to the beginning when we re-init.
-//			if _, errno := f.Seek(0, io.SeekStart); errno != nil {
-//				return platform.UnwrapOSError(errno)
-//			}
-//			return 0
-//		},
-//		func(n uint64) (fsapi.Readdir, syscall.Errno) {
-//			fis, err := f.Readdir(int(n))
-//			if errno = platform.UnwrapOSError(err); errno != 0 {
-//				return nil, errno
-//			}
-//			dirents := make([]fsapi.Dirent, 0, len(fis))
+// rawOsFile exposes the underlying *os.File of an fsapi.File implementation.
 //
-//			// linux/darwin won't have to fan out to lstat, but windows will.
-//			var ino uint64
-//			for fi := range fis {
-//				t := fis[fi]
-//				if ino, errno = inoFromFileInfo(path, t); errno != 0 {
-//					return nil, errno
-//				}
-//				dirents = append(dirents, fsapi.Dirent{Name: t.Name(), Ino: ino, Type: t.Mode().Type()})
-//			}
-//			return NewReaddirFromSlice(dirents), 0
-//		})
-//}
+// It is unexported because it is only used internally by newReaddirFromFile.
+// The implementation of an fsapi.File may mutate its own underlying *os.File
+// reference: notably, on Windows (esp. Go 1.18) it is not possible to Seek(0)
+// a directory. The only way to do it, is closing the directory and update
+// the corresponding reference (usually a field called `file`).
+//
+// Thus, we need to be able to hold a reference to the fsapi.File
+// and access only that specific `file` field.
+//
+// Capturing the underlying `file` field would capture that specific reference;
+// thus, if the `file` reference is updated, the captured value would point
+// to an old/invalid file descriptor.
+type rawOsFile interface {
+	fsapi.File
+	rawOsFile() *os.File
+}
+
+// rawOsFile implements the method of the same name in rawOsFile.
+func (f *fsFile) rawOsFile() *os.File {
+	return f.file.(*os.File)
+}
 
 func write(w io.Writer, buf []byte) (n int, errno syscall.Errno) {
 	if len(buf) == 0 {
@@ -821,4 +757,45 @@ func (d *windowedReaddir) Advance() syscall.Errno {
 	}
 	d.cursor++
 	return 0
+}
+
+// newReaddirFromFile captures a reference to the given rawOsFile (fsapi.File subtype)
+// and it fetches the directory listing to an underlying windowedReaddir.
+//
+// It is important that the fetch function captures a reference to an fsapi.File
+// rather than a *os.File, otherwise we may be mistakenly capturing a reference
+// that could be invalidated: *os.File references may mutate during the lifetime of
+// an fsapi.File.
+//
+// See also docs for rawOsFile.
+func newReaddirFromFile(f rawOsFile, path string) (fsapi.Readdir, syscall.Errno) {
+	init := func() syscall.Errno {
+		// Ensure we always rewind to the beginning when we re-init.
+		if _, errno := f.Seek(0, io.SeekStart); errno != 0 {
+			return errno
+		}
+		return 0
+	}
+
+	fetch := func(n uint64) (fsapi.Readdir, syscall.Errno) {
+		fis, err := f.rawOsFile().Readdir(int(n))
+		if errno := platform.UnwrapOSError(err); errno != 0 {
+			return nil, errno
+		}
+		dirents := make([]fsapi.Dirent, 0, len(fis))
+
+		// linux/darwin won't have to fan out to lstat, but windows will.
+		// var ino uint64
+		for fi := range fis {
+			t := fis[fi]
+			if ino, errno := inoFromFileInfo(path, t); errno != 0 {
+				return nil, errno
+			} else {
+				dirents = append(dirents, fsapi.Dirent{Name: t.Name(), Ino: ino, Type: t.Mode().Type()})
+			}
+		}
+		return NewReaddirFromSlice(dirents), 0
+	}
+
+	return NewWindowedReaddir(init, fetch)
 }
