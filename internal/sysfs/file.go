@@ -417,8 +417,7 @@ func (f *osFile) rawOsFile() *os.File {
 }
 
 func newReaddirFromFile(f rawOsFile, path string) (fsapi.Readdir, syscall.Errno) {
-
-	init := func(f fsapi.File) syscall.Errno {
+	init := func() syscall.Errno {
 		// Ensure we always rewind to the beginning when we re-init.
 		if _, errno := f.Seek(0, io.SeekStart); errno != 0 {
 			return errno
@@ -426,7 +425,7 @@ func newReaddirFromFile(f rawOsFile, path string) (fsapi.Readdir, syscall.Errno)
 		return 0
 	}
 
-	fetch := func(f rawOsFile, path string, n int) (fsapi.Readdir, syscall.Errno) {
+	fetch := func(n uint64) (fsapi.Readdir, syscall.Errno) {
 		fis, err := f.rawOsFile().Readdir(int(n))
 		if errno := platform.UnwrapOSError(err); errno != 0 {
 			return nil, errno
@@ -446,9 +445,7 @@ func newReaddirFromFile(f rawOsFile, path string) (fsapi.Readdir, syscall.Errno)
 		return NewReaddirFromSlice(dirents), 0
 	}
 
-	return NewWindowedReaddir(
-		func() syscall.Errno { return init(f) },
-		func(n uint64) (fsapi.Readdir, syscall.Errno) { return fetch(f, path, int(n)) })
+	return NewWindowedReaddir(init, fetch)
 }
 
 //func readdir(f *os.File, path string) (dirs fsapi.Readdir, errno syscall.Errno) {
