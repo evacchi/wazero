@@ -406,11 +406,7 @@ func seek(s io.Seeker, offset int64, whence int) (int64, syscall.Errno) {
 func readdirFS(f *fsFile, path string) (dirs fsapi.Readdir, errno syscall.Errno) {
 	return NewWindowedReaddir(
 		func() syscall.Errno {
-			// Ensure we always rewind to the beginning when we re-init.
-			if _, errno := f.Seek(0, io.SeekStart); errno != 0 {
-				return errno
-			}
-			return 0
+			return fetch(f)
 		},
 		func(n uint64) (fsapi.Readdir, syscall.Errno) {
 			ff := f.file.(*os.File)
@@ -436,11 +432,7 @@ func readdirFS(f *fsFile, path string) (dirs fsapi.Readdir, errno syscall.Errno)
 func readdir0(f *osFile, path string) (dirs fsapi.Readdir, errno syscall.Errno) {
 	return NewWindowedReaddir(
 		func() syscall.Errno {
-			// Ensure we always rewind to the beginning when we re-init.
-			if _, errno := f.Seek(0, io.SeekStart); errno != 0 {
-				return errno
-			}
-			return 0
+			return fetch(f)
 		},
 		func(n uint64) (fsapi.Readdir, syscall.Errno) {
 			fis, err := f.file.Readdir(int(n))
@@ -460,6 +452,14 @@ func readdir0(f *osFile, path string) (dirs fsapi.Readdir, errno syscall.Errno) 
 			}
 			return NewReaddirFromSlice(dirents), 0
 		})
+}
+
+func fetch(f fsapi.File) syscall.Errno {
+	// Ensure we always rewind to the beginning when we re-init.
+	if _, errno := f.Seek(0, io.SeekStart); errno != 0 {
+		return errno
+	}
+	return 0
 }
 
 //func readdir(f *os.File, path string) (dirs fsapi.Readdir, errno syscall.Errno) {
