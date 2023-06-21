@@ -260,7 +260,12 @@ func (f *fsFile) reopen() syscall.Errno {
 	_ = f.close()
 	var err error
 	f.file, err = f.fs.Open(f.name)
-	return platform.UnwrapOSError(err)
+	// If the file failed to reopen, then we flip the closed bit.
+	if err != nil {
+		f.closed = true
+		return platform.UnwrapOSError(err)
+	}
+	return 0
 }
 
 // Readdir implements File.Readdir. Notably, this uses fs.ReadDirFile if
@@ -284,11 +289,6 @@ func (f *fsFile) Readdir() (dirs fsapi.Readdir, errno syscall.Errno) {
 			return
 		}
 		dirents := make([]fsapi.Dirent, 0, 2+len(entries))
-		// fixme just checking a theory; reads that are >1 require . and ..
-		//if n > 0 {
-		//	result, _ := synthesizeDotEntries(f)
-		//	dirents = append(dirents, result...)
-		//}
 		for _, e := range entries {
 			// By default, we don't attempt to read inode data
 			dirents = append(dirents, fsapi.Dirent{Name: e.Name(), Type: e.Type()})
@@ -335,9 +335,6 @@ func (f *fsFile) Close() syscall.Errno {
 }
 
 func (f *fsFile) close() syscall.Errno {
-	if f.file == nil {
-		return 0
-	}
 	return platform.UnwrapOSError(f.file.Close())
 }
 

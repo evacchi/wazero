@@ -1061,7 +1061,7 @@ func dirEmbedMapFS(t *testing.T, tmpDir string) (fs.FS, fs.FS, fs.FS) {
 	return dirFS, embedFS, mapFS
 }
 
-func TestReaddir(t *testing.T) {
+func TestReaddirStructs(t *testing.T) {
 	makeDirents := func(begin, end int) []fsapi.Dirent {
 		dirents := make([]fsapi.Dirent, end-begin)
 		for i := begin; i < end; i++ {
