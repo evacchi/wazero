@@ -185,7 +185,7 @@ func (f *osFile) PollRead(timeout *time.Duration) (ready bool, errno syscall.Err
 // Readdir implements File.Readdir. Notably, this uses "Readdir", not
 // "ReadDir", from os.File.
 func (f *osFile) Readdir() (dirs fsapi.Readdir, errno syscall.Errno) {
-	if dirs, errno = readdir0(f, f.path); errno != 0 {
+	if dirs, errno = newReaddirFromFile(f, f.path); errno != 0 {
 		errno = adjustReaddirErr(f, f.closed, errno)
 		dirs = emptyReaddir{}
 	}

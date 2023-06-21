@@ -270,7 +270,7 @@ func (f *fsFile) Readdir() (dirs fsapi.Readdir, errno syscall.Errno) {
 		// We can't use f.name here because it is the path up to the fsapi.FS,
 		// not necessarily the real path. For this reason, Windows may not be
 		// able to populate inodes. However, Darwin and Linux will.
-		if dirs, errno = readdirFS(f); errno != 0 {
+		if dirs, errno = newReaddirFromFile(f, ""); errno != 0 {
 			errno = adjustReaddirErr(f, f.closed, errno)
 		}
 		return
@@ -414,6 +414,12 @@ func (f *fsFile) rawOsFile() *os.File {
 
 func (f *osFile) rawOsFile() *os.File {
 	return f.file
+}
+
+func newReaddirFromFile(f rawOsFile, path string) (fsapi.Readdir, syscall.Errno) {
+	return NewWindowedReaddir(
+		func() syscall.Errno { return reset(f) },
+		func(n uint64) (fsapi.Readdir, syscall.Errno) { return fetch(f, path, int(n)) })
 }
 
 func readdirFS(f *fsFile) (dirs fsapi.Readdir, errno syscall.Errno) {
