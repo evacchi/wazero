@@ -436,19 +436,20 @@ func readdir0(f *osFile, path string) (dirs fsapi.Readdir, errno syscall.Errno) 
 		},
 		func(n uint64) (fsapi.Readdir, syscall.Errno) {
 			fis, err := f.file.Readdir(int(n))
-			if errno = platform.UnwrapOSError(err); errno != 0 {
+			if errno := platform.UnwrapOSError(err); errno != 0 {
 				return nil, errno
 			}
 			dirents := make([]fsapi.Dirent, 0, len(fis))
 
 			// linux/darwin won't have to fan out to lstat, but windows will.
-			var ino uint64
+			// var ino uint64
 			for fi := range fis {
 				t := fis[fi]
-				if ino, errno = inoFromFileInfo(path, t); errno != 0 {
+				if ino, errno := inoFromFileInfo(path, t); errno != 0 {
 					return nil, errno
+				} else {
+					dirents = append(dirents, fsapi.Dirent{Name: t.Name(), Ino: ino, Type: t.Mode().Type()})
 				}
-				dirents = append(dirents, fsapi.Dirent{Name: t.Name(), Ino: ino, Type: t.Mode().Type()})
 			}
 			return NewReaddirFromSlice(dirents), 0
 		})
