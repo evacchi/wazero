@@ -403,13 +403,26 @@ func seek(s io.Seeker, offset int64, whence int) (int64, syscall.Errno) {
 	return newOffset, platform.UnwrapOSError(err)
 }
 
+type rawOsFile interface {
+	fsapi.File
+	rawOsFile() *os.File
+}
+
+func (f *fsFile) rawOsFile() *os.File {
+	return f.file.(*os.File)
+}
+
+func (f *osFile) rawOsFile() *os.File {
+	return f.file
+}
+
 func readdirFS(f *fsFile) (dirs fsapi.Readdir, errno syscall.Errno) {
 	return NewWindowedReaddir(
 		func() syscall.Errno {
 			return reset(f)
 		},
 		func(n uint64) (fsapi.Readdir, syscall.Errno) {
-			return fetch(f.file.(*os.File), "", int(n))
+			return fetch(f, "", int(n))
 
 			// fis, err := ff.Readdir(int(n))
 			// if errno = platform.UnwrapOSError(err); errno != 0 {
@@ -436,12 +449,12 @@ func readdir0(f *osFile, path string) (dirs fsapi.Readdir, errno syscall.Errno) 
 			return reset(f)
 		},
 		func(n uint64) (fsapi.Readdir, syscall.Errno) {
-			return fetch(f.file, path, int(n))
+			return fetch(f, path, int(n))
 		})
 }
 
-func fetch(of *os.File, path string, n int) (fsapi.Readdir, syscall.Errno) {
-	fis, err := of.Readdir(int(n))
+func fetch(f rawOsFile, path string, n int) (fsapi.Readdir, syscall.Errno) {
+	fis, err := f.rawOsFile().Readdir(int(n))
 	if errno := platform.UnwrapOSError(err); errno != 0 {
 		return nil, errno
 	}
