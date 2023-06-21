@@ -270,7 +270,7 @@ func (f *fsFile) Readdir() (dirs fsapi.Readdir, errno syscall.Errno) {
 		// We can't use f.name here because it is the path up to the fsapi.FS,
 		// not necessarily the real path. For this reason, Windows may not be
 		// able to populate inodes. However, Darwin and Linux will.
-		if dirs, errno = readdirFS(f, ""); errno != 0 {
+		if dirs, errno = readdirFS(f); errno != 0 {
 			errno = adjustReaddirErr(f, f.closed, errno)
 		}
 		return
@@ -403,7 +403,7 @@ func seek(s io.Seeker, offset int64, whence int) (int64, syscall.Errno) {
 	return newOffset, platform.UnwrapOSError(err)
 }
 
-func readdirFS(f *fsFile, path string) (dirs fsapi.Readdir, errno syscall.Errno) {
+func readdirFS(f *fsFile) (dirs fsapi.Readdir, errno syscall.Errno) {
 	return NewWindowedReaddir(
 		func() syscall.Errno {
 			return fetch(f)
@@ -420,7 +420,7 @@ func readdirFS(f *fsFile, path string) (dirs fsapi.Readdir, errno syscall.Errno)
 			var ino uint64
 			for fi := range fis {
 				t := fis[fi]
-				if ino, errno = inoFromFileInfo(path, t); errno != 0 {
+				if ino, errno = inoFromFileInfo("", t); errno != 0 {
 					return nil, errno
 				}
 				dirents = append(dirents, fsapi.Dirent{Name: t.Name(), Ino: ino, Type: t.Mode().Type()})
