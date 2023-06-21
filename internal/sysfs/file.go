@@ -562,6 +562,7 @@ func (c *concatReaddir) Reset() syscall.Errno {
 	if errno != 0 {
 		return errno
 	}
+	c.current = c.first
 	return 0
 }
 
@@ -594,12 +595,15 @@ func (c *concatReaddir) Rewind(cookie int64) syscall.Errno {
 // Peek implements the method of the same name in fsapi.Readdir.
 func (c *concatReaddir) Peek() (*fsapi.Dirent, syscall.Errno) {
 	el, errno := c.current.Peek()
-	if errno != 0 {
+	if errno == syscall.ENOENT {
 		if c.current != c.second {
 			c.current = c.second
 			el, errno = c.current.Peek()
 		}
 		return el, errno
+	}
+	if errno != 0 {
+		return nil, errno
 	}
 	return el, 0
 }
@@ -621,8 +625,8 @@ const direntBufSize = 16
 
 // windowedReaddir implements fsapi.Readdir
 //
-// windowedReaddir iterates over the contents of a directory
-// lazily fetching data over a sliding window.
+// windowedReaddir iterates over the contents of a directory,
+// lazily fetching data to a moving buffer window.
 type windowedReaddir struct {
 	// cursor is the total count of files read including Dirents.
 	//
@@ -637,16 +641,15 @@ type windowedReaddir struct {
 	//   cursor uint64
 	cursor uint64
 
+	// init is called on Reset().
+	//
+	// It may be used to reset an internal cursor, seek a directory
+	// to its beginning, closing and reopening a file etc.
 	init func() syscall.Errno
 
 	// window is an fsapi.Readdir over a fixed buffer of size direntBufSize.
 	// Notably, directory listing are not rewindable, so we keep entries around
 	// in case the caller mis-estimated their buffer and needs a few still cached.
-	//
-	// Note: This is wasi-specific and needs to be refactored.
-	// In wasi preview1, dot and dot-dot entries are required to exist, but the
-	// reverse is true for preview2. More importantly, preview2 holds separate
-	// stateful dir-entry-streams per file.
 	window fsapi.Readdir
 
 	// fetch fetches a new batch of direntBufSize elements.
@@ -667,13 +670,10 @@ func NewWindowedReaddir(
 	}
 }
 
-// init resets the cursor and invokes the fetch method to reset
-// the internal state of the Readdir struct.
-//
-// Note: this is different from Reset, because it will not short-circuit
-// when cursor is already 0, but it will force an unconditional reload.
-
 // Reset implements the method of the same name in fsapi.Readdir.
+//
+// It zeroes the cursor and invokes the fetch method to reset
+// the internal state of the Readdir struct.
 func (d *windowedReaddir) Reset() syscall.Errno {
 	errno := d.init()
 	if errno != 0 {
@@ -707,13 +707,12 @@ func (d *windowedReaddir) Cookie() uint64 {
 // Rewind implements the method of the same name in fsapi.Readdir.
 func (d *windowedReaddir) Rewind(cookie int64) syscall.Errno {
 	unsignedCookie := uint64(cookie)
+	println(unsignedCookie)
 	switch {
 	case cookie < 0 || unsignedCookie > d.cursor:
 		// the cookie can neither be negative nor can it be larger than cursor.
 		return syscall.EINVAL
-	// case cookie == 0 && d.cursor == 0:
-	//	return 0
-	case cookie == 0: // && d.cursor != 0:
+	case cookie == 0:
 		// This means that there was a previous call to the dir, but cookie is reset.
 		// This happens when the program calls rewinddir, for example:
 		// https://github.com/WebAssembly/wasi-libc/blob/659ff414560721b1660a19685110e484a081c3d4/libc-bottom-half/cloudlibc/src/libc/dirent/rewinddir.c#L10-L12

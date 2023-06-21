@@ -153,7 +153,6 @@ func TestReaddir(t *testing.T) {
 		dirents, errno := fsapi.Collect(dirs)
 		require.EqualErrno(t, 0, errno)
 		_ = dirents
-		// require.Equal(t, 1, len(dirents))
 
 		// Speculatively try to remove even if it won't likely work
 		// on windows.
