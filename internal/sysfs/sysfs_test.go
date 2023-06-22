@@ -128,7 +128,6 @@ func testOpen_Read(t *testing.T, testFS fsapi.FS, expectIno bool) {
 		require.EqualErrno(t, 0, errno)
 		dirent3, errno := dirs.Peek()
 		require.EqualErrno(t, 0, errno)
-		// require.Equal(t, 1, len(dirents3))
 
 		dirents := []fsapi.Dirent{*dirent1, *dirent2, *dirent3}
 		sort.Slice(dirents, func(i, j int) bool { return dirents[i].Name < dirents[j].Name })

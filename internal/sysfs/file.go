@@ -241,7 +241,7 @@ func (f *fsFile) Seek(offset int64, whence int) (newOffset int64, errno syscall.
 		if isDir, errno = f.IsDir(); errno != 0 {
 			return
 		} else if isDir {
-			return 0, f.reopen() // It may return file not found if the file has been deleted in the meantime.
+			return 0, f.reopen()
 		}
 	}
 
@@ -260,7 +260,7 @@ func (f *fsFile) reopen() syscall.Errno {
 	_ = f.close()
 	var err error
 	f.file, err = f.fs.Open(f.name)
-	// If the file failed to reopen, then we flip the closed bit.
+	// If the file failed to reopen (e.g. deleted in the meantime), then we flip the closed bit.
 	if err != nil {
 		f.closed = true
 		return platform.UnwrapOSError(err)

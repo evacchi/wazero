@@ -157,11 +157,16 @@ func (f *osFile) Seek(offset int64, whence int) (newOffset int64, errno syscall.
 		// Defer validation overhead until we've already had an error.
 		errno = fileError(f, f.closed, errno)
 
-		isDir, _ := f.IsDir()
-
 		// If the error was trying to rewind a directory, re-open it. Notably,
 		// seeking to zero on a directory doesn't work on Windows with Go 1.18.
-		if errno == syscall.EISDIR || (isDir && f.closed) && offset == 0 && whence == io.SeekStart {
+		mustReopen := errno == syscall.EISDIR
+		if !mustReopen {
+			// In some cases, the error may not be EISDIR; but if the file is a directory,
+			// and it is closed, we can try to reopen it anyway.
+			isDir, _ := f.IsDir()
+			mustReopen = isDir && f.closed
+		}
+		if mustReopen && offset == 0 && whence == io.SeekStart {
 			return 0, f.reopen()
 		}
 	}

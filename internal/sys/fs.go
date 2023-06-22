@@ -141,35 +141,39 @@ func (c *FSContext) LookupFile(fd int32) (*FileEntry, bool) {
 
 // LookupReaddir returns a Readdir struct or creates an empty one if it was not present.
 //
-// Note: this currently assumes that idx == fd, where fd is the file descriptor of the directory.
-// CloseFile will delete this idx from the internal store. In the future, idx may be independent
-// of a file fd, and the idx may have to be disposed with an explicit CloseReaddir.
+// Notes:
+//   - this currently assumes that idx == fd, where fd is the file descriptor of the directory.
+//     CloseFile will delete this idx from the internal store. In the future, idx may be independent
+//     of a file fd, and the idx may have to be disposed with an explicit CloseReaddir.
+//   - LookupReaddir is used in wasip1 fd_readdir. In wasip1 dot and dot-dot entries are required to exist,
+//     but the reverse is true for preview2. Thus, when LookupReaddir retrieves a Readdir instance
+//     via File.Readdir, we locally prepend dot entries to it and store that result.
 func (c *FSContext) LookupReaddir(idx int32, f *FileEntry) (fsapi.Readdir, syscall.Errno) {
 	if item, _ := c.readdirs.Lookup(idx); item != nil {
 		return item, 0
 	} else {
-		item, err := f.File.Readdir()
-		// Prefix the readdir listing with "." and "..".
-		dirents, errno := dotDirents(f)
+		readdir, err := f.File.Readdir()
+		// Create a Readdir with "." and "..".
+		dotEntries, errno := dotReaddir(f)
 		if errno != 0 {
 			return nil, errno
 		}
-		item = sysfs.NewConcatReaddir(
-			sysfs.NewReaddirFromSlice(dirents), item)
+		// Prepend the dot-entries to the real directory listing.
+		readdir = sysfs.NewConcatReaddir(dotEntries, readdir)
 		if err != 0 {
 			return nil, err
 		}
-		ok := c.readdirs.InsertAt(item, idx)
+		ok := c.readdirs.InsertAt(readdir, idx)
 		if !ok {
 			return nil, syscall.EINVAL
 		}
-		return item, 0
+		return readdir, 0
 	}
 }
 
-// dotDirents returns "." and "..", where "." because wasi-testsuite does inode
+// dotReaddir returns "." and "..", where "." because wasi-testsuite does inode
 // validation.
-func dotDirents(f *FileEntry) ([]fsapi.Dirent, syscall.Errno) {
+func dotReaddir(f *FileEntry) (fsapi.Readdir, syscall.Errno) {
 	if isDir, errno := f.File.IsDir(); errno != 0 {
 		return nil, errno
 	} else if !isDir {
@@ -187,10 +191,11 @@ func dotDirents(f *FileEntry) ([]fsapi.Dirent, syscall.Errno) {
 			dotDotIno = st.Ino
 		}
 	}
-	return []fsapi.Dirent{
+	dirents := []fsapi.Dirent{
 		{Name: ".", Ino: dotIno, Type: fs.ModeDir},
 		{Name: "..", Ino: dotDotIno, Type: fs.ModeDir},
-	}, 0
+	}
+	return sysfs.NewReaddirFromSlice(dirents), 0
 }
 
 // CloseReaddir delete the Readdir struct at the given index

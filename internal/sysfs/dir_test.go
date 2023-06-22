@@ -100,7 +100,6 @@ func TestReaddir(t *testing.T) {
 				require.EqualErrno(t, 0, errno)
 				dirent3, errno := dirs.Peek()
 				require.EqualErrno(t, 0, errno)
-				// require.Equal(t, 1, len(dirents3))
 
 				dirents := []fsapi.Dirent{*dirent1, *dirent2, *dirent3}
 				sort.Slice(dirents, func(i, j int) bool { return dirents[i].Name < dirents[j].Name })
@@ -150,9 +149,10 @@ func TestReaddir(t *testing.T) {
 
 		dirs, errno := dirF.Readdir()
 		require.EqualErrno(t, 0, errno)
-		dirents, errno := fsapi.Collect(dirs)
+		_, errno = dirs.Peek()
 		require.EqualErrno(t, 0, errno)
-		_ = dirents
+		errno = dirs.Advance()
+		require.EqualErrno(t, 0, errno)
 
 		// Speculatively try to remove even if it won't likely work
 		// on windows.
