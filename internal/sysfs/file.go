@@ -294,9 +294,6 @@ func (f *fsFile) Readdir() (dirs fsapi.Readdir, errno syscall.Errno) {
 		// not necessarily the real path. For this reason, Windows may not be
 		// able to populate inodes. However, Darwin and Linux will.
 		if dirs, errno = newReaddirFromFile(f, ""); errno != 0 {
-			if errno == syscall.EINVAL {
-				return dirs, syscall.ENOTDIR
-			}
 			errno = adjustReaddirErr(f, f.closed, errno)
 		}
 		return
