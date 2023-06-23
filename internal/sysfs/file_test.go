@@ -1073,8 +1073,6 @@ func TestReaddirStructs(t *testing.T) {
 	}
 
 	tempDir := t.TempDir()
-	file, err := os.Open(tempDir)
-	require.NoError(t, err)
 
 	numFiles := 3*direntBufSize + 5
 	for i := 0; i < numFiles; i++ {
@@ -1138,7 +1136,8 @@ func TestReaddirStructs(t *testing.T) {
 						readdir := NewReaddirFromSlice(makeDirents(int(count), int(count+n)))
 						count += n
 						return readdir, 0
-					})
+					},
+					func() syscall.Errno { return 0 })
 				require.EqualErrno(t, 0, errno)
 				return readdir
 			},
@@ -1147,6 +1146,8 @@ func TestReaddirStructs(t *testing.T) {
 			name:         "windowedReaddir (from file)",
 			expectedSize: numFiles,
 			newReaddir: func() fsapi.Readdir {
+				file, err := os.Open(tempDir)
+				require.NoError(t, err)
 				readdir, errno := newReaddirFromFile(file, tempDir)
 				require.EqualErrno(t, 0, errno)
 				return readdir
@@ -1256,6 +1257,11 @@ func TestReaddirStructs(t *testing.T) {
 			for _, tc := range tests {
 				t.Run(tc.name, func(t *testing.T) {
 					d := c.newReaddir()
+					defer func() {
+						if errno := d.Close(); errno != 0 {
+							panic(errno)
+						}
+					}()
 					tc.f(t, d, c.expectedSize)
 				})
 			}

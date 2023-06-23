@@ -407,6 +407,17 @@ type Readdir interface {
 	// Errors:
 	//   - syscall.ENOENT when there are no entries left in the directory.
 	Next() syscall.Errno
+
+	// Close closes the underlying file.
+	//
+	// A zero syscall.Errno is success. The below are expected otherwise:
+	//   - syscall.ENOSYS: the implementation does not support this function.
+	//
+	// # Notes
+	//
+	//   - This is like syscall.Close and `close` in POSIX. See
+	//     https://pubs.opengroup.org/onlinepubs/9699919799/functions/close.html
+	Close() syscall.Errno
 }
 
 // Collect reads eagerly all the values returned byt the given

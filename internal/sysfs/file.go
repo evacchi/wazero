@@ -480,6 +480,9 @@ func (e emptyReaddir) Peek() (*fsapi.Dirent, syscall.Errno) { return nil, syscal
 // Next implements the same method as documented on fsapi.Readdir.
 func (e emptyReaddir) Next() syscall.Errno { return syscall.ENOENT }
 
+// Close implements the same method as documented on fsapi.Readdir.
+func (e emptyReaddir) Close() syscall.Errno { return 0 }
+
 // compile-time check to ensure sliceReaddir implements fsapi.Readdir.
 var _ fsapi.Readdir = (*sliceReaddir)(nil)
 
@@ -552,6 +555,9 @@ func (s *sliceReaddir) Next() syscall.Errno {
 	s.cursor++
 	return 0
 }
+
+// Close implements the same method as documented on fsapi.Readdir.
+func (e *sliceReaddir) Close() syscall.Errno { return 0 }
 
 // compile-time check to ensure concatReaddir implements fsapi.Readdir.
 var _ fsapi.Readdir = (*concatReaddir)(nil)
@@ -637,6 +643,20 @@ func (c *concatReaddir) Next() syscall.Errno {
 	return 0
 }
 
+// Close implements the same method as documented on fsapi.Readdir.
+func (c *concatReaddir) Close() syscall.Errno {
+	err1 := c.first.Close()
+	err2 := c.second.Close()
+	// Return at least one of the error codes.
+	if err1 != 0 {
+		return err1
+	}
+	if err2 != 0 {
+		return err2
+	}
+	return 0
+}
+
 const direntBufSize = 16
 
 // compile-time check to ensure windowedReaddir implements fsapi.Readdir.
@@ -660,27 +680,31 @@ type windowedReaddir struct {
 	//   cursor uint64
 	cursor uint64
 
+	// window is an fsapi.Readdir over a fixed buffer of size direntBufSize.
+	// Notably, directory listing are not rewindable, so we keep entries around
+	// in case the caller mis-estimated their buffer and needs a few still cached.
+	window fsapi.Readdir
+
 	// init is called on Reset().
 	//
 	// It may be used to reset an internal cursor, seek a directory
 	// to its beginning, closing and reopening a file etc.
 	init func() syscall.Errno
 
-	// window is an fsapi.Readdir over a fixed buffer of size direntBufSize.
-	// Notably, directory listing are not rewindable, so we keep entries around
-	// in case the caller mis-estimated their buffer and needs a few still cached.
-	window fsapi.Readdir
-
 	// fetch fetches a new batch of direntBufSize elements.
 	fetch func(n uint64) (fsapi.Readdir, syscall.Errno)
+
+	// close closes the underliying implementation.
+	close func() syscall.Errno
 }
 
 // NewWindowedReaddir is a constructor for Readdir. It takes a dirInit
 func NewWindowedReaddir(
 	init func() syscall.Errno,
 	fetch func(n uint64) (fsapi.Readdir, syscall.Errno),
+	close func() syscall.Errno,
 ) (fsapi.Readdir, syscall.Errno) {
-	d := &windowedReaddir{init: init, fetch: fetch, window: emptyReaddir{}}
+	d := &windowedReaddir{init: init, fetch: fetch, close: close, window: emptyReaddir{}}
 	errno := d.Reset()
 	if errno != 0 {
 		return nil, errno
@@ -775,6 +799,11 @@ func (d *windowedReaddir) Next() syscall.Errno {
 	return 0
 }
 
+// Close implements the same method as documented on fsapi.Readdir.
+func (c *windowedReaddir) Close() syscall.Errno {
+	return c.close()
+}
+
 // newReaddirFromFile captures a reference to the given rawOsFile (fsapi.File subtype)
 // and it fetches the directory listing to an underlying windowedReaddir.
 //
@@ -813,5 +842,9 @@ func newReaddirFromFile(f *os.File, path string) (fsapi.Readdir, syscall.Errno) 
 		return NewReaddirFromSlice(dirents), 0
 	}
 
-	return NewWindowedReaddir(init, fetch)
+	close := func() syscall.Errno {
+		return platform.UnwrapOSError(f.Close())
+	}
+
+	return NewWindowedReaddir(init, fetch, close)
 }

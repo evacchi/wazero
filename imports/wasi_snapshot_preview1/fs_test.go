@@ -3648,8 +3648,8 @@ func Test_pathLink(t *testing.T) {
 
 	t.Run("errors", func(t *testing.T) {
 		for _, tc := range []struct {
-			errno wasip1.Errno
-			oldFd int32
+			errno                               wasip1.Errno
+			oldFd                               int32
 			/* oldFlags, */ oldPath, oldPathLen uint32
 			newFd                               int32
 			newPath, newPathLen                 uint32
@@ -4966,6 +4966,9 @@ func Test_fdReaddir_dotEntriesHaveRealInodes(t *testing.T) {
 	// Try to list them!
 	resultBufused := uint32(0) // where to write the amount used out of bufLen
 	buf := uint32(8)           // where to start the dirents
+
+	// FdReaddir will instantiate a Readdir, we make sure this is closed at the end.
+	defer fsc.CloseReaddir(fd)
 	requireErrnoResult(t, wasip1.ErrnoSuccess, mod, wasip1.FdReaddirName,
 		uint64(fd), uint64(buf), uint64(0x2000), 0, uint64(resultBufused))
 
@@ -5035,9 +5038,13 @@ func Test_fdReaddir_opened_file_written(t *testing.T) {
 	dirents = append(dirents, 4, 0, 0, 0)             // d_type = regular_file
 	dirents = append(dirents, 'f', 'i', 'l', 'e')     // name
 
+	// FdReaddir will instantiate a Readdir, we make sure this is closed at the end.
+	defer fsc.CloseReaddir(dirFD)
+
 	// Try to list them!
 	resultBufused := uint32(0) // where to write the amount used out of bufLen
 	buf := uint32(8)           // where to start the dirents
+
 	requireErrnoResult(t, wasip1.ErrnoSuccess, mod, wasip1.FdReaddirName,
 		uint64(dirFD), uint64(buf), uint64(0x2000), 0, uint64(resultBufused))
 
