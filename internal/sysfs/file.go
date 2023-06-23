@@ -275,7 +275,17 @@ func (f *fsFile) Readdir() (dirs fsapi.Readdir, errno syscall.Errno) {
 		// We can't use f.name here because it is the path up to the fsapi.FS,
 		// not necessarily the real path. For this reason, Windows may not be
 		// able to populate inodes. However, Darwin and Linux will.
-		if dirs, errno = newReaddirFromFile(f, ""); errno != 0 {
+
+		file, err := f.fs.Open(f.name)
+		if errno := platform.UnwrapOSError(err); errno != 0 {
+			if errno == syscall.ENOENT {
+				return emptyReaddir{}, 0
+			}
+			return nil, errno
+		}
+		of := file.(*os.File)
+
+		if dirs, errno = newReaddirFromFile(of, ""); errno != 0 {
 			errno = adjustReaddirErr(f, f.closed, errno)
 		}
 		return
@@ -418,6 +428,8 @@ type rawOsFile interface {
 	fsapi.File
 	rawOsFile() *os.File
 }
+
+var _ rawOsFile = rawOsFile(nil)
 
 // rawOsFile implements the same method as documented on rawOsFile.
 func (f *fsFile) rawOsFile() *os.File {
@@ -772,17 +784,17 @@ func (d *windowedReaddir) Next() syscall.Errno {
 // an fsapi.File.
 //
 // See also docs for rawOsFile.
-func newReaddirFromFile(f rawOsFile, path string) (fsapi.Readdir, syscall.Errno) {
+func newReaddirFromFile(f *os.File, path string) (fsapi.Readdir, syscall.Errno) {
 	init := func() syscall.Errno {
 		// Ensure we always rewind to the beginning when we re-init.
-		if _, errno := f.Seek(0, io.SeekStart); errno != 0 {
-			return errno
+		if _, errno := f.Seek(0, io.SeekStart); errno != nil {
+			return platform.UnwrapOSError(errno)
 		}
 		return 0
 	}
 
 	fetch := func(n uint64) (fsapi.Readdir, syscall.Errno) {
-		fis, err := f.rawOsFile().Readdir(int(n))
+		fis, err := f.Readdir(int(n))
 		if errno := platform.UnwrapOSError(err); errno != 0 {
 			return nil, errno
 		}

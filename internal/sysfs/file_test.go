@@ -1073,7 +1073,9 @@ func TestReaddirStructs(t *testing.T) {
 	}
 
 	tempDir := t.TempDir()
-	file, errno := OpenOSFile(tempDir, syscall.O_RDONLY, 0)
+	file, err := os.Open(tempDir)
+	require.NoError(t, err)
+
 	numFiles := 3*direntBufSize + 5
 	for i := 0; i < numFiles; i++ {
 		fname := fmt.Sprintf("f_%d.dat", i)
@@ -1083,8 +1085,6 @@ func TestReaddirStructs(t *testing.T) {
 			panic(err)
 		}
 	}
-
-	require.EqualErrno(t, 0, errno)
 
 	cons := []struct {
 		name         string
@@ -1147,7 +1147,7 @@ func TestReaddirStructs(t *testing.T) {
 			name:         "windowedReaddir (from file)",
 			expectedSize: numFiles,
 			newReaddir: func() fsapi.Readdir {
-				readdir, errno := newReaddirFromFile(file.(rawOsFile), tempDir)
+				readdir, errno := newReaddirFromFile(file, tempDir)
 				require.EqualErrno(t, 0, errno)
 				return readdir
 			},
