@@ -419,7 +419,7 @@ type rawOsFile interface {
 	rawOsFile() *os.File
 }
 
-// rawOsFile implements the method of the same name in rawOsFile.
+// rawOsFile implements the same method as documented on rawOsFile.
 func (f *fsFile) rawOsFile() *os.File {
 	return f.file.(*os.File)
 }
@@ -447,23 +447,23 @@ func pwrite(w io.WriterAt, buf []byte, off int64) (n int, errno syscall.Errno) {
 // emptyReaddir is an empty fsapi.Readdir.
 type emptyReaddir struct{}
 
-// Reset implements the method of the same name in fsapi.Readdir.
+// Reset implements the same method as documented on fsapi.Readdir.
 func (e emptyReaddir) Reset() syscall.Errno { return 0 }
 
-// Skip implements the method of the same name in fsapi.Readdir.
+// Skip implements the same method as documented on fsapi.Readdir.
 func (e emptyReaddir) Skip(uint64) {}
 
-// Cookie implements the method of the same name in fsapi.Readdir.
+// Cookie implements the same method as documented on fsapi.Readdir.
 func (e emptyReaddir) Cookie() uint64 { return 0 }
 
-// Rewind implements the method of the same name in fsapi.Readdir.
+// Rewind implements the same method as documented on fsapi.Readdir.
 func (e emptyReaddir) Rewind(int64) syscall.Errno { return 0 }
 
-// Peek implements the method of the same name in fsapi.Readdir.
+// Peek implements the same method as documented on fsapi.Readdir.
 func (e emptyReaddir) Peek() (*fsapi.Dirent, syscall.Errno) { return nil, syscall.ENOENT }
 
-// Advance implements the method of the same name in fsapi.Readdir.
-func (e emptyReaddir) Advance() syscall.Errno { return syscall.ENOENT }
+// Next implements the same method as documented on fsapi.Readdir.
+func (e emptyReaddir) Next() syscall.Errno { return syscall.ENOENT }
 
 // NewReaddirFromSlice is a constructor for fsapi.Readdir that only takes a []fsapi.Dirent.
 func NewReaddirFromSlice(dirents []fsapi.Dirent) fsapi.Readdir {
@@ -479,23 +479,23 @@ type sliceReaddir struct {
 	dirents []fsapi.Dirent
 }
 
-// Reset implements the method of the same name in fsapi.Readdir.
+// Reset implements the same method as documented on fsapi.Readdir.
 func (s *sliceReaddir) Reset() syscall.Errno {
 	s.cursor = 0
 	return 0
 }
 
-// Skip implements the method of the same name in fsapi.Readdir.
+// Skip implements the same method as documented on fsapi.Readdir.
 func (s *sliceReaddir) Skip(n uint64) {
 	s.cursor += n
 }
 
-// Cookie implements the method of the same name in fsapi.Readdir.
+// Cookie implements the same method as documented on fsapi.Readdir.
 func (s *sliceReaddir) Cookie() uint64 {
 	return s.cursor
 }
 
-// Rewind implements the method of the same name in fsapi.Readdir.
+// Rewind implements the same method as documented on fsapi.Readdir.
 func (s *sliceReaddir) Rewind(cookie int64) syscall.Errno {
 	unsignedCookie := uint64(cookie)
 	switch {
@@ -519,7 +519,7 @@ func (s *sliceReaddir) Rewind(cookie int64) syscall.Errno {
 	}
 }
 
-// Peek implements the method of the same name in fsapi.Readdir.
+// Peek implements the same method as documented on fsapi.Readdir.
 func (s *sliceReaddir) Peek() (*fsapi.Dirent, syscall.Errno) {
 	if s.cursor >= uint64(len(s.dirents)) {
 		return nil, syscall.ENOENT
@@ -527,8 +527,8 @@ func (s *sliceReaddir) Peek() (*fsapi.Dirent, syscall.Errno) {
 	return &s.dirents[s.cursor], 0
 }
 
-// Advance implements the method of the same name in fsapi.Readdir.
-func (s *sliceReaddir) Advance() syscall.Errno {
+// Next implements the same method as documented on fsapi.Readdir.
+func (s *sliceReaddir) Next() syscall.Errno {
 	if s.cursor == uint64(len(s.dirents)) {
 		return syscall.ENOENT
 	}
@@ -549,7 +549,7 @@ func NewConcatReaddir(first fsapi.Readdir, second fsapi.Readdir) fsapi.Readdir {
 	return &concatReaddir{first: first, second: second, current: first}
 }
 
-// Reset implements the method of the same name in fsapi.Readdir.
+// Reset implements the same method as documented on fsapi.Readdir.
 func (c *concatReaddir) Reset() syscall.Errno {
 	errno := c.first.Reset()
 	if errno != 0 {
@@ -563,19 +563,19 @@ func (c *concatReaddir) Reset() syscall.Errno {
 	return 0
 }
 
-// Skip implements the method of the same name in fsapi.Readdir.
+// Skip implements the same method as documented on fsapi.Readdir.
 func (c *concatReaddir) Skip(n uint64) {
 	for i := uint64(0); i < n; i++ {
-		_ = c.Advance()
+		_ = c.Next()
 	}
 }
 
-// Cookie implements the method of the same name in fsapi.Readdir.
+// Cookie implements the same method as documented on fsapi.Readdir.
 func (c *concatReaddir) Cookie() uint64 {
 	return c.first.Cookie() + c.second.Cookie()
 }
 
-// Rewind implements the method of the same name in fsapi.Readdir.
+// Rewind implements the same method as documented on fsapi.Readdir.
 func (c *concatReaddir) Rewind(cookie int64) syscall.Errno {
 	ck := cookie - int64(c.first.Cookie())
 	if ck > 0 {
@@ -589,7 +589,7 @@ func (c *concatReaddir) Rewind(cookie int64) syscall.Errno {
 	}
 }
 
-// Peek implements the method of the same name in fsapi.Readdir.
+// Peek implements the same method as documented on fsapi.Readdir.
 func (c *concatReaddir) Peek() (*fsapi.Dirent, syscall.Errno) {
 	el, errno := c.current.Peek()
 	if errno == syscall.ENOENT {
@@ -605,13 +605,13 @@ func (c *concatReaddir) Peek() (*fsapi.Dirent, syscall.Errno) {
 	return el, 0
 }
 
-// Advance implements the method of the same name in fsapi.Readdir.
-func (c *concatReaddir) Advance() syscall.Errno {
-	errno := c.current.Advance()
+// Next implements the same method as documented on fsapi.Readdir.
+func (c *concatReaddir) Next() syscall.Errno {
+	errno := c.current.Next()
 	if errno != 0 {
 		if c.current != c.second {
 			c.current = c.second
-			errno = c.current.Advance()
+			errno = c.current.Next()
 		}
 		return errno
 	}
@@ -667,7 +667,7 @@ func NewWindowedReaddir(
 	}
 }
 
-// Reset implements the method of the same name in fsapi.Readdir.
+// Reset implements the same method as documented on fsapi.Readdir.
 //
 // It zeroes the cursor and invokes the fetch method to reset
 // the internal state of the Readdir struct.
@@ -685,23 +685,23 @@ func (d *windowedReaddir) Reset() syscall.Errno {
 	return 0
 }
 
-// Skip implements the method of the same name in fsapi.Readdir.
+// Skip implements the same method as documented on fsapi.Readdir.
 func (d *windowedReaddir) Skip(n uint64) {
 	end := d.cursor + n
 	var err syscall.Errno = 0
 	for d.cursor < end && err == 0 {
-		err = d.Advance()
+		err = d.Next()
 	}
 }
 
-// Cookie implements the method of the same name in fsapi.Readdir.
+// Cookie implements the same method as documented on fsapi.Readdir.
 //
 // Note: this returns the cursor field, but it is an implementation detail.
 func (d *windowedReaddir) Cookie() uint64 {
 	return d.cursor
 }
 
-// Rewind implements the method of the same name in fsapi.Readdir.
+// Rewind implements the same method as documented on fsapi.Readdir.
 func (d *windowedReaddir) Rewind(cookie int64) syscall.Errno {
 	unsignedCookie := uint64(cookie)
 	println(unsignedCookie)
@@ -729,7 +729,7 @@ func (d *windowedReaddir) Rewind(cookie int64) syscall.Errno {
 	}
 }
 
-// Peek implements the method of the same name in fsapi.Readdir.
+// Peek implements the same method as documented on fsapi.Readdir.
 func (d *windowedReaddir) Peek() (*fsapi.Dirent, syscall.Errno) {
 	if dirent, errno := d.window.Peek(); errno == syscall.ENOENT {
 		dir, errno := d.fetch(direntBufSize)
@@ -743,9 +743,9 @@ func (d *windowedReaddir) Peek() (*fsapi.Dirent, syscall.Errno) {
 	}
 }
 
-// Advance implements the method of the same name in fsapi.Readdir.
-func (d *windowedReaddir) Advance() syscall.Errno {
-	if errno := d.window.Advance(); errno == syscall.ENOENT {
+// Next implements the same method as documented on fsapi.Readdir.
+func (d *windowedReaddir) Next() syscall.Errno {
+	if errno := d.window.Next(); errno == syscall.ENOENT {
 		d.window, errno = d.fetch(direntBufSize)
 		return errno
 	} else if errno != 0 {

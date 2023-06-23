@@ -118,13 +118,13 @@ func testOpen_Read(t *testing.T, testFS fsapi.FS, expectIno bool) {
 		dirent1, errno := dirs.Peek()
 		require.EqualErrno(t, 0, errno)
 
-		errno = dirs.Advance()
+		errno = dirs.Next()
 		require.EqualErrno(t, 0, errno)
 		dirent2, errno := dirs.Peek()
 		require.EqualErrno(t, 0, errno)
 
 		// read exactly the last entry
-		errno = dirs.Advance()
+		errno = dirs.Next()
 		require.EqualErrno(t, 0, errno)
 		dirent3, errno := dirs.Peek()
 		require.EqualErrno(t, 0, errno)
@@ -146,7 +146,7 @@ func testOpen_Read(t *testing.T, testFS fsapi.FS, expectIno bool) {
 		}, dirents)
 
 		// no error reading an exhausted directory
-		errno = dirs.Advance()
+		errno = dirs.Next()
 		require.EqualErrno(t, 0, errno)
 
 		_, e := dirs.Peek()

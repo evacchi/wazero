@@ -90,13 +90,13 @@ func TestReaddir(t *testing.T) {
 				dirent1, errno := dirs.Peek()
 				require.EqualErrno(t, 0, errno)
 
-				errno = dirs.Advance()
+				errno = dirs.Next()
 				require.EqualErrno(t, 0, errno)
 				dirent2, errno := dirs.Peek()
 				require.EqualErrno(t, 0, errno)
 
 				// read exactly the last entry
-				errno = dirs.Advance()
+				errno = dirs.Next()
 				require.EqualErrno(t, 0, errno)
 				dirent3, errno := dirs.Peek()
 				require.EqualErrno(t, 0, errno)
@@ -151,7 +151,7 @@ func TestReaddir(t *testing.T) {
 		require.EqualErrno(t, 0, errno)
 		_, errno = dirs.Peek()
 		require.EqualErrno(t, 0, errno)
-		errno = dirs.Advance()
+		errno = dirs.Next()
 		require.EqualErrno(t, 0, errno)
 
 		// Speculatively try to remove even if it won't likely work
