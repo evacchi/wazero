@@ -154,6 +154,8 @@ func (c *FSContext) LookupReaddir(idx int32, f *FileEntry) (fsapi.Readdir, sysca
 	} else {
 		readdir, err := f.File.Readdir()
 		// Create a Readdir with "." and "..".
+		// TODO: control over this needs to become a parameter to avoid adding dot entries
+		// on wasip>1
 		dotEntries, errno := dotReaddir(f)
 		if errno != 0 {
 			return nil, errno

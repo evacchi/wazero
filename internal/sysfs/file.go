@@ -442,6 +442,9 @@ func pwrite(w io.WriterAt, buf []byte, off int64) (n int, errno syscall.Errno) {
 	return n, platform.UnwrapOSError(err)
 }
 
+// compile-time check to ensure windowedReaddir implements fsapi.Readdir.
+var _ fsapi.Readdir = (*emptyReaddir)(nil)
+
 // emptyReaddir implements fsapi.Readdir
 //
 // emptyReaddir is an empty fsapi.Readdir.
@@ -465,18 +468,21 @@ func (e emptyReaddir) Peek() (*fsapi.Dirent, syscall.Errno) { return nil, syscal
 // Next implements the same method as documented on fsapi.Readdir.
 func (e emptyReaddir) Next() syscall.Errno { return syscall.ENOENT }
 
-// NewReaddirFromSlice is a constructor for fsapi.Readdir that only takes a []fsapi.Dirent.
-func NewReaddirFromSlice(dirents []fsapi.Dirent) fsapi.Readdir {
-	return &sliceReaddir{dirents: dirents}
-}
+// compile-time check to ensure sliceReaddir implements fsapi.Readdir.
+var _ fsapi.Readdir = (*sliceReaddir)(nil)
 
 // sliceReaddir implements fsapi.Readdir
 //
-// sliceReaddir iterates a given slice of fsapi.Dirent
+// sliceReaddir is a cursor over externally defined dirents.
 type sliceReaddir struct {
 	// cursor is the current position in the buffer.
 	cursor  uint64
 	dirents []fsapi.Dirent
+}
+
+// NewReaddirFromSlice is a constructor for fsapi.Readdir that only takes a []fsapi.Dirent.
+func NewReaddirFromSlice(dirents []fsapi.Dirent) fsapi.Readdir {
+	return &sliceReaddir{dirents: dirents}
 }
 
 // Reset implements the same method as documented on fsapi.Readdir.
@@ -534,6 +540,9 @@ func (s *sliceReaddir) Next() syscall.Errno {
 	s.cursor++
 	return 0
 }
+
+// compile-time check to ensure concatReaddir implements fsapi.Readdir.
+var _ fsapi.Readdir = (*concatReaddir)(nil)
 
 // concatReaddir implements fsapi.Readdir
 //
@@ -617,6 +626,9 @@ func (c *concatReaddir) Next() syscall.Errno {
 }
 
 const direntBufSize = 16
+
+// compile-time check to ensure windowedReaddir implements fsapi.Readdir.
+var _ fsapi.Readdir = (*windowedReaddir)(nil)
 
 // windowedReaddir implements fsapi.Readdir
 //
