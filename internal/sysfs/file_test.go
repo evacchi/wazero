@@ -1100,7 +1100,7 @@ func TestReaddirStructs(t *testing.T) {
 			name:         "sliceReaddir",
 			expectedSize: 4,
 			newReaddir: func() fsapi.Readdir {
-				return NewReaddirFromSlice(makeDirents(0, 4))
+				return NewReaddir(makeDirents(0, 4)...)
 			},
 		},
 		{
@@ -1108,8 +1108,8 @@ func TestReaddirStructs(t *testing.T) {
 			expectedSize: 8,
 			newReaddir: func() fsapi.Readdir {
 				return NewConcatReaddir(
-					NewReaddirFromSlice(makeDirents(0, 4)),
-					NewReaddirFromSlice(makeDirents(4, 8)))
+					NewReaddir(makeDirents(0, 4)...),
+					NewReaddir(makeDirents(4, 8)...))
 			},
 		},
 		{
@@ -1135,7 +1135,7 @@ func TestReaddirStructs(t *testing.T) {
 							n = entriesLeft
 							entriesLeft = 0
 						}
-						readdir := NewReaddirFromSlice(makeDirents(int(count), int(count+n)))
+						readdir := NewReaddir(makeDirents(int(count), int(count+n))...)
 						count += n
 						return readdir, 0
 					})
@@ -1318,7 +1318,7 @@ func TestReaddDir_Rewind(t *testing.T) {
 			f: &windowedReaddir{
 				init: func() syscall.Errno { return 0 },
 				fetch: func(n uint64) (fsapi.Readdir, syscall.Errno) {
-					return NewReaddirFromSlice([]fsapi.Dirent{{Name: "."}, {Name: ".."}}), 0
+					return NewReaddir(fsapi.Dirent{Name: "."}, fsapi.Dirent{Name: ".."}), 0
 				},
 				cursor: 3,
 				window: emptyReaddir{},

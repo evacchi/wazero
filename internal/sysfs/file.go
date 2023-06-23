@@ -293,7 +293,7 @@ func (f *fsFile) Readdir() (dirs fsapi.Readdir, errno syscall.Errno) {
 			// By default, we don't attempt to read inode data
 			dirents = append(dirents, fsapi.Dirent{Name: e.Name(), Type: e.Type()})
 		}
-		return NewReaddirFromSlice(dirents), 0
+		return NewReaddir(dirents...), 0
 	} else {
 		return nil, syscall.ENOTDIR
 	}
@@ -480,8 +480,8 @@ type sliceReaddir struct {
 	dirents []fsapi.Dirent
 }
 
-// NewReaddirFromSlice is a constructor for fsapi.Readdir that only takes a []fsapi.Dirent.
-func NewReaddirFromSlice(dirents []fsapi.Dirent) fsapi.Readdir {
+// NewReaddir creates an instance from externally defined directory entries.
+func NewReaddir(dirents ...fsapi.Dirent) fsapi.Readdir {
 	return &sliceReaddir{dirents: dirents}
 }
 
@@ -809,7 +809,7 @@ func newReaddirFromFile(f rawOsFile, path string) (fsapi.Readdir, syscall.Errno)
 				dirents = append(dirents, fsapi.Dirent{Name: t.Name(), Ino: ino, Type: t.Mode().Type()})
 			}
 		}
-		return NewReaddirFromSlice(dirents), 0
+		return NewReaddir(dirents...), 0
 	}
 
 	return NewWindowedReaddir(init, fetch)

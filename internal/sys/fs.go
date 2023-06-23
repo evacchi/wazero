@@ -197,7 +197,7 @@ func dotReaddir(f *FileEntry) (fsapi.Readdir, syscall.Errno) {
 		{Name: ".", Ino: dotIno, Type: fs.ModeDir},
 		{Name: "..", Ino: dotDotIno, Type: fs.ModeDir},
 	}
-	return sysfs.NewReaddirFromSlice(dirents), 0
+	return sysfs.NewReaddir(dirents...), 0
 }
 
 // CloseReaddir delete the Readdir struct at the given index

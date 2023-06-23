@@ -189,7 +189,7 @@ func (d *openRootDir) Readdir() (dirs fsapi.Readdir, errno syscall.Errno) {
 		dirents[i] = d.dirents[d.direntsI+i]
 	}
 	d.direntsI += n
-	return NewReaddirFromSlice(dirents), 0
+	return NewReaddir(dirents...), 0
 }
 
 func (d *openRootDir) readdir() syscall.Errno {
