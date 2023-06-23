@@ -79,7 +79,11 @@ func TestReaddir(t *testing.T) {
 
 			t.Run("file", func(t *testing.T) {
 				dirs, errno := fileF.Readdir()
-				defer dirs.Close()
+				defer func() {
+					if dirs != nil {
+						dirs.Close()
+					}
+				}()
 				require.EqualErrno(t, syscall.ENOTDIR, errno)
 			})
 

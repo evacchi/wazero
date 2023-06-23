@@ -114,7 +114,7 @@ func TestNewRootFS(t *testing.T) {
 			defer f.Close()
 
 			dirs, errno := f.Readdir()
-			defer f.Close()
+			defer dirs.Close()
 			require.EqualErrno(t, 0, errno)
 
 			entries, errno := fsapi.Collect(dirs)
