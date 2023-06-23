@@ -2204,7 +2204,7 @@ func Test_fdReaddir(t *testing.T) {
 
 			rdd, errno := fsc.LookupReaddir(fd, file)
 			require.Equal(t, syscall.Errno(0), errno)
-			require.Equal(t, tc.expectedCookie, rdd.Cookie())
+			require.Equal(t, tc.expectedCookie, rdd.Offset())
 		})
 	}
 }

@@ -388,12 +388,12 @@ type Readdir interface {
 	// Skip is equivalent to calling n times Advance.
 	Skip(n uint64)
 
-	// Cookie returns a cookie representing the current state of the ReadDir struct.
-	Cookie() uint64
+	// Offset returns a cookie representing the current state of the ReadDir struct.
+	Offset() uint64
 
 	// Rewind seeks the internal cursor to the state represented by the cookie.
 	// It returns a syscall.Errno if the cursor was reset and an I/O error occurred while trying to re-init.
-	Rewind(cookie int64) syscall.Errno
+	Rewind(offset uint64) syscall.Errno
 
 	// Peek emits the current value.
 	//
@@ -401,7 +401,7 @@ type Readdir interface {
 	//   - syscall.ENOENT when there are no entries left in the directory.
 	Peek() (*Dirent, syscall.Errno)
 
-	// Advance advances the internal counters and indices to the next value.
+	// Next advances the internal counters and indices to the next value.
 	// It also empties and refill the buffer with the next set of values when the internal cursor
 	// reaches the end of it.
 	// Errors:

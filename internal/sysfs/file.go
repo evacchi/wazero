@@ -453,11 +453,11 @@ func (e emptyReaddir) Reset() syscall.Errno { return 0 }
 // Skip implements the same method as documented on fsapi.Readdir.
 func (e emptyReaddir) Skip(uint64) {}
 
-// Cookie implements the same method as documented on fsapi.Readdir.
-func (e emptyReaddir) Cookie() uint64 { return 0 }
+// Offset implements the same method as documented on fsapi.Readdir.
+func (e emptyReaddir) Offset() uint64 { return 0 }
 
 // Rewind implements the same method as documented on fsapi.Readdir.
-func (e emptyReaddir) Rewind(int64) syscall.Errno { return 0 }
+func (e emptyReaddir) Rewind(offset uint64) syscall.Errno { return 0 }
 
 // Peek implements the same method as documented on fsapi.Readdir.
 func (e emptyReaddir) Peek() (*fsapi.Dirent, syscall.Errno) { return nil, syscall.ENOENT }
@@ -490,31 +490,30 @@ func (s *sliceReaddir) Skip(n uint64) {
 	s.cursor += n
 }
 
-// Cookie implements the same method as documented on fsapi.Readdir.
-func (s *sliceReaddir) Cookie() uint64 {
+// Offset implements the same method as documented on fsapi.Readdir.
+func (s *sliceReaddir) Offset() uint64 {
 	return s.cursor
 }
 
 // Rewind implements the same method as documented on fsapi.Readdir.
-func (s *sliceReaddir) Rewind(cookie int64) syscall.Errno {
-	unsignedCookie := uint64(cookie)
+func (s *sliceReaddir) Rewind(offset uint64) syscall.Errno {
 	switch {
-	case cookie < 0 || unsignedCookie > s.cursor:
-		// the cookie can neither be negative nor can it be larger than cursor.
+	case offset > s.cursor:
+		// The offset cannot be larger than the cursor.
 		return syscall.EINVAL
-	case cookie == 0 && s.cursor == 0:
+	case offset == 0 && s.cursor == 0:
 		return 0
-	case cookie == 0 && s.cursor != 0:
-		// This means that there was a previous call to the dir, but cookie is reset.
+	case offset == 0 && s.cursor != 0:
+		// This means that there was a previous call to the dir, but offset is reset.
 		// This happens when the program calls rewinddir, for example:
 		// https://github.com/WebAssembly/wasi-libc/blob/659ff414560721b1660a19685110e484a081c3d4/libc-bottom-half/cloudlibc/src/libc/dirent/rewinddir.c#L10-L12
 		return s.Reset()
-	case unsignedCookie < s.cursor:
+	case offset < s.cursor:
 		// We are allowed to rewind back to a previous offset within the current window.
-		s.cursor = unsignedCookie
+		s.cursor = offset
 		return 0
 	default:
-		// The cookie is valid.
+		// The offset is valid.
 		return 0
 	}
 }
@@ -570,22 +569,21 @@ func (c *concatReaddir) Skip(n uint64) {
 	}
 }
 
-// Cookie implements the same method as documented on fsapi.Readdir.
-func (c *concatReaddir) Cookie() uint64 {
-	return c.first.Cookie() + c.second.Cookie()
+// Offset implements the same method as documented on fsapi.Readdir.
+func (c *concatReaddir) Offset() uint64 {
+	return c.first.Offset() + c.second.Offset()
 }
 
 // Rewind implements the same method as documented on fsapi.Readdir.
-func (c *concatReaddir) Rewind(cookie int64) syscall.Errno {
-	ck := cookie - int64(c.first.Cookie())
-	if ck > 0 {
-		return c.second.Rewind(ck)
+func (c *concatReaddir) Rewind(offset uint64) syscall.Errno {
+	if offset > c.first.Offset() {
+		return c.second.Rewind(offset - c.first.Offset())
 	} else {
 		c.current = c.first
 		if errno := c.second.Rewind(0); errno != 0 {
 			return errno
 		}
-		return c.first.Rewind(cookie)
+		return c.first.Rewind(offset)
 	}
 }
 
@@ -694,35 +692,33 @@ func (d *windowedReaddir) Skip(n uint64) {
 	}
 }
 
-// Cookie implements the same method as documented on fsapi.Readdir.
+// Offset implements the same method as documented on fsapi.Readdir.
 //
 // Note: this returns the cursor field, but it is an implementation detail.
-func (d *windowedReaddir) Cookie() uint64 {
+func (d *windowedReaddir) Offset() uint64 {
 	return d.cursor
 }
 
 // Rewind implements the same method as documented on fsapi.Readdir.
-func (d *windowedReaddir) Rewind(cookie int64) syscall.Errno {
-	unsignedCookie := uint64(cookie)
-	println(unsignedCookie)
+func (d *windowedReaddir) Rewind(offset uint64) syscall.Errno {
 	switch {
-	case cookie < 0 || unsignedCookie > d.cursor:
-		// the cookie can neither be negative nor can it be larger than cursor.
+	case offset > d.cursor:
+		// The offset cannot be larger than cursor.
 		return syscall.EINVAL
-	case cookie == 0:
+	case offset == 0:
 		// This means that there was a previous call to the dir, but cookie is reset.
 		// This happens when the program calls rewinddir, for example:
 		// https://github.com/WebAssembly/wasi-libc/blob/659ff414560721b1660a19685110e484a081c3d4/libc-bottom-half/cloudlibc/src/libc/dirent/rewinddir.c#L10-L12
 		return d.Reset()
-	case unsignedCookie < d.cursor:
-		if cookie/direntBufSize != int64(d.cursor)/direntBufSize {
+	case offset < d.cursor:
+		if offset/direntBufSize != d.cursor/direntBufSize {
 			// The cookie is not 0, but it points into a window before the current one.
 			return syscall.ENOSYS
 		}
 		// We are allowed to rewind back to a previous offset within the current window.
-		d.cursor = unsignedCookie
+		d.cursor = offset
 		// d.cursor = d.cursor % direntBufSize
-		return d.window.Rewind(int64(d.cursor % direntBufSize))
+		return d.window.Rewind(d.cursor % direntBufSize)
 	default:
 		// The cookie is valid.
 		return 0

@@ -1244,7 +1244,7 @@ func TestReaddirStructs(t *testing.T) {
 				}
 				require.EqualErrno(t, 0, errno)
 				// Rewind to the start of the current window.
-				nwindow := int64(half / direntBufSize)
+				nwindow := uint64(half / direntBufSize)
 				errno = r.Rewind(nwindow * direntBufSize)
 				require.EqualErrno(t, 0, errno)
 			},
@@ -1267,7 +1267,7 @@ func TestReaddDir_Rewind(t *testing.T) {
 	tests := []struct {
 		name           string
 		f              fsapi.Readdir
-		cookie         int64
+		offset         uint64
 		expectedCookie int64
 		expectedErrno  syscall.Errno
 	}{
@@ -1276,16 +1276,7 @@ func TestReaddDir_Rewind(t *testing.T) {
 		},
 		{
 			name:          "no prior call, but passed a cookie",
-			cookie:        1,
-			expectedErrno: syscall.EINVAL,
-		},
-		{
-			name: "cookie is negative",
-			f: &windowedReaddir{
-				cursor: 3,
-				window: emptyReaddir{},
-			},
-			cookie:        -1,
+			offset:        1,
 			expectedErrno: syscall.EINVAL,
 		},
 		{
@@ -1294,7 +1285,7 @@ func TestReaddDir_Rewind(t *testing.T) {
 				cursor: 3,
 				window: emptyReaddir{},
 			},
-			cookie:        5,
+			offset:        5,
 			expectedErrno: syscall.EINVAL,
 		},
 		{
@@ -1303,7 +1294,7 @@ func TestReaddDir_Rewind(t *testing.T) {
 				cursor: 3,
 				window: emptyReaddir{},
 			},
-			cookie: 3,
+			offset: 3,
 		},
 		{
 			name: "cookie is one before last pos",
@@ -1311,7 +1302,7 @@ func TestReaddDir_Rewind(t *testing.T) {
 				cursor: 3,
 				window: emptyReaddir{},
 			},
-			cookie: 2,
+			offset: 2,
 		},
 		{
 			name: "cookie is before current entries",
@@ -1319,7 +1310,7 @@ func TestReaddDir_Rewind(t *testing.T) {
 				cursor: direntBufSize + 2,
 				window: emptyReaddir{},
 			},
-			cookie:        1,
+			offset:        1,
 			expectedErrno: syscall.ENOSYS, // not implemented
 		},
 		{
@@ -1332,7 +1323,7 @@ func TestReaddDir_Rewind(t *testing.T) {
 				cursor: 3,
 				window: emptyReaddir{},
 			},
-			cookie: 0,
+			offset: 0,
 		},
 	}
 
@@ -1349,7 +1340,7 @@ func TestReaddDir_Rewind(t *testing.T) {
 				}
 			}
 
-			errno := f.Rewind(tc.cookie)
+			errno := f.Rewind(tc.offset)
 			require.EqualErrno(t, tc.expectedErrno, errno)
 		})
 	}

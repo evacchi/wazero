@@ -869,7 +869,10 @@ func fdReaddirFn(_ context.Context, mod api.Module, params []uint64) syscall.Err
 		return errno
 	}
 	// Validate the cookie and possibly sync the internal state to the one the cookie represents.
-	if errno = dir.Rewind(cookie); errno != 0 {
+	if cookie < 0 {
+		return syscall.EINVAL
+	}
+	if errno = dir.Rewind(uint64(cookie)); errno != 0 {
 		return errno
 	}
 
