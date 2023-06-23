@@ -85,68 +85,68 @@ func TestReaddir(t *testing.T) {
 				require.EqualErrno(t, syscall.ENOTDIR, errno)
 			})
 
-			// dirF, errno := sysfs.OpenFSFile(tc.fs, "dir", syscall.O_RDONLY, 0)
-			// require.EqualErrno(t, 0, errno)
-			// defer dirF.Close()
+			dirF, errno := sysfs.OpenFSFile(tc.fs, "dir", syscall.O_RDONLY, 0)
+			require.EqualErrno(t, 0, errno)
+			defer dirF.Close()
 
-			// 	t.Run("partial", func(t *testing.T) {
-			// 		dirs, errno := dirF.Readdir()
-			// 		defer dirs.Close()
-			// 		require.EqualErrno(t, 0, errno)
+			t.Run("partial", func(t *testing.T) {
+				dirs, errno := dirF.Readdir()
+				defer dirs.Close()
+				require.EqualErrno(t, 0, errno)
 
-			// 		dirent1, errno := dirs.Peek()
-			// 		require.EqualErrno(t, 0, errno)
+				dirent1, errno := dirs.Peek()
+				require.EqualErrno(t, 0, errno)
 
-			// 		errno = dirs.Next()
-			// 		require.EqualErrno(t, 0, errno)
-			// 		dirent2, errno := dirs.Peek()
-			// 		require.EqualErrno(t, 0, errno)
+				errno = dirs.Next()
+				require.EqualErrno(t, 0, errno)
+				dirent2, errno := dirs.Peek()
+				require.EqualErrno(t, 0, errno)
 
-			// 		// read exactly the last entry
-			// 		errno = dirs.Next()
-			// 		require.EqualErrno(t, 0, errno)
-			// 		dirent3, errno := dirs.Peek()
-			// 		require.EqualErrno(t, 0, errno)
+				// read exactly the last entry
+				errno = dirs.Next()
+				require.EqualErrno(t, 0, errno)
+				dirent3, errno := dirs.Peek()
+				require.EqualErrno(t, 0, errno)
 
-			// 		dirents := []fsapi.Dirent{*dirent1, *dirent2, *dirent3}
-			// 		sort.Slice(dirents, func(i, j int) bool { return dirents[i].Name < dirents[j].Name })
+				dirents := []fsapi.Dirent{*dirent1, *dirent2, *dirent3}
+				sort.Slice(dirents, func(i, j int) bool { return dirents[i].Name < dirents[j].Name })
 
-			// 		requireIno(t, dirents, tc.expectIno)
+				requireIno(t, dirents, tc.expectIno)
 
-			// 		// Scrub inodes so we can compare expectations without them.
-			// 		for i := range dirents {
-			// 			dirents[i].Ino = 0
-			// 		}
+				// Scrub inodes so we can compare expectations without them.
+				for i := range dirents {
+					dirents[i].Ino = 0
+				}
 
-			// 		require.Equal(t, []fsapi.Dirent{
-			// 			{Name: "-", Type: 0},
-			// 			{Name: "a-", Type: fs.ModeDir},
-			// 			{Name: "ab-", Type: 0},
-			// 		}, dirents)
+				require.Equal(t, []fsapi.Dirent{
+					{Name: "-", Type: 0},
+					{Name: "a-", Type: fs.ModeDir},
+					{Name: "ab-", Type: 0},
+				}, dirents)
 
-			// 		// no error reading an exhausted directory
-			// 		dirs, errno = dirF.Readdir()
-			// 		defer dirs.Close()
-			// 		require.EqualErrno(t, 0, errno)
-			// 	})
+				// no error reading an exhausted directory
+				dirs, errno = dirF.Readdir()
+				defer dirs.Close()
+				require.EqualErrno(t, 0, errno)
+			})
 
-			// 	subdirF, errno := sysfs.OpenFSFile(tc.fs, "sub", syscall.O_RDONLY, 0)
-			// 	require.EqualErrno(t, 0, errno)
-			// 	defer subdirF.Close()
+			subdirF, errno := sysfs.OpenFSFile(tc.fs, "sub", syscall.O_RDONLY, 0)
+			require.EqualErrno(t, 0, errno)
+			defer subdirF.Close()
 
-			// 	t.Run("subdir", func(t *testing.T) {
-			// 		dirs, errno := subdirF.Readdir()
-			// 		defer dirs.Close()
-			// 		require.EqualErrno(t, 0, errno)
-			// 		dirents, errno := fsapi.Collect(dirs)
+			t.Run("subdir", func(t *testing.T) {
+				dirs, errno := subdirF.Readdir()
+				defer dirs.Close()
+				require.EqualErrno(t, 0, errno)
+				dirents, errno := fsapi.Collect(dirs)
 
-			// 		require.EqualErrno(t, 0, errno)
-			// 		sort.Slice(dirents, func(i, j int) bool { return dirents[i].Name < dirents[j].Name })
+				require.EqualErrno(t, 0, errno)
+				sort.Slice(dirents, func(i, j int) bool { return dirents[i].Name < dirents[j].Name })
 
-			// 		require.Equal(t, 1, len(dirents))
-			// 		require.Equal(t, "test.txt", dirents[0].Name)
-			// 		require.Zero(t, dirents[0].Type)
-			// 	})
+				require.Equal(t, 1, len(dirents))
+				require.Equal(t, "test.txt", dirents[0].Name)
+				require.Zero(t, dirents[0].Type)
+			})
 		})
 	}
 

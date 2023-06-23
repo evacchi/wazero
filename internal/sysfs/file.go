@@ -723,6 +723,7 @@ func NewWindowedReaddir(
 	d := &windowedReaddir{init: init, fetch: fetch, close: close, window: emptyReaddir{}}
 	errno := d.Reset()
 	if errno != 0 {
+		d.Close()
 		return emptyReaddir{}, errno
 	} else {
 		return d, 0
@@ -865,7 +866,11 @@ func newReaddirFromFile(f rawOsFile, path string) (fsapi.Readdir, syscall.Errno)
 	}
 
 	close := func() syscall.Errno {
-		return platform.UnwrapOSError(file.Close())
+		if file != nil {
+			return platform.UnwrapOSError(file.Close())
+		} else {
+			return 0
+		}
 	}
 
 	return NewWindowedReaddir(init, fetch, close)
