@@ -204,8 +204,14 @@ func dotReaddir(f *FileEntry) (fsapi.Readdir, syscall.Errno) {
 //
 // Note: Currently only necessary in tests. In the future, the idx will have to be disposed explicitly,
 // unless we maintain a map fd -> []idx, and we let CloseFile close all the idx in []idx.
-func (c *FSContext) CloseReaddir(idx int32) {
-	c.readdirs.Delete(idx)
+func (c *FSContext) CloseReaddir(idx int32) syscall.Errno {
+	if item, ok := c.readdirs.Lookup(idx); ok {
+		errno := item.Close()
+		c.readdirs.Delete(idx)
+		return errno
+	} else {
+		return syscall.EBADF
+	}
 }
 
 // Renumber assigns the file pointed by the descriptor `from` to `to`.
@@ -243,7 +249,7 @@ func (c *FSContext) CloseFile(fd int32) syscall.Errno {
 		return syscall.EBADF
 	}
 	c.openedFiles.Delete(fd)
-	c.readdirs.Delete(fd)
+	_ = c.CloseReaddir(fd)
 	return platform.UnwrapOSError(f.File.Close())
 }
 

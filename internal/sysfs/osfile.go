@@ -191,8 +191,8 @@ func (f *osFile) PollRead(timeout *time.Duration) (ready bool, errno syscall.Err
 // "ReadDir", from os.File.
 func (f *osFile) Readdir() (dirs fsapi.Readdir, errno syscall.Errno) {
 	if dirs, errno = newReaddirFromFile(f, f.path); errno != 0 {
-		errno = adjustReaddirErr(f, f.closed, errno)
 		dirs = emptyReaddir{}
+		errno = adjustReaddirErr(f, f.closed, errno)
 	}
 	return
 }
@@ -278,4 +278,18 @@ func (f *osFile) close() syscall.Errno {
 // rawOsFile implements the same method as documented on rawOsFile.
 func (f *osFile) rawOsFile() *os.File {
 	return f.file
+}
+
+func (f *osFile) dup() (rawOsFile, syscall.Errno) {
+	// Clear any create flag, as we are re-opening, not re-creating.
+	flag := f.flag & ^syscall.O_CREAT
+	file, errno := OpenFile(f.path, f.flag, f.perm)
+	if errno != 0 {
+		if file != nil {
+			file.Close()
+		}
+
+		return nil, errno
+	}
+	return &osFile{path: f.path, flag: flag, perm: f.perm, file: file, fd: file.Fd()}, 0
 }
