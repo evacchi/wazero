@@ -397,16 +397,32 @@ type Readdir interface {
 
 	// Peek emits the current value.
 	//
-	// Errors:
+	// #Errors
+	//
 	//   - syscall.ENOENT when there are no entries left in the directory.
 	Peek() (*Dirent, syscall.Errno)
 
 	// Next advances the internal counters and indices to the next value.
 	// It also empties and refill the buffer with the next set of values when the internal cursor
 	// reaches the end of it.
-	// Errors:
+	//
+	// # Errors
 	//   - syscall.ENOENT when there are no entries left in the directory.
 	Next() (*Dirent, syscall.Errno)
+
+	// Close closes the underlying file.
+	//
+	// # Errors
+	//
+	// A zero syscall.Errno is success. The below are expected otherwise:
+	//   - syscall.ENOSYS: the implementation does not support this function.
+	//   - syscall.EBADF: the file or directory was closed.
+	//
+	// # Notes
+	//
+	//   - This is like syscall.Close and `close` in POSIX. See
+	//     https://pubs.opengroup.org/onlinepubs/9699919799/functions/close.html
+	Close() syscall.Errno
 }
 
 // Collect reads eagerly all the values returned byt the given
