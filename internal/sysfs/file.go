@@ -286,6 +286,7 @@ func (f *fsFile) Readdir() (dirs fsapi.Readdir, errno syscall.Errno) {
 		of := file.(*os.File)
 
 		if dirs, errno = newReaddirFromFile(of, ""); errno != 0 {
+			of.Close()
 			errno = adjustReaddirErr(f, f.closed, errno)
 		}
 		return

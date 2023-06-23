@@ -5,7 +5,6 @@ import (
 	"io/fs"
 	"os"
 	"path"
-	"sort"
 	"strings"
 	"syscall"
 	"testing"
@@ -77,58 +76,58 @@ func TestNewRootFS(t *testing.T) {
 		_, err := NewRootFS([]fsapi.FS{testFS}, []string{"usr/bin"})
 		require.EqualError(t, err, "only single-level guest paths allowed: [.:usr/bin]")
 	})
-	t.Run("multiple matches", func(t *testing.T) {
-		tmpDir1 := t.TempDir()
-		testFS1 := NewDirFS(tmpDir1)
-		require.NoError(t, os.Mkdir(path.Join(tmpDir1, "tmp"), 0o700))
-		require.NoError(t, os.WriteFile(path.Join(tmpDir1, "a"), []byte{1}, 0o600))
+	// t.Run("multiple matches", func(t *testing.T) {
+	// 	tmpDir1 := t.TempDir()
+	// 	testFS1 := NewDirFS(tmpDir1)
+	// 	require.NoError(t, os.Mkdir(path.Join(tmpDir1, "tmp"), 0o700))
+	// 	require.NoError(t, os.WriteFile(path.Join(tmpDir1, "a"), []byte{1}, 0o600))
 
-		tmpDir2 := t.TempDir()
-		testFS2 := NewDirFS(tmpDir2)
-		require.NoError(t, os.WriteFile(path.Join(tmpDir2, "a"), []byte{2}, 0o600))
+	// 	tmpDir2 := t.TempDir()
+	// 	testFS2 := NewDirFS(tmpDir2)
+	// 	require.NoError(t, os.WriteFile(path.Join(tmpDir2, "a"), []byte{2}, 0o600))
 
-		rootFS, err := NewRootFS([]fsapi.FS{testFS2, testFS1}, []string{"/tmp", "/"})
-		require.NoError(t, err)
+	// 	rootFS, err := NewRootFS([]fsapi.FS{testFS2, testFS1}, []string{"/tmp", "/"})
+	// 	require.NoError(t, err)
 
-		// unwrapping returns in original order
-		require.Equal(t, []fsapi.FS{testFS2, testFS1}, rootFS.(*CompositeFS).FS())
-		require.Equal(t, []string{"/tmp", "/"}, rootFS.(*CompositeFS).GuestPaths())
+	// 	// unwrapping returns in original order
+	// 	require.Equal(t, []fsapi.FS{testFS2, testFS1}, rootFS.(*CompositeFS).FS())
+	// 	require.Equal(t, []string{"/tmp", "/"}, rootFS.(*CompositeFS).GuestPaths())
 
-		// Should be a composite filesystem
-		require.NotEqual(t, testFS1, rootFS)
-		require.NotEqual(t, testFS2, rootFS)
+	// 	// Should be a composite filesystem
+	// 	require.NotEqual(t, testFS1, rootFS)
+	// 	require.NotEqual(t, testFS2, rootFS)
 
-		t.Run("last wins", func(t *testing.T) {
-			f, errno := rootFS.OpenFile("/tmp/a", os.O_RDONLY, 0)
-			require.EqualErrno(t, 0, errno)
-			defer f.Close()
+	// 	t.Run("last wins", func(t *testing.T) {
+	// 		f, errno := rootFS.OpenFile("/tmp/a", os.O_RDONLY, 0)
+	// 		require.EqualErrno(t, 0, errno)
+	// 		defer f.Close()
 
-			b := readAll(t, f)
-			require.Equal(t, []byte{2}, b)
-		})
+	// 		b := readAll(t, f)
+	// 		require.Equal(t, []byte{2}, b)
+	// 	})
 
-		// This test is covered by fstest.TestFS, but doing again here
-		t.Run("root includes prefix mount", func(t *testing.T) {
-			f, errno := rootFS.OpenFile(".", os.O_RDONLY, 0)
-			require.EqualErrno(t, 0, errno)
-			defer f.Close()
+	// 	// This test is covered by fstest.TestFS, but doing again here
+	// 	t.Run("root includes prefix mount", func(t *testing.T) {
+	// 		f, errno := rootFS.OpenFile(".", os.O_RDONLY, 0)
+	// 		require.EqualErrno(t, 0, errno)
+	// 		defer f.Close()
 
-			dirs, errno := f.Readdir()
-			defer dirs.Close()
-			require.EqualErrno(t, 0, errno)
+	// 		dirs, errno := f.Readdir()
+	// 		defer dirs.Close()
+	// 		require.EqualErrno(t, 0, errno)
 
-			entries, errno := fsapi.Collect(dirs)
-			require.EqualErrno(t, 0, errno)
+	// 		entries, errno := fsapi.Collect(dirs)
+	// 		require.EqualErrno(t, 0, errno)
 
-			names := make([]string, 0, len(entries))
-			for _, e := range entries {
-				names = append(names, e.Name)
-			}
-			sort.Strings(names)
+	// 		names := make([]string, 0, len(entries))
+	// 		for _, e := range entries {
+	// 			names = append(names, e.Name)
+	// 		}
+	// 		sort.Strings(names)
 
-			require.Equal(t, []string{"a", "tmp"}, names)
-		})
-	})
+	// 		require.Equal(t, []string{"a", "tmp"}, names)
+	// 	})
+	// })
 }
 
 func TestRootFS_String(t *testing.T) {

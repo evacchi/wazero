@@ -43,9 +43,9 @@ func TestReaddir(t *testing.T) {
 
 			t.Run("dir", func(t *testing.T) {
 				dirs, errno := dotF.Readdir()
+				require.EqualErrno(t, 0, errno)
 				defer dirs.Close()
 
-				require.EqualErrno(t, 0, errno)
 				testReaddirAll(t, dirs, tc.expectIno)
 
 				// read again even though it is exhausted
@@ -78,12 +78,7 @@ func TestReaddir(t *testing.T) {
 			defer fileF.Close()
 
 			t.Run("file", func(t *testing.T) {
-				dirs, errno := fileF.Readdir()
-				defer func() {
-					if dirs != nil {
-						dirs.Close()
-					}
-				}()
+				_, errno := fileF.Readdir()
 				require.EqualErrno(t, syscall.ENOTDIR, errno)
 			})
 
@@ -177,7 +172,7 @@ func TestReaddir(t *testing.T) {
 		}
 
 		dirs2, errno := dirF.Readdir()
-		dirs2.Close()
+		defer dirs2.Close()
 		require.EqualErrno(t, 0, errno)
 		// don't validate the contents as due to caching it might be present.
 	})
