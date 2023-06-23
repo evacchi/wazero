@@ -44,6 +44,8 @@ func TestReaddir(t *testing.T) {
 			t.Run("dir", func(t *testing.T) {
 				dirs, errno := dotF.Readdir()
 				require.EqualErrno(t, 0, errno)
+				defer dirs.Close()
+
 				testReaddirAll(t, dirs, tc.expectIno)
 
 				// read again even though it is exhausted
@@ -66,7 +68,8 @@ func TestReaddir(t *testing.T) {
 				defer dotF.Close()
 
 				require.EqualErrno(t, 0, dotF.Close())
-				_, errno = dotF.Readdir()
+				dirs, errno := dotF.Readdir()
+				defer dirs.Close()
 				require.EqualErrno(t, 0, errno)
 			})
 
@@ -75,7 +78,8 @@ func TestReaddir(t *testing.T) {
 			defer fileF.Close()
 
 			t.Run("file", func(t *testing.T) {
-				_, errno := fileF.Readdir()
+				dir, errno := fileF.Readdir()
+				defer dir.Close()
 				require.EqualErrno(t, syscall.ENOTDIR, errno)
 			})
 
@@ -85,6 +89,7 @@ func TestReaddir(t *testing.T) {
 
 			t.Run("partial", func(t *testing.T) {
 				dirs, errno := dirF.Readdir()
+				defer dirs.Close()
 				require.EqualErrno(t, 0, errno)
 
 				dirent1, errno := dirs.Next()
@@ -114,7 +119,8 @@ func TestReaddir(t *testing.T) {
 				}, dirents)
 
 				// no error reading an exhausted directory
-				_, errno = dirF.Readdir()
+				dirs, errno = dirF.Readdir()
+				defer dirs.Close()
 				require.EqualErrno(t, 0, errno)
 			})
 
@@ -124,6 +130,7 @@ func TestReaddir(t *testing.T) {
 
 			t.Run("subdir", func(t *testing.T) {
 				dirs, errno := subdirF.Readdir()
+				defer dirs.Close()
 				require.EqualErrno(t, 0, errno)
 				dirents, errno := fsapi.Collect(dirs)
 
@@ -144,6 +151,8 @@ func TestReaddir(t *testing.T) {
 		defer dirF.Close()
 
 		dirs, errno := dirF.Readdir()
+		defer dirs.Close()
+
 		require.EqualErrno(t, 0, errno)
 		_, errno = dirs.Peek()
 		require.EqualErrno(t, 0, errno)
@@ -159,7 +168,8 @@ func TestReaddir(t *testing.T) {
 			require.NoError(t, err)
 		}
 
-		_, errno = dirF.Readdir()
+		dirs2, errno := dirF.Readdir()
+		defer dirs2.Close()
 		require.EqualErrno(t, 0, errno)
 		// don't validate the contents as due to caching it might be present.
 	})

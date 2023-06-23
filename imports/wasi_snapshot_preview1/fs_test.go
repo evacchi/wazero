@@ -2169,7 +2169,7 @@ func Test_fdReaddir(t *testing.T) {
 		tc := tt
 		t.Run(tc.name, func(t *testing.T) {
 			defer log.Reset()
-			defer fsc.CloseReaddir(fd)
+			defer func() { require.EqualErrno(t, 0, fsc.CloseReaddir(fd)) }()
 
 			dir, errno := preopen.OpenFile(tc.initialDir, os.O_RDONLY, 0)
 			require.EqualErrno(t, 0, errno)
@@ -2386,7 +2386,7 @@ func Test_fdReaddir_Errors(t *testing.T) {
 				defer dir.Close()
 
 				file.File = dir
-				fsc.CloseReaddir(tc.fd)
+				defer fsc.CloseReaddir(tc.fd) //nolint
 			}
 
 			requireErrnoResult(t, tc.expectedErrno, mod, wasip1.FdReaddirName,
@@ -4966,6 +4966,9 @@ func Test_fdReaddir_dotEntriesHaveRealInodes(t *testing.T) {
 	// Try to list them!
 	resultBufused := uint32(0) // where to write the amount used out of bufLen
 	buf := uint32(8)           // where to start the dirents
+
+	// FdReaddir will instantiate a Readdir, we make sure this is closed at the end.
+	defer func() { require.EqualErrno(t, 0, fsc.CloseReaddir(fd)) }()
 	requireErrnoResult(t, wasip1.ErrnoSuccess, mod, wasip1.FdReaddirName,
 		uint64(fd), uint64(buf), uint64(0x2000), 0, uint64(resultBufused))
 
@@ -5035,9 +5038,13 @@ func Test_fdReaddir_opened_file_written(t *testing.T) {
 	dirents = append(dirents, 4, 0, 0, 0)             // d_type = regular_file
 	dirents = append(dirents, 'f', 'i', 'l', 'e')     // name
 
+	// FdReaddir will instantiate a Readdir, we make sure this is closed at the end.
+	defer fsc.CloseReaddir(dirFD) //nolint
+
 	// Try to list them!
 	resultBufused := uint32(0) // where to write the amount used out of bufLen
 	buf := uint32(8)           // where to start the dirents
+
 	requireErrnoResult(t, wasip1.ErrnoSuccess, mod, wasip1.FdReaddirName,
 		uint64(dirFD), uint64(buf), uint64(0x2000), 0, uint64(resultBufused))
 

@@ -113,6 +113,7 @@ func testOpen_Read(t *testing.T, testFS fsapi.FS, expectIno bool) {
 		defer dirF.Close()
 
 		dirs, errno := dirF.Readdir()
+		defer dirs.Close()
 		require.EqualErrno(t, 0, errno)
 
 		dirent1, errno := dirs.Peek()
@@ -317,6 +318,8 @@ func readAll(t *testing.T, f fsapi.File) []byte {
 func requireReaddir(t *testing.T, f fsapi.File, n int, expectIno bool) []fsapi.Dirent {
 	dirs, errno := f.Readdir()
 	require.EqualErrno(t, 0, errno)
+	defer dirs.Close()
+
 	require.NotNil(t, dirs)
 	entries, errno := fsapi.Collect(dirs)
 	require.EqualErrno(t, 0, errno)
