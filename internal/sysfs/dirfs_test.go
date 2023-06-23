@@ -832,7 +832,7 @@ func Test_fdReaddir_opened_file_written(t *testing.T) {
 	defer dirs.Close()
 	require.EqualErrno(t, 0, errno)
 
-	dirents, errno := fsapi.Collect(dirs)
+	dirents, errno := fsapi.ReaddirAll(dirs)
 	require.EqualErrno(t, 0, errno)
 
 	require.Equal(t, 1, len(dirents))

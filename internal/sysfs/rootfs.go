@@ -200,7 +200,7 @@ func (d *openRootDir) readdir() syscall.Errno {
 		return errno
 	}
 
-	d.dirents, errno = fsapi.Collect(dirs)
+	d.dirents, errno = fsapi.ReaddirAll(dirs)
 	defer dirs.Close()
 	if errno != 0 {
 		return errno

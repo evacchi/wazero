@@ -330,7 +330,7 @@ func syscallReaddir(_ context.Context, mod api.Module, name string) (*objectArra
 		return nil, errno
 	}
 
-	dirents, errno := fsapi.Collect(dirs)
+	dirents, errno := fsapi.ReaddirAll(dirs)
 	if errno != 0 {
 		return nil, errno
 	}

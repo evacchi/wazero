@@ -116,15 +116,15 @@ var (
 			panic(errno)
 		}
 		defer d.Close()
-		dirents, errno := d.Readdir()
+		dirs, errno := d.Readdir()
 		if errno != 0 {
 			panic(errno)
 		}
-		collect, errno := fsapi.Collect(dirents)
+		dirents, errno := fsapi.ReaddirAll(dirs)
 		if errno != 0 {
 			panic(errno)
 		}
-		return collect
+		return dirents
 	}()
 
 	dirent1 = []byte{

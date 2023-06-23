@@ -1200,17 +1200,17 @@ func TestReaddirStructs(t *testing.T) {
 		{
 			name: "read all",
 			f: func(t *testing.T, r fsapi.Readdir, size int) {
-				collect, errno := fsapi.Collect(r)
+				dirents, errno := fsapi.ReaddirAll(r)
 				require.EqualErrno(t, 0, errno)
-				require.Equal(t, size, len(collect))
+				require.Equal(t, size, len(dirents))
 			},
 		},
 		{
 			name: "exhausted returns ENOENT",
 			f: func(t *testing.T, r fsapi.Readdir, size int) {
-				collect, errno := fsapi.Collect(r)
+				dirents, errno := fsapi.ReaddirAll(r)
 				require.EqualErrno(t, 0, errno)
-				require.Equal(t, size, len(collect))
+				require.Equal(t, size, len(dirents))
 				_, errno = r.Peek()
 				require.EqualErrno(t, syscall.ENOENT, errno)
 			},
@@ -1218,18 +1218,18 @@ func TestReaddirStructs(t *testing.T) {
 		{
 			name: "exhausted can be Reset() and exhausted again",
 			f: func(t *testing.T, r fsapi.Readdir, size int) {
-				collect, errno := fsapi.Collect(r)
+				dirents, errno := fsapi.ReaddirAll(r)
 				require.EqualErrno(t, 0, errno)
-				require.Equal(t, size, len(collect))
+				require.Equal(t, size, len(dirents))
 				_, errno = r.Peek()
 				require.EqualErrno(t, syscall.ENOENT, errno)
 
 				errno = r.Reset()
 				require.EqualErrno(t, 0, errno)
 
-				collect, errno = fsapi.Collect(r)
+				dirents, errno = fsapi.ReaddirAll(r)
 				require.EqualErrno(t, 0, errno)
-				require.Equal(t, size, len(collect))
+				require.Equal(t, size, len(dirents))
 				_, errno = r.Peek()
 				require.EqualErrno(t, syscall.ENOENT, errno)
 			},

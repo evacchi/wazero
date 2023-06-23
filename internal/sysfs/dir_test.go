@@ -49,7 +49,7 @@ func TestReaddir(t *testing.T) {
 				testReaddirAll(t, dirs, tc.expectIno)
 
 				// read again even though it is exhausted
-				dirents, errno := fsapi.Collect(dirs)
+				dirents, errno := fsapi.ReaddirAll(dirs)
 				require.EqualErrno(t, 0, errno)
 				require.Zero(t, len(dirents))
 
@@ -132,7 +132,7 @@ func TestReaddir(t *testing.T) {
 				dirs, errno := subdirF.Readdir()
 				defer dirs.Close()
 				require.EqualErrno(t, 0, errno)
-				dirents, errno := fsapi.Collect(dirs)
+				dirents, errno := fsapi.ReaddirAll(dirs)
 
 				require.EqualErrno(t, 0, errno)
 				sort.Slice(dirents, func(i, j int) bool { return dirents[i].Name < dirents[j].Name })
@@ -176,7 +176,7 @@ func TestReaddir(t *testing.T) {
 }
 
 func testReaddirAll(t *testing.T, dirs fsapi.Readdir, expectIno bool) {
-	dirents, errno := fsapi.Collect(dirs)
+	dirents, errno := fsapi.ReaddirAll(dirs)
 	require.EqualErrno(t, 0, errno)
 	sort.Slice(dirents, func(i, j int) bool { return dirents[i].Name < dirents[j].Name })
 

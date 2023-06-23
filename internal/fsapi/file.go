@@ -435,9 +435,9 @@ type Readdir interface {
 	Close() syscall.Errno
 }
 
-// Collect reads eagerly all the values returned byt the given
+// ReaddirAll reads eagerly all the values returned byt the given
 // Readdir instance and returns a slice or a syscall.Errno.
-func Collect(dirs Readdir) ([]Dirent, syscall.Errno) {
+func ReaddirAll(dirs Readdir) ([]Dirent, syscall.Errno) {
 	var dirents []Dirent
 	for {
 		e, errno := dirs.Next()
