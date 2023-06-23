@@ -468,6 +468,9 @@ func (e emptyReaddir) Peek() (*fsapi.Dirent, syscall.Errno) { return nil, syscal
 // Next implements the same method as documented on fsapi.Readdir.
 func (e emptyReaddir) Next() (*fsapi.Dirent, syscall.Errno) { return nil, syscall.ENOENT }
 
+// Close implements the same method as documented on fsapi.Readdir.
+func (emptyReaddir) Close() syscall.Errno { return 0 }
+
 // compile-time check to ensure sliceReaddir implements fsapi.Readdir.
 var _ fsapi.Readdir = (*sliceReaddir)(nil)
 
@@ -541,6 +544,9 @@ func (s *sliceReaddir) Next() (*fsapi.Dirent, syscall.Errno) {
 		return nil, errno
 	}
 }
+
+// Close implements the same method as documented on fsapi.Readdir.
+func (*sliceReaddir) Close() syscall.Errno { return 0 }
 
 // compile-time check to ensure concatReaddir implements fsapi.Readdir.
 var _ fsapi.Readdir = (*concatReaddir)(nil)
@@ -626,6 +632,9 @@ func (c *concatReaddir) Next() (*fsapi.Dirent, syscall.Errno) {
 		return d, 0
 	}
 }
+
+// Close implements the same method as documented on fsapi.Readdir.
+func (*concatReaddir) Close() syscall.Errno { return 0 }
 
 const direntBufSize = 16
 
@@ -773,6 +782,9 @@ func (d *windowedReaddir) Next() (*fsapi.Dirent, syscall.Errno) {
 		return dirent, 0
 	}
 }
+
+// Close implements the same method as documented on fsapi.Readdir.
+func (*windowedReaddir) Close() syscall.Errno { return 0 }
 
 // newReaddirFromFile captures a reference to the given rawOsFile (fsapi.File subtype)
 // and it fetches the directory listing to an underlying windowedReaddir.
