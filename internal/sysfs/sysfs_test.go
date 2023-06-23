@@ -113,7 +113,7 @@ func testOpen_Read(t *testing.T, testFS fsapi.FS, expectIno bool) {
 		defer dirF.Close()
 
 		dirs, errno := dirF.Readdir()
-		dirs.Close()
+		defer dirs.Close()
 		require.EqualErrno(t, 0, errno)
 
 		dirent1, errno := dirs.Peek()
