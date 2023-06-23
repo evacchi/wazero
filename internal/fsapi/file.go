@@ -406,7 +406,7 @@ type Readdir interface {
 	// reaches the end of it.
 	// Errors:
 	//   - syscall.ENOENT when there are no entries left in the directory.
-	Next() syscall.Errno
+	Next() (*Dirent, syscall.Errno)
 }
 
 // Collect reads eagerly all the values returned byt the given
@@ -414,7 +414,7 @@ type Readdir interface {
 func Collect(dirs Readdir) ([]Dirent, syscall.Errno) {
 	var dirents []Dirent
 	for {
-		e, errno := dirs.Peek()
+		e, errno := dirs.Next()
 		if errno == syscall.ENOENT {
 			return dirents, 0
 		} else if errno != 0 {
@@ -424,10 +424,6 @@ func Collect(dirs Readdir) ([]Dirent, syscall.Errno) {
 			break
 		}
 		dirents = append(dirents, *e)
-		errno = dirs.Next()
-		if errno != 0 {
-			return dirents, errno
-		}
 	}
 	return dirents, 0
 }

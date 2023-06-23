@@ -1180,7 +1180,7 @@ func TestReaddirStructs(t *testing.T) {
 				}
 				require.EqualErrno(t, 0, errno)
 				require.NotNil(t, d)
-				errno = r.Next()
+				_, errno = r.Next()
 				require.EqualErrno(t, 0, errno)
 				d, errno = r.Peek()
 				require.EqualErrno(t, 0, errno)
@@ -1192,7 +1192,7 @@ func TestReaddirStructs(t *testing.T) {
 			f: func(t *testing.T, r fsapi.Readdir, size int) {
 				var errno syscall.Errno
 				for i := 0; i < size/2; i++ {
-					errno = r.Next()
+					_, errno = r.Next()
 				}
 				require.EqualErrno(t, 0, errno)
 			},
@@ -1240,7 +1240,7 @@ func TestReaddirStructs(t *testing.T) {
 				var errno syscall.Errno
 				half := size / 2
 				for i := 0; i < half; i++ {
-					errno = r.Next()
+					_, errno = r.Next()
 				}
 				require.EqualErrno(t, 0, errno)
 				// Rewind to the start of the current window.

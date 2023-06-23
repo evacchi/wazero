@@ -2070,7 +2070,7 @@ func Test_fdReaddir(t *testing.T) {
 			dir: func() {
 				f, _ := fsc.LookupFile(fd)
 				rdd, _ := fsc.LookupReaddir(fd, f)
-				_ = rdd.Next()
+				_, _ = rdd.Next()
 			},
 
 			bufLen:          27, // length is long enough for exactly second.
@@ -2085,7 +2085,7 @@ func Test_fdReaddir(t *testing.T) {
 			dir: func() {
 				f, _ := fsc.LookupFile(fd)
 				rdd, _ := fsc.LookupReaddir(fd, f)
-				_ = rdd.Next()
+				_, _ = rdd.Next()
 			},
 			bufLen:          30, // length is longer than the second entry, but not long enough for a header.
 			cookie:          1,  // d_next of first
@@ -2100,7 +2100,7 @@ func Test_fdReaddir(t *testing.T) {
 			dir: func() {
 				f, _ := fsc.LookupFile(fd)
 				rdd, _ := fsc.LookupReaddir(fd, f)
-				_ = rdd.Next()
+				_, _ = rdd.Next()
 			},
 			bufLen:          50, // length is longer than the second entry + enough for the header of third.
 			cookie:          1,  // d_next of first
@@ -2114,7 +2114,7 @@ func Test_fdReaddir(t *testing.T) {
 			dir: func() {
 				f, _ := fsc.LookupFile(fd)
 				rdd, _ := fsc.LookupReaddir(fd, f)
-				_ = rdd.Next()
+				_, _ = rdd.Next()
 			},
 			bufLen:          53, // length is long enough for second and third.
 			cookie:          1,  // d_next of first

@@ -466,7 +466,7 @@ func (e emptyReaddir) Rewind(offset uint64) syscall.Errno { return 0 }
 func (e emptyReaddir) Peek() (*fsapi.Dirent, syscall.Errno) { return nil, syscall.ENOENT }
 
 // Next implements the same method as documented on fsapi.Readdir.
-func (e emptyReaddir) Next() syscall.Errno { return syscall.ENOENT }
+func (e emptyReaddir) Next() (*fsapi.Dirent, syscall.Errno) { return nil, syscall.ENOENT }
 
 // compile-time check to ensure sliceReaddir implements fsapi.Readdir.
 var _ fsapi.Readdir = (*sliceReaddir)(nil)
@@ -533,12 +533,13 @@ func (s *sliceReaddir) Peek() (*fsapi.Dirent, syscall.Errno) {
 }
 
 // Next implements the same method as documented on fsapi.Readdir.
-func (s *sliceReaddir) Next() syscall.Errno {
-	if s.cursor == uint64(len(s.dirents)) {
-		return syscall.ENOENT
+func (s *sliceReaddir) Next() (*fsapi.Dirent, syscall.Errno) {
+	if d, errno := s.Peek(); errno == 0 {
+		s.cursor++
+		return d, 0
+	} else {
+		return nil, errno
 	}
-	s.cursor++
-	return 0
 }
 
 // compile-time check to ensure concatReaddir implements fsapi.Readdir.
@@ -574,7 +575,7 @@ func (c *concatReaddir) Reset() syscall.Errno {
 // Skip implements the same method as documented on fsapi.Readdir.
 func (c *concatReaddir) Skip(n uint64) {
 	for i := uint64(0); i < n; i++ {
-		_ = c.Next()
+		_, _ = c.Next()
 	}
 }
 
@@ -598,31 +599,32 @@ func (c *concatReaddir) Rewind(offset uint64) syscall.Errno {
 
 // Peek implements the same method as documented on fsapi.Readdir.
 func (c *concatReaddir) Peek() (*fsapi.Dirent, syscall.Errno) {
-	el, errno := c.current.Peek()
-	if errno == syscall.ENOENT {
+	if d, errno := c.current.Peek(); errno == syscall.ENOENT {
 		if c.current != c.second {
 			c.current = c.second
-			el, errno = c.current.Peek()
+			d, errno = c.current.Peek()
 		}
-		return el, errno
-	}
-	if errno != 0 {
+		return d, errno
+	} else if errno != 0 {
 		return nil, errno
+	} else {
+		return d, 0
 	}
-	return el, 0
 }
 
 // Next implements the same method as documented on fsapi.Readdir.
-func (c *concatReaddir) Next() syscall.Errno {
-	errno := c.current.Next()
-	if errno != 0 {
+func (c *concatReaddir) Next() (*fsapi.Dirent, syscall.Errno) {
+	if d, errno := c.current.Next(); errno == syscall.ENOENT {
 		if c.current != c.second {
 			c.current = c.second
-			errno = c.current.Next()
+			d, errno = c.current.Next()
 		}
-		return errno
+		return d, errno
+	} else if errno != 0 {
+		return nil, errno
+	} else {
+		return d, 0
 	}
-	return 0
 }
 
 const direntBufSize = 16
@@ -700,7 +702,7 @@ func (d *windowedReaddir) Skip(n uint64) {
 	end := d.cursor + n
 	var err syscall.Errno = 0
 	for d.cursor < end && err == 0 {
-		err = d.Next()
+		_, err = d.Next()
 	}
 }
 
@@ -739,6 +741,9 @@ func (d *windowedReaddir) Rewind(offset uint64) syscall.Errno {
 
 // Peek implements the same method as documented on fsapi.Readdir.
 func (d *windowedReaddir) Peek() (*fsapi.Dirent, syscall.Errno) {
+	if d.window == nil {
+		return nil, syscall.ENOENT
+	}
 	if dirent, errno := d.window.Peek(); errno == syscall.ENOENT {
 		dir, errno := d.fetch(direntBufSize)
 		if errno != 0 {
@@ -746,21 +751,27 @@ func (d *windowedReaddir) Peek() (*fsapi.Dirent, syscall.Errno) {
 		}
 		d.window = dir
 		return d.window.Peek()
+	} else if errno != 0 {
+		return nil, errno
 	} else {
-		return dirent, errno
+		return dirent, 0
 	}
 }
 
 // Next implements the same method as documented on fsapi.Readdir.
-func (d *windowedReaddir) Next() syscall.Errno {
-	if errno := d.window.Next(); errno == syscall.ENOENT {
-		d.window, errno = d.fetch(direntBufSize)
-		return errno
+func (d *windowedReaddir) Next() (*fsapi.Dirent, syscall.Errno) {
+	if dirent, errno := d.window.Next(); errno == syscall.ENOENT {
+		if d.window, errno = d.fetch(direntBufSize); errno != 0 {
+			return nil, errno
+		} else {
+			return d.window.Next()
+		}
 	} else if errno != 0 {
-		return errno
+		return nil, errno
+	} else {
+		d.cursor++
+		return dirent, 0
 	}
-	d.cursor++
-	return 0
 }
 
 // newReaddirFromFile captures a reference to the given rawOsFile (fsapi.File subtype)

@@ -87,18 +87,14 @@ func TestReaddir(t *testing.T) {
 				dirs, errno := dirF.Readdir()
 				require.EqualErrno(t, 0, errno)
 
-				dirent1, errno := dirs.Peek()
+				dirent1, errno := dirs.Next()
 				require.EqualErrno(t, 0, errno)
 
-				errno = dirs.Next()
-				require.EqualErrno(t, 0, errno)
-				dirent2, errno := dirs.Peek()
+				dirent2, errno := dirs.Next()
 				require.EqualErrno(t, 0, errno)
 
 				// read exactly the last entry
-				errno = dirs.Next()
-				require.EqualErrno(t, 0, errno)
-				dirent3, errno := dirs.Peek()
+				dirent3, errno := dirs.Next()
 				require.EqualErrno(t, 0, errno)
 
 				dirents := []fsapi.Dirent{*dirent1, *dirent2, *dirent3}
@@ -151,7 +147,7 @@ func TestReaddir(t *testing.T) {
 		require.EqualErrno(t, 0, errno)
 		_, errno = dirs.Peek()
 		require.EqualErrno(t, 0, errno)
-		errno = dirs.Next()
+		_, errno = dirs.Next()
 		require.EqualErrno(t, 0, errno)
 
 		// Speculatively try to remove even if it won't likely work
