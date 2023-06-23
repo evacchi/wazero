@@ -317,9 +317,9 @@ func readAll(t *testing.T, f fsapi.File) []byte {
 // entries.
 func requireReaddir(t *testing.T, f fsapi.File, n int, expectIno bool) []fsapi.Dirent {
 	dirs, errno := f.Readdir()
+	require.EqualErrno(t, 0, errno)
 	defer dirs.Close()
 
-	require.EqualErrno(t, 0, errno)
 	require.NotNil(t, dirs)
 	entries, errno := fsapi.Collect(dirs)
 	require.EqualErrno(t, 0, errno)

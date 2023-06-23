@@ -268,6 +268,25 @@ func (f *fsFile) reopen() syscall.Errno {
 	return 0
 }
 
+func (f *fsFile) dup() (rawOsFile, syscall.Errno) {
+	if f.closed {
+		return nil, syscall.ENOTSUP
+	}
+
+	file, err := f.fs.Open(f.name)
+	if err != nil {
+		return nil, platform.UnwrapOSError(err)
+	}
+
+	return &fsFile{
+		fs:       f.fs,
+		name:     f.name,
+		file:     file,
+		closed:   false,
+		cachedSt: f.cachedSt,
+	}, 0
+}
+
 // Readdir implements File.Readdir. Notably, this uses fs.ReadDirFile if
 // available.
 func (f *fsFile) Readdir() (dirs fsapi.Readdir, errno syscall.Errno) {
@@ -275,18 +294,10 @@ func (f *fsFile) Readdir() (dirs fsapi.Readdir, errno syscall.Errno) {
 		// We can't use f.name here because it is the path up to the fsapi.FS,
 		// not necessarily the real path. For this reason, Windows may not be
 		// able to populate inodes. However, Darwin and Linux will.
-
-		file, err := f.fs.Open(f.name)
-		if errno := platform.UnwrapOSError(err); errno != 0 {
-			if errno == syscall.ENOENT {
-				return emptyReaddir{}, 0
+		if dirs, errno = newReaddirFromFile(f, f.name); errno != 0 {
+			if errno == syscall.EINVAL {
+				return dirs, syscall.ENOTDIR
 			}
-			return nil, errno
-		}
-		of := file.(*os.File)
-
-		if dirs, errno = newReaddirFromFile(of, ""); errno != 0 {
-			of.Close()
 			errno = adjustReaddirErr(f, f.closed, errno)
 		}
 		return
@@ -428,6 +439,7 @@ func seek(s io.Seeker, offset int64, whence int) (int64, syscall.Errno) {
 type rawOsFile interface {
 	fsapi.File
 	rawOsFile() *os.File
+	dup() (rawOsFile, syscall.Errno)
 }
 
 var _ rawOsFile = rawOsFile(nil)
@@ -708,7 +720,7 @@ func NewWindowedReaddir(
 	d := &windowedReaddir{init: init, fetch: fetch, close: close, window: emptyReaddir{}}
 	errno := d.Reset()
 	if errno != 0 {
-		return nil, errno
+		return emptyReaddir{}, errno
 	} else {
 		return d, 0
 	}
@@ -814,17 +826,20 @@ func (c *windowedReaddir) Close() syscall.Errno {
 // an fsapi.File.
 //
 // See also docs for rawOsFile.
-func newReaddirFromFile(f *os.File, path string) (fsapi.Readdir, syscall.Errno) {
-	init := func() syscall.Errno {
-		// Ensure we always rewind to the beginning when we re-init.
-		if _, errno := f.Seek(0, io.SeekStart); errno != nil {
-			return platform.UnwrapOSError(errno)
+func newReaddirFromFile(f rawOsFile, path string) (fsapi.Readdir, syscall.Errno) {
+	var file rawOsFile
+	init := func() (errno syscall.Errno) {
+		if file != nil {
+			file.Close()
 		}
-		return 0
+		// Reopen the directory from path to make sure that
+		// we seek to the start correctly on all platforms.
+		file, errno = f.dup()
+		return
 	}
 
 	fetch := func(n uint64) (fsapi.Readdir, syscall.Errno) {
-		fis, err := f.Readdir(int(n))
+		fis, err := file.rawOsFile().Readdir(int(n))
 		if errno := platform.UnwrapOSError(err); errno != 0 {
 			return nil, errno
 		}
