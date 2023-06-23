@@ -269,12 +269,15 @@ func (f *fsFile) reopen() syscall.Errno {
 }
 
 func (f *fsFile) dup() (rawOsFile, syscall.Errno) {
-	if f.closed {
-		return nil, syscall.ENOTSUP
-	}
+	// if f.closed {
+	// 	return nil, syscall.ENOTSUP
+	// }
 
 	file, err := f.fs.Open(f.name)
 	if err != nil {
+		if file != nil {
+			file.Close()
+		}
 		return nil, platform.UnwrapOSError(err)
 	}
 
@@ -294,7 +297,7 @@ func (f *fsFile) Readdir() (dirs fsapi.Readdir, errno syscall.Errno) {
 		// We can't use f.name here because it is the path up to the fsapi.FS,
 		// not necessarily the real path. For this reason, Windows may not be
 		// able to populate inodes. However, Darwin and Linux will.
-		if dirs, errno = newReaddirFromFile(f, f.name); errno != 0 {
+		if dirs, errno = newReaddirFromFile(f, ""); errno != 0 {
 			if errno == syscall.EINVAL {
 				return dirs, syscall.ENOTDIR
 			}
@@ -835,6 +838,9 @@ func newReaddirFromFile(f rawOsFile, path string) (fsapi.Readdir, syscall.Errno)
 		// Reopen the directory from path to make sure that
 		// we seek to the start correctly on all platforms.
 		file, errno = f.dup()
+		if errno != 0 && file != nil {
+			file.Close()
+		}
 		return
 	}
 
@@ -859,7 +865,7 @@ func newReaddirFromFile(f rawOsFile, path string) (fsapi.Readdir, syscall.Errno)
 	}
 
 	close := func() syscall.Errno {
-		return platform.UnwrapOSError(f.Close())
+		return platform.UnwrapOSError(file.Close())
 	}
 
 	return NewWindowedReaddir(init, fetch, close)

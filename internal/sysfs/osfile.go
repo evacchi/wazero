@@ -285,13 +285,17 @@ func (f *osFile) rawOsFile() *os.File {
 }
 
 func (f *osFile) dup() (rawOsFile, syscall.Errno) {
-	if f.closed {
-		return nil, syscall.ENOTSUP
-	}
+	// if f.closed {
+	// 	return nil, syscall.ENOTSUP
+	// }
 	// Clear any create flag, as we are re-opening, not re-creating.
 	flag := f.flag & ^syscall.O_CREAT
 	file, errno := OpenFile(f.path, f.flag, f.perm)
 	if errno != 0 {
+		if file != nil {
+			file.Close()
+		}
+
 		return nil, errno
 	}
 	return &osFile{path: f.path, flag: flag, perm: f.perm, file: file, fd: file.Fd()}, 0
