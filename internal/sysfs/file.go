@@ -786,6 +786,9 @@ func (d *windowedReaddir) Rewind(offset uint64) syscall.Errno {
 }
 
 // Peek implements the same method as documented on fsapi.Readdir.
+//
+// This implementation empties and refill the buffer with the next
+// set of values when the internal cursor reaches the end of it.
 func (d *windowedReaddir) Peek() (*fsapi.Dirent, syscall.Errno) {
 	if d.window == nil {
 		return nil, syscall.ENOENT
@@ -805,6 +808,9 @@ func (d *windowedReaddir) Peek() (*fsapi.Dirent, syscall.Errno) {
 }
 
 // Next implements the same method as documented on fsapi.Readdir.
+//
+// This implementation empties and refill the buffer with the next
+// set of values when the internal cursor reaches the end of it.
 func (d *windowedReaddir) Next() (*fsapi.Dirent, syscall.Errno) {
 	if dirent, errno := d.window.Next(); errno == syscall.ENOENT {
 		if d.window, errno = d.fetch(direntBufSize); errno != 0 {

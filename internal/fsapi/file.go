@@ -377,36 +377,46 @@ type File interface {
 }
 
 // Readdir is the result of File.Readdir and it is a cursor over a directory.
-//
-// TODO:
-//   - Verify if it is possible to reduce the need to reopen the whole file.
-//   - Verify if it is useful to expose a Close() method.
 type Readdir interface {
-	// Reset seeks the internal cursor to 0 and refills the buffer.
-	Reset() syscall.Errno
-
-	// Skip is equivalent to calling n times Advance.
+	// Skip is equivalent to calling n times Next.
 	Skip(n uint64)
 
 	// Offset returns a cookie representing the current state of the ReadDir struct.
 	Offset() uint64
 
-	// Rewind seeks the internal cursor to the state represented by the cookie.
-	// It returns a syscall.Errno if the cursor was reset and an I/O error occurred while trying to re-init.
+	// Reset seeks the internal cursor to 0 and refills the buffer.
+	// # Errors
+	//
+	// A zero syscall.Errno is success. The below are expected otherwise:
+	//   - syscall.EINVAL: the offset is larger than the current internal cursor.
+	//   - syscall.EBADF: the file or directory was closed.
+	Reset() syscall.Errno
+
+	// Rewind seeks the internal cursor to the given offset.
+	//
+	// Rewinding to offset 0 usually should produce the same result
+	// as calling Reset.
+	//
+	// # Errors
+	//
+	// A zero syscall.Errno is success. The below are expected otherwise:
+	//   - syscall.EINVAL: the offset is larger than the current internal cursor.
+	//   - syscall.EBADF: the file or directory was closed.
 	Rewind(offset uint64) syscall.Errno
 
-	// Peek emits the current value.
+	// Peek emits the value currently pointed by the internal cursor.
 	//
 	// #Errors
 	//
+	// A zero syscall.Errno is success. The below are expected otherwise:
 	//   - syscall.ENOENT when there are no entries left in the directory.
 	Peek() (*Dirent, syscall.Errno)
 
 	// Next advances the internal counters and indices to the next value.
-	// It also empties and refill the buffer with the next set of values when the internal cursor
-	// reaches the end of it.
 	//
 	// # Errors
+	//
+	// A zero syscall.Errno is success. The below are expected otherwise:
 	//   - syscall.ENOENT when there are no entries left in the directory.
 	Next() (*Dirent, syscall.Errno)
 
