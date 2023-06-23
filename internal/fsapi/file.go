@@ -376,7 +376,7 @@ type File interface {
 	Close() syscall.Errno
 }
 
-// Readdir is the status of a prior fs.ReadDirFile call.
+// Readdir is the result of File.Readdir and it is a cursor over a directory.
 //
 // TODO:
 //   - Verify if it is possible to reduce the need to reopen the whole file.
