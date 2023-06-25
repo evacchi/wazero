@@ -275,7 +275,9 @@ func (f *osFile) close() syscall.Errno {
 	return platform.UnwrapOSError(f.file.Close())
 }
 
-// rawOsFile implements the same method as documented on rawOsFile.
+var _ rawOsFile = (*osFile)(nil)
+
+// compile-time check to ensure *osFile implements rawOsFile.
 func (f *osFile) rawOsFile() *os.File {
 	return f.file
 }

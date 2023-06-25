@@ -762,8 +762,8 @@ type windowedReaddir struct {
 	close func() syscall.Errno
 }
 
-// NewWindowedReaddir is a constructor for Readdir. It takes a dirInit
-func NewWindowedReaddir(
+// newWindowedReaddir is a constructor for Readdir. It takes a dirInit
+func newWindowedReaddir(
 	init func() syscall.Errno,
 	fetch func(n uint64) (fsapi.Readdir, syscall.Errno),
 	close func() syscall.Errno,
@@ -936,5 +936,5 @@ func newReaddirFromFile(f rawOsFile, path string) (fsapi.Readdir, syscall.Errno)
 		}
 	}
 
-	return NewWindowedReaddir(init, fetch, close)
+	return newWindowedReaddir(init, fetch, close)
 }

@@ -1116,7 +1116,7 @@ func TestReaddirStructs(t *testing.T) {
 				var count uint64
 				var entriesLeft uint64
 
-				readdir, errno := NewWindowedReaddir(
+				readdir, errno := newWindowedReaddir(
 					func() syscall.Errno {
 						count = 0
 						entriesLeft = direntBufSize*2 + 3
