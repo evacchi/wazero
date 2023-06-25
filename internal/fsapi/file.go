@@ -377,19 +377,44 @@ type File interface {
 }
 
 // Readdir is the result of File.Readdir and it is a cursor over a directory.
+//
+// # Errors
+//
+// All methods that can return an error return a syscall.Errno, which is zero
+// on success.
+//
+// # Notes
+//
+//   - Implementations are allowed to keep a buffer or a sliding window of values
+//     over a directory. Because reading in batches requires to hold a reference
+//     to an open directory, callers should pay extra care to make sure
+//     that such references are released, by invoking Close.
+//   - This is especially important on the Windows platform, where keeping
+//     a file handle open may prevent concurrent processes from accessing
+//     (e.g. deleting) the underlying directory. This may conflict with cleanup
+//     procedures (such as `testing/TB.Cleanup()`).
 type Readdir interface {
-	// Skip is equivalent to calling n times Next.
+	// Skip is equivalent to calling Next n times.
 	Skip(n uint64)
 
-	// Offset returns a cookie representing the current state of the ReadDir struct.
+	// Offset returns the offset of the current value under the internal cursor.
 	Offset() uint64
 
 	// Reset seeks the internal cursor to 0 and refills the buffer.
+	//
 	// # Errors
 	//
 	// A zero syscall.Errno is success. The below are expected otherwise:
 	//   - syscall.EINVAL: the offset is larger than the current internal cursor.
 	//   - syscall.EBADF: the file or directory was closed.
+	//
+	// # Notes
+	//
+	//   - This is conceptually similar to invoking Seek(0, io.SeekStart) on io.Seeker
+	//     and `fseek` in POSIX over an open directory. See
+	//     https://pubs.opengroup.org/onlinepubs/9699919799/functions/fseek.html
+	//   - However implementations will generally reopen the underlying directory
+	//     for portability reasons.
 	Reset() syscall.Errno
 
 	// Rewind seeks the internal cursor to the given offset.
@@ -397,27 +422,60 @@ type Readdir interface {
 	// Rewinding to offset 0 usually should produce the same result
 	// as calling Reset.
 	//
+	// Implementations may keep a buffer or a moving window. The size of
+	// the window is an implementation detail, the implementation
+	// may return an error if the offset is too small to seek back
+	// to that index (i.e. it lays outside the window).
+	//
 	// # Errors
 	//
 	// A zero syscall.Errno is success. The below are expected otherwise:
 	//   - syscall.EINVAL: the offset is larger than the current internal cursor.
-	//   - syscall.EBADF: the file or directory was closed.
+	//   - syscall.ENOSYS: the offset is too small for the current window.
+	//
+	// # Notes
+	//
+	//   - This is conceptually similar to invoking Seek(offset, io.SeekStart)
+	//     on io.Seeker and `fseek` in POSIX over an open directory. See
+	//     https://pubs.opengroup.org/onlinepubs/9699919799/functions/fseek.html
+	//   - However implementations will generally keep a buffer of the currently
+	//     valid values and will not actually seek to the given offset the underlying
+	//     open directory.
 	Rewind(offset uint64) syscall.Errno
 
 	// Peek emits the value currently pointed by the internal cursor.
 	//
-	// #Errors
+	// # Errors
 	//
 	// A zero syscall.Errno is success. The below are expected otherwise:
-	//   - syscall.ENOENT when there are no entries left in the directory.
+	//   - syscall.ENOENT: there are no more entries to fetch
+	//   - syscall.EBADF: the directory is no longer valid
+	//   - other error values would signal an issue with fetching the next batch of values.
+	//
+	// # Notes
+	//
+	//   - Ultimately, implementations may fetch data using a `readdir`-like API, thus
+	//     errors will reflect file system errors similarly to the POSIX call. See
+	//     https://pubs.opengroup.org/onlinepubs/9699919799/functions/readdir.html
 	Peek() (*Dirent, syscall.Errno)
 
-	// Next advances the internal counters and indices to the next value.
+	// Next advances the internal cursor to the next value.
+	//
+	// This is equivalent to invoking Peek() and then advancing the internal
+	// cursor; thus, the error conditions are the same.
 	//
 	// # Errors
 	//
 	// A zero syscall.Errno is success. The below are expected otherwise:
-	//   - syscall.ENOENT when there are no entries left in the directory.
+	//   - syscall.ENOENT: there are no more entries to fetch
+	//   - syscall.EBADF: the directory is no longer valid
+	//   - other error values would signal an issue with fetching the next batch of values.
+	//
+	// # Notes
+	//
+	//   - Ultimately, implementations may fetch data using a `readdir`-like API, thus
+	//     errors will reflect file system errors similarly to the POSIX call. See
+	//     https://pubs.opengroup.org/onlinepubs/9699919799/functions/readdir.html
 	Next() (*Dirent, syscall.Errno)
 
 	// Close closes the underlying file.
@@ -435,8 +493,27 @@ type Readdir interface {
 	Close() syscall.Errno
 }
 
-// ReaddirAll reads eagerly all the values returned byt the given
+// ReaddirAll reads eagerly all the values returned by the given
 // Readdir instance and returns a slice or a syscall.Errno.
+//
+// This is equivalent to invoking Readdir.Next over the given
+// Readdir instance until it returns syscall.ENOENT.
+//
+// # Errors
+//
+// A zero syscall.Errno is returned when Readdir has been successfully exhausted.
+// The below are expected otherwise:
+//   - syscall.EBADF: the directory is no longer valid
+//   - other error values would signal an issue with fetching the next batch of values.
+//
+// # Notes
+//
+//   - Notably, ReaddirAll does not return syscall.ENOENT when there are no more
+//     entries to fetch, as this is expected behavior for Readdir, and not
+//     an actual error. In this case it returns a zero syscall.Errno.
+//   - ReaddirAll does not invoke Readdir.Reset, thus, an exhausted Readdir
+//     will produce zero entries. This is expected behavior.
+//   - Otherwise, the notes for Readdir.Next apply.
 func ReaddirAll(dirs Readdir) ([]Dirent, syscall.Errno) {
 	var dirents []Dirent
 	for {

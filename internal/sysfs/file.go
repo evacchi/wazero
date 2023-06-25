@@ -268,24 +268,6 @@ func (f *fsFile) reopen() syscall.Errno {
 	return 0
 }
 
-func (f *fsFile) dup() (rawOsFile, syscall.Errno) {
-	file, err := f.fs.Open(f.name)
-	if err != nil {
-		if file != nil {
-			file.Close()
-		}
-		return nil, platform.UnwrapOSError(err)
-	}
-
-	return &fsFile{
-		fs:       f.fs,
-		name:     f.name,
-		file:     file,
-		closed:   false,
-		cachedSt: f.cachedSt,
-	}, 0
-}
-
 // Readdir implements File.Readdir. Notably, this uses fs.ReadDirFile if
 // available.
 func (f *fsFile) Readdir() (dirs fsapi.Readdir, errno syscall.Errno) {
@@ -434,15 +416,66 @@ func seek(s io.Seeker, offset int64, whence int) (int64, syscall.Errno) {
 // to an old/invalid file descriptor.
 type rawOsFile interface {
 	fsapi.File
+
+	// rawOsFile returns the underlying *os.File instance to this fsapi.File.
+	//
+	// # Notes
+	//
+	//   - Due to how the internal *os.File reference may mutate,
+	//     you should only reference it through this method, and never
+	//     capture it, or assign it to a field of a different struct,
+	//     unless you are sure that the lifetime of that captured reference
+	//     will not outlive the lifetime of this reference.
 	rawOsFile() *os.File
+
+	// dup duplicates this rawOsFile instance.
+	//
+	// Implementations may choose different strategies, but generally
+	// the safest way to duplicate the handle is to reopen it.
+	// Thus, the errors will report inconsistent states of the file system
+	// such as when a file was deleted while trying to reopen it.
+	//
+	// # Errors
+	//
+	// A zero syscall.Errno is success. The below are expected otherwise:
+	//   - syscall.EINVAL: the file was not valid.
+	//   - syscall.ENOENT: the file or directory did not exist.
+	//
+	// # Notes
+	//
+	//   - This is conceptually similar to and `dup` in POSIX, hence the name. See
+	//     https://pubs.opengroup.org/onlinepubs/9699919799/functions/dup.html
+	//   - However, this being generally implemented in terms of `open`, see also
+	//     https://pubs.opengroup.org/onlinepubs/9699919799/functions/open.html
 	dup() (rawOsFile, syscall.Errno)
 }
 
-var _ rawOsFile = rawOsFile(nil)
+// compile-time check to ensure *fsFile implements rawOsFile.
+var _ rawOsFile = (*fsFile)(nil)
 
 // rawOsFile implements the same method as documented on rawOsFile.
 func (f *fsFile) rawOsFile() *os.File {
 	return f.file.(*os.File)
+}
+
+// dup implements the same method as documented on rawOsFile.
+func (f *fsFile) dup() (rawOsFile, syscall.Errno) {
+	file, err := f.fs.Open(f.name)
+	if err != nil {
+		if file != nil {
+			file.Close()
+		}
+		// fs.Open returns ErrInvalid (EINVAL) or ErrNotExist (ENOENT).
+		return nil, platform.UnwrapOSError(err)
+	}
+
+	return &fsFile{
+		fs:       f.fs,
+		name:     f.name,
+		file:     file,
+		closed:   false,
+		cachedSt: f.cachedSt,
+	}, 0
 }
 
 func write(w io.Writer, buf []byte) (n int, errno syscall.Errno) {
@@ -700,12 +733,32 @@ type windowedReaddir struct {
 	//
 	// It may be used to reset an internal cursor, seek a directory
 	// to its beginning, closing and reopening a file etc.
+	//
+	// # Errors
+	//
+	// A zero syscall.Errno is success. The below are expected otherwise:
+	//   - syscall.EINVAL: the file was not valid.
+	//   - syscall.ENOENT: the file or directory did not exist.
 	init func() syscall.Errno
 
 	// fetch fetches a new batch of direntBufSize elements.
+	//
+	// It may be used to reset an internal cursor, seek a directory
+	// to its beginning, closing and reopening a file etc.
+	//
+	// # Errors
+	//
+	// A zero syscall.Errno is success. The below are expected otherwise:
+	//   - syscall.ENOENT: there are no more entries to fetch
+	//   - other error values would signal an issue with fetching the next batch of values.
 	fetch func(n uint64) (fsapi.Readdir, syscall.Errno)
 
 	// close closes the underliying implementation.
+	// # Errors
+	//
+	// A zero syscall.Errno is success. The below are expected otherwise:
+	//   - syscall.EINVAL: the file was not valid.
+	//   - syscall.EBADF: the file was already closed.
 	close func() syscall.Errno
 }
 

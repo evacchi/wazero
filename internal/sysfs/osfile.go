@@ -280,6 +280,7 @@ func (f *osFile) rawOsFile() *os.File {
 	return f.file
 }
 
+// dup implements the same method as documented on rawOsFile.
 func (f *osFile) dup() (rawOsFile, syscall.Errno) {
 	// Clear any create flag, as we are re-opening, not re-creating.
 	flag := f.flag & ^syscall.O_CREAT
