@@ -321,7 +321,7 @@ func requireReaddir(t *testing.T, f fsapi.File, n int, expectIno bool) []fsapi.D
 	defer dirs.Close()
 
 	require.NotNil(t, dirs)
-	entries, errno := fsapi.ReaddirAll(dirs)
+	entries, errno := ReaddirAll(dirs)
 	require.EqualErrno(t, 0, errno)
 
 	sort.Slice(entries, func(i, j int) bool { return entries[i].Name < entries[j].Name })

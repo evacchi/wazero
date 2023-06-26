@@ -1200,7 +1200,7 @@ func TestReaddirStructs(t *testing.T) {
 		{
 			name: "read all",
 			f: func(t *testing.T, r fsapi.Readdir, size int) {
-				dirents, errno := fsapi.ReaddirAll(r)
+				dirents, errno := ReaddirAll(r)
 				require.EqualErrno(t, 0, errno)
 				require.Equal(t, size, len(dirents))
 			},
@@ -1208,7 +1208,7 @@ func TestReaddirStructs(t *testing.T) {
 		{
 			name: "exhausted returns ENOENT",
 			f: func(t *testing.T, r fsapi.Readdir, size int) {
-				dirents, errno := fsapi.ReaddirAll(r)
+				dirents, errno := ReaddirAll(r)
 				require.EqualErrno(t, 0, errno)
 				require.Equal(t, size, len(dirents))
 				_, errno = r.Peek()
@@ -1218,7 +1218,7 @@ func TestReaddirStructs(t *testing.T) {
 		{
 			name: "exhausted can be Reset() and exhausted again",
 			f: func(t *testing.T, r fsapi.Readdir, size int) {
-				dirents, errno := fsapi.ReaddirAll(r)
+				dirents, errno := ReaddirAll(r)
 				require.EqualErrno(t, 0, errno)
 				require.Equal(t, size, len(dirents))
 				_, errno = r.Peek()
@@ -1227,7 +1227,7 @@ func TestReaddirStructs(t *testing.T) {
 				errno = r.Rewind(0)
 				require.EqualErrno(t, 0, errno)
 
-				dirents, errno = fsapi.ReaddirAll(r)
+				dirents, errno = ReaddirAll(r)
 				require.EqualErrno(t, 0, errno)
 				require.Equal(t, size, len(dirents))
 				_, errno = r.Peek()

@@ -120,7 +120,7 @@ var (
 		if errno != 0 {
 			panic(errno)
 		}
-		dirents, errno := fsapi.ReaddirAll(dirs)
+		dirents, errno := sysfs.ReaddirAll(dirs)
 		if errno != 0 {
 			panic(errno)
 		}

@@ -12,6 +12,7 @@ import (
 	"github.com/tetratelabs/wazero/internal/gojs/goos"
 	"github.com/tetratelabs/wazero/internal/gojs/util"
 	internalsys "github.com/tetratelabs/wazero/internal/sys"
+	"github.com/tetratelabs/wazero/internal/sysfs"
 	"github.com/tetratelabs/wazero/internal/wasm"
 )
 
@@ -330,7 +331,7 @@ func syscallReaddir(_ context.Context, mod api.Module, name string) (*objectArra
 		return nil, errno
 	}
 
-	dirents, errno := fsapi.ReaddirAll(dirs)
+	dirents, errno := sysfs.ReaddirAll(dirs)
 	if errno != 0 {
 		return nil, errno
 	}

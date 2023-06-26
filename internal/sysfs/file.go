@@ -890,3 +890,41 @@ func newReaddirFromFile(f rawOsFile, path string) (fsapi.Readdir, syscall.Errno)
 
 	return newWindowedReaddir(init, fetch, close)
 }
+
+// ReaddirAll reads eagerly all the values returned by the given
+// Readdir instance and returns a slice or a syscall.Errno.
+//
+// This is equivalent to invoking Readdir.Next over the given
+// Readdir instance until it returns syscall.ENOENT.
+//
+// # Errors
+//
+// A zero syscall.Errno is returned when Readdir has been successfully exhausted.
+// The below are expected otherwise:
+//   - syscall.EBADF: the directory is no longer valid
+//   - other error values would signal an issue with fetching the next batch of values.
+//
+// # Notes
+//
+//   - Notably, ReaddirAll does not return syscall.ENOENT when there are no more
+//     entries to fetch, as this is expected behavior for Readdir, and not
+//     an actual error. In this case it returns a zero syscall.Errno.
+//   - ReaddirAll does not invoke Readdir.Reset, thus, an exhausted Readdir
+//     will produce zero entries. This is expected behavior.
+//   - Otherwise, the notes for Readdir.Next apply.
+func ReaddirAll(dirs fsapi.Readdir) ([]fsapi.Dirent, syscall.Errno) {
+	var dirents []fsapi.Dirent
+	for {
+		e, errno := dirs.Next()
+		if errno == syscall.ENOENT {
+			return dirents, 0
+		} else if errno != 0 {
+			return dirents, errno
+		}
+		if e == nil {
+			break
+		}
+		dirents = append(dirents, *e)
+	}
+	return dirents, 0
+}
