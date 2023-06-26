@@ -393,9 +393,6 @@ type File interface {
 //     (e.g. deleting) the underlying directory. This may conflict with cleanup
 //     procedures (such as `testing/TB.Cleanup()`).
 type Readdir interface {
-	// Skip is equivalent to calling Next n times.
-	Skip(n uint64)
-
 	// Offset returns the offset of the current value under the internal cursor.
 	Offset() uint64
 

@@ -2017,6 +2017,12 @@ func Test_fdReaddir(t *testing.T) {
 	fd, errno := fsc.OpenFile(preopen, "dir", os.O_RDONLY, 0)
 	require.EqualErrno(t, 0, errno)
 
+	skip := func(d fsapi.Readdir, n int) {
+		for i := 0; i < n; i++ {
+			_, _ = d.Next()
+		}
+	}
+
 	tests := []struct {
 		name            string
 		initialDir      string
@@ -2128,7 +2134,7 @@ func Test_fdReaddir(t *testing.T) {
 			dir: func() {
 				f, _ := fsc.LookupFile(fd)
 				rdd, _ := fsc.LookupReaddir(fd, f)
-				rdd.Skip(2)
+				skip(rdd, 2)
 			},
 			bufLen:          27, // length is long enough for exactly third.
 			cookie:          2,  // d_next of second.
@@ -2142,7 +2148,7 @@ func Test_fdReaddir(t *testing.T) {
 			dir: func() {
 				f, _ := fsc.LookupFile(fd)
 				rdd, _ := fsc.LookupReaddir(fd, f)
-				rdd.Skip(2)
+				skip(rdd, 2)
 			},
 			bufLen:          300, // length is long enough for third and more
 			cookie:          2,   // d_next of second.
@@ -2156,7 +2162,7 @@ func Test_fdReaddir(t *testing.T) {
 			dir: func() {
 				f, _ := fsc.LookupFile(fd)
 				rdd, _ := fsc.LookupReaddir(fd, f)
-				rdd.Skip(5)
+				skip(rdd, 5)
 			},
 			bufLen:          300, // length is long enough for third and more
 			cookie:          5,   // d_next after entries.

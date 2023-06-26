@@ -504,9 +504,6 @@ var _ fsapi.Readdir = (*emptyReaddir)(nil)
 // emptyReaddir is an empty fsapi.Readdir.
 type emptyReaddir struct{}
 
-// Skip implements the same method as documented on fsapi.Readdir.
-func (e emptyReaddir) Skip(uint64) {}
-
 // Offset implements the same method as documented on fsapi.Readdir.
 func (e emptyReaddir) Offset() uint64 { return 0 }
 
@@ -537,11 +534,6 @@ type sliceReaddir struct {
 // NewReaddir creates an instance from externally defined directory entries.
 func NewReaddir(dirents ...fsapi.Dirent) fsapi.Readdir {
 	return &sliceReaddir{dirents: dirents}
-}
-
-// Skip implements the same method as documented on fsapi.Readdir.
-func (s *sliceReaddir) Skip(n uint64) {
-	s.cursor += n
 }
 
 // Offset implements the same method as documented on fsapi.Readdir.
@@ -608,13 +600,6 @@ type concatReaddir struct {
 // two fsapi.Readdir.
 func NewConcatReaddir(first fsapi.Readdir, second fsapi.Readdir) fsapi.Readdir {
 	return &concatReaddir{first: first, second: second, current: first}
-}
-
-// Skip implements the same method as documented on fsapi.Readdir.
-func (c *concatReaddir) Skip(n uint64) {
-	for i := uint64(0); i < n; i++ {
-		_, _ = c.Next()
-	}
 }
 
 // Offset implements the same method as documented on fsapi.Readdir.
@@ -770,15 +755,6 @@ func (d *windowedReaddir) reset() syscall.Errno {
 	}
 	d.window = dir
 	return 0
-}
-
-// Skip implements the same method as documented on fsapi.Readdir.
-func (d *windowedReaddir) Skip(n uint64) {
-	end := d.cursor + n
-	var err syscall.Errno = 0
-	for d.cursor < end && err == 0 {
-		_, err = d.Next()
-	}
 }
 
 // Offset implements the same method as documented on fsapi.Readdir.
