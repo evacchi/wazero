@@ -818,9 +818,11 @@ func (d *windowedReaddir) Peek() (*fsapi.Dirent, syscall.Errno) {
 // set of values when the internal cursor reaches the end of it.
 func (d *windowedReaddir) Next() (*fsapi.Dirent, syscall.Errno) {
 	if dirent, errno := d.window.Next(); errno == syscall.ENOENT {
-		if d.window, errno = d.fetch(direntBufSize); errno != 0 {
+		if window, errno := d.fetch(direntBufSize); errno != 0 {
 			return nil, errno
 		} else {
+			d.cursor++
+			d.window = window
 			return d.window.Next()
 		}
 	} else if errno != 0 {

@@ -1161,7 +1161,7 @@ func TestReaddirStructs(t *testing.T) {
 		{
 			name: "read 1",
 			f: func(t *testing.T, r fsapi.Readdir, size int) {
-				d, errno := r.Peek()
+				d, errno := r.Next()
 				if size == 0 {
 					require.EqualErrno(t, syscall.ENOENT, errno)
 					return
@@ -1173,16 +1173,15 @@ func TestReaddirStructs(t *testing.T) {
 		{
 			name: "read 2",
 			f: func(t *testing.T, r fsapi.Readdir, size int) {
-				d, errno := r.Peek()
+				d, errno := r.Next()
 				if size == 0 {
 					require.EqualErrno(t, syscall.ENOENT, errno)
 					return
 				}
 				require.EqualErrno(t, 0, errno)
 				require.NotNil(t, d)
-				_, errno = r.Next()
-				require.EqualErrno(t, 0, errno)
-				d, errno = r.Peek()
+
+				d, errno = r.Next()
 				require.EqualErrno(t, 0, errno)
 				require.NotNil(t, d)
 			},
@@ -1211,7 +1210,7 @@ func TestReaddirStructs(t *testing.T) {
 				dirents, errno := ReaddirAll(r)
 				require.EqualErrno(t, 0, errno)
 				require.Equal(t, size, len(dirents))
-				_, errno = r.Peek()
+				_, errno = r.Next()
 				require.EqualErrno(t, syscall.ENOENT, errno)
 			},
 		},
@@ -1221,7 +1220,7 @@ func TestReaddirStructs(t *testing.T) {
 				dirents, errno := ReaddirAll(r)
 				require.EqualErrno(t, 0, errno)
 				require.Equal(t, size, len(dirents))
-				_, errno = r.Peek()
+				_, errno = r.Next()
 				require.EqualErrno(t, syscall.ENOENT, errno)
 
 				errno = r.Rewind(0)
@@ -1230,8 +1229,21 @@ func TestReaddirStructs(t *testing.T) {
 				dirents, errno = ReaddirAll(r)
 				require.EqualErrno(t, 0, errno)
 				require.Equal(t, size, len(dirents))
-				_, errno = r.Peek()
+				_, errno = r.Next()
 				require.EqualErrno(t, syscall.ENOENT, errno)
+			},
+		},
+		{
+			name: "Offset() is always increasing",
+			f: func(t *testing.T, r fsapi.Readdir, size int) {
+				count := uint64(1)
+				for {
+					if _, errno := r.Next(); errno == syscall.ENOENT {
+						break
+					}
+					require.Equal(t, count, r.Offset())
+					count++
+				}
 			},
 		},
 		{
@@ -1247,6 +1259,48 @@ func TestReaddirStructs(t *testing.T) {
 				nwindow := uint64(half / direntBufSize)
 				errno = r.Rewind(nwindow * direntBufSize)
 				require.EqualErrno(t, 0, errno)
+			},
+		},
+		{
+			name: "Rewind(Offset()-1) is always valid with Offset()>0",
+			f: func(t *testing.T, r fsapi.Readdir, size int) {
+				t.Skip("not working yet")
+				count := uint64(0)
+				var last *fsapi.Dirent
+				for {
+					curr, errno := r.Next()
+					last = curr
+					if errno == syscall.ENOENT {
+						break
+					}
+					count++
+
+					require.Equal(t, count, r.Offset())
+
+					errno = r.Rewind(r.Offset() - 1)
+					require.EqualErrno(t, 0, errno, fmt.Sprintf("failed at index %d", r.Offset()-1))
+
+					curr, errno = r.Next()
+					require.Equal(t, last.Name, curr.Name)
+					require.EqualErrno(t, 0, errno)
+				}
+			},
+		},
+		{
+			name: "Cannot Rewind() to the last element of a previous window",
+			f: func(t *testing.T, r fsapi.Readdir, size int) {
+				half := size / 2
+				for i := 0; i < half; i++ {
+					_, errno := r.Next()
+					require.EqualErrno(t, 0, errno)
+				}
+				// Rewind to the start of the current window.
+				nwindow := uint64(half / direntBufSize)
+				if nwindow != 0 {
+					idx := nwindow*direntBufSize - 1
+					errno := r.Rewind(idx)
+					require.EqualErrno(t, syscall.ENOSYS, errno, fmt.Sprintf("failed at index %d", idx))
+				}
 			},
 		},
 	}
@@ -1266,6 +1320,42 @@ func TestReaddirStructs(t *testing.T) {
 			}
 		})
 	}
+
+	t.Run("rewind concat dot-dirs + windowed readdir from file", func(t *testing.T) {
+		file, errno := OpenOSFile(tempDir, syscall.O_RDONLY, 0)
+		require.EqualErrno(t, 0, errno)
+		dotEntries := NewReaddir(fsapi.Dirent{Name: "."}, fsapi.Dirent{Name: ".."})
+		readdirF, errno := newReaddirFromFile(file.(rawOsFile), tempDir)
+
+		require.EqualErrno(t, 0, errno)
+		readdir := NewConcatReaddir(dotEntries, readdirF)
+
+		dot, _ := readdir.Next()
+		require.NotNil(t, dot)
+		dotdot, _ := readdir.Next()
+		require.NotNil(t, dotdot)
+
+		// Current item under the cursor is offset 2.
+		require.Equal(t, uint64(2), readdir.Offset())
+		// Read the first item of readdirF and advance the internal cursor.
+		first, _ := readdir.Next()
+		require.NotNil(t, first)
+		require.Equal(t, uint64(3), readdir.Offset())
+
+		// get back to the previous iterator in the concat (dotEntries)
+		errno = readdir.Rewind(1)
+		require.EqualErrno(t, 0, errno)
+		dotdot2, errno := readdir.Next()
+		require.NotNil(t, dotdot2)
+		require.Equal(t, dotdot, dotdot2)
+		require.EqualErrno(t, 0, errno)
+
+		// Read again the first item of readdirF and advance the internal cursor.
+		first2, _ := readdir.Next()
+		require.NotNil(t, first2)
+		require.Equal(t, first, first2)
+		require.Equal(t, uint64(3), readdir.Offset())
+	})
 }
 
 func TestReaddDir_Rewind(t *testing.T) {

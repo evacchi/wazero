@@ -427,26 +427,8 @@ type Readdir interface {
 	//     reopen the underlying directory for portability reasons.
 	Rewind(offset uint64) syscall.Errno
 
-	// Peek emits the value currently pointed by the internal cursor.
-	//
-	// # Errors
-	//
-	// A zero syscall.Errno is success. The below are expected otherwise:
-	//   - syscall.ENOENT: there are no more entries to fetch
-	//   - syscall.EBADF: the directory is no longer valid
-	//   - other error values would signal an issue with fetching the next batch of values.
-	//
-	// # Notes
-	//
-	//   - Ultimately, implementations may fetch data using a `readdir`-like API, thus
-	//     errors will reflect file system errors similarly to the POSIX call. See
-	//     https://pubs.opengroup.org/onlinepubs/9699919799/functions/readdir.html
-	Peek() (*Dirent, syscall.Errno)
-
-	// Next advances the internal cursor to the next value.
-	//
-	// This is equivalent to invoking Peek() and then advancing the internal
-	// cursor; thus, the error conditions are the same.
+	// Next returns the value currently pointed by the internal cursor,
+	// and it advances to the next value.
 	//
 	// # Errors
 	//
@@ -461,6 +443,10 @@ type Readdir interface {
 	//     errors will reflect file system errors similarly to the POSIX call. See
 	//     https://pubs.opengroup.org/onlinepubs/9699919799/functions/readdir.html
 	Next() (*Dirent, syscall.Errno)
+
+	// Peek emits the value currently pointed by the internal cursor
+	// without advancing to the next value.
+	Peek() (*Dirent, syscall.Errno)
 
 	// Close closes the underlying file.
 	//
