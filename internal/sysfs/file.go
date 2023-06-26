@@ -753,6 +753,9 @@ func (d *windowedReaddir) reset() syscall.Errno {
 	if errno != 0 {
 		return errno
 	}
+	//if dir == nil {
+	//	dir = emptyReaddir{}
+	//}
 	d.window = dir
 	return 0
 }
@@ -808,6 +811,9 @@ func (d *windowedReaddir) Peek() (*fsapi.Dirent, syscall.Errno) {
 		if errno != 0 {
 			return nil, errno
 		}
+		//if dir == nil {
+		//	dir = emptyReaddir{}
+		//}
 		d.window = dir
 		return d.window.Peek()
 	} else if errno != 0 {
@@ -825,6 +831,8 @@ func (d *windowedReaddir) Next() (*fsapi.Dirent, syscall.Errno) {
 	if dirent, errno := d.window.Next(); errno == syscall.ENOENT {
 		if window, errno := d.fetch(direntBufSize); errno != 0 {
 			return nil, errno
+		} else if window == nil {
+			return nil, syscall.ENOENT
 		} else {
 			d.cursor++
 			d.window = window
@@ -869,6 +877,9 @@ func newReaddirFromFile(f rawOsFile, path string) (fsapi.Readdir, syscall.Errno)
 
 	fetch := func(n uint64) (fsapi.Readdir, syscall.Errno) {
 		fis, err := file.rawOsFile().Readdir(int(n))
+		if err == io.EOF {
+			return emptyReaddir{}, 0
+		}
 		if errno := platform.UnwrapOSError(err); errno != 0 {
 			return nil, errno
 		}
