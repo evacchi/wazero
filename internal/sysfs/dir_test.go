@@ -53,8 +53,8 @@ func TestReaddir(t *testing.T) {
 				require.EqualErrno(t, 0, errno)
 				require.Zero(t, len(dirents))
 
-				// rewind via seek to zero
-				errno = dirs.Reset()
+				// Reset to the initial position (Rewind to zero)
+				errno = dirs.Rewind(0)
 				require.EqualErrno(t, 0, errno)
 
 				// We should be able to read again

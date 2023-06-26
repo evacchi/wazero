@@ -225,7 +225,7 @@ type File interface {
 	//   - For portability reasons, no error is returned at the end of the
 	//     directory, when the file is closed or removed while open.
 	//     See https://github.com/ziglang/zig/blob/0.10.1/lib/std/fs.zig#L635-L637
-	Readdir() (dirs Readdir, errno syscall.Errno)
+	Readdir() (Readdir, syscall.Errno)
 
 	// Write attempts to write all bytes in `p` to the file, and returns the
 	// count written even on error.
@@ -366,8 +366,7 @@ type File interface {
 
 	// Close closes the underlying file.
 	//
-	// A zero syscall.Errno is success. The below are expected otherwise:
-	//   - syscall.ENOSYS: the implementation does not support this function.
+	// A zero syscall.Errno is returned if unimplemented or success.
 	//
 	// # Notes
 	//
@@ -400,38 +399,23 @@ type Readdir interface {
 	// Offset returns the offset of the current value under the internal cursor.
 	Offset() uint64
 
-	// Reset seeks the internal cursor to 0 and refills the buffer.
-	//
-	// # Errors
-	//
-	// A zero syscall.Errno is success. The below are expected otherwise:
-	//   - syscall.EINVAL: the offset is larger than the current internal cursor.
-	//   - syscall.EBADF: the file or directory was closed.
-	//
-	// # Notes
-	//
-	//   - This is conceptually similar to invoking Seek(0, io.SeekStart) on io.Seeker
-	//     and `fseek` in POSIX over an open directory. See
-	//     https://pubs.opengroup.org/onlinepubs/9699919799/functions/fseek.html
-	//   - However implementations will generally reopen the underlying directory
-	//     for portability reasons.
-	Reset() syscall.Errno
-
 	// Rewind seeks the internal cursor to the given offset.
-	//
-	// Rewinding to offset 0 usually should produce the same result
-	// as calling Reset.
 	//
 	// Implementations may keep a buffer or a moving window. The size of
 	// the window is an implementation detail, the implementation
 	// may return an error if the offset is too small to seek back
 	// to that index (i.e. it lays outside the window).
 	//
+	// Offset 0 is a special case: it is always possible to Rewind to 0.
+	// In this case, the Readdir instance is reset to its initial state,
+	// discarding any previous buffers.
+	//
 	// # Errors
 	//
 	// A zero syscall.Errno is success. The below are expected otherwise:
 	//   - syscall.EINVAL: the offset is larger than the current internal cursor.
 	//   - syscall.ENOSYS: the offset is too small for the current window.
+	//   - syscall.EBADF: the file or directory was closed.
 	//
 	// # Notes
 	//
@@ -441,6 +425,9 @@ type Readdir interface {
 	//   - However implementations will generally keep a buffer of the currently
 	//     valid values and will not actually seek to the given offset the underlying
 	//     open directory.
+	//   - For offset 0, this is conceptually similar to invoking Seek(0, io.SeekStart)
+	//     on io.Seeker and `fseek`, however implementations will generally
+	//     reopen the underlying directory for portability reasons.
 	Rewind(offset uint64) syscall.Errno
 
 	// Peek emits the value currently pointed by the internal cursor.
@@ -482,7 +469,8 @@ type Readdir interface {
 	//
 	// # Errors
 	//
-	// A zero syscall.Errno is success. The below are expected otherwise:
+	// A zero syscall.Errno is returned if unimplemented or success. The below
+	// are expected otherwise:
 	//   - syscall.ENOSYS: the implementation does not support this function.
 	//   - syscall.EBADF: the file or directory was closed.
 	//

@@ -504,9 +504,6 @@ var _ fsapi.Readdir = (*emptyReaddir)(nil)
 // emptyReaddir is an empty fsapi.Readdir.
 type emptyReaddir struct{}
 
-// Reset implements the same method as documented on fsapi.Readdir.
-func (e emptyReaddir) Reset() syscall.Errno { return 0 }
-
 // Skip implements the same method as documented on fsapi.Readdir.
 func (e emptyReaddir) Skip(uint64) {}
 
@@ -542,12 +539,6 @@ func NewReaddir(dirents ...fsapi.Dirent) fsapi.Readdir {
 	return &sliceReaddir{dirents: dirents}
 }
 
-// Reset implements the same method as documented on fsapi.Readdir.
-func (s *sliceReaddir) Reset() syscall.Errno {
-	s.cursor = 0
-	return 0
-}
-
 // Skip implements the same method as documented on fsapi.Readdir.
 func (s *sliceReaddir) Skip(n uint64) {
 	s.cursor += n
@@ -570,7 +561,8 @@ func (s *sliceReaddir) Rewind(offset uint64) syscall.Errno {
 		// This means that there was a previous call to the dir, but offset is reset.
 		// This happens when the program calls rewinddir, for example:
 		// https://github.com/WebAssembly/wasi-libc/blob/659ff414560721b1660a19685110e484a081c3d4/libc-bottom-half/cloudlibc/src/libc/dirent/rewinddir.c#L10-L12
-		return s.Reset()
+		s.cursor = 0
+		return 0
 	case offset < s.cursor:
 		// We are allowed to rewind back to a previous offset within the current window.
 		s.cursor = offset
@@ -616,20 +608,6 @@ type concatReaddir struct {
 // two fsapi.Readdir.
 func NewConcatReaddir(first fsapi.Readdir, second fsapi.Readdir) fsapi.Readdir {
 	return &concatReaddir{first: first, second: second, current: first}
-}
-
-// Reset implements the same method as documented on fsapi.Readdir.
-func (c *concatReaddir) Reset() syscall.Errno {
-	errno := c.first.Reset()
-	if errno != 0 {
-		return errno
-	}
-	errno = c.second.Reset()
-	if errno != 0 {
-		return errno
-	}
-	c.current = c.first
-	return 0
 }
 
 // Skip implements the same method as documented on fsapi.Readdir.
@@ -729,7 +707,7 @@ type windowedReaddir struct {
 	// in case the caller mis-estimated their buffer and needs a few still cached.
 	window fsapi.Readdir
 
-	// init is called on Reset().
+	// init is called on startup and on Rewind(0).
 	//
 	// It may be used to reset an internal cursor, seek a directory
 	// to its beginning, closing and reopening a file etc.
@@ -769,7 +747,7 @@ func newWindowedReaddir(
 	close func() syscall.Errno,
 ) (fsapi.Readdir, syscall.Errno) {
 	d := &windowedReaddir{init: init, fetch: fetch, close: close, window: emptyReaddir{}}
-	errno := d.Reset()
+	errno := d.reset()
 	if errno != 0 {
 		d.Close()
 		return emptyReaddir{}, errno
@@ -778,11 +756,9 @@ func newWindowedReaddir(
 	}
 }
 
-// Reset implements the same method as documented on fsapi.Readdir.
-//
-// It zeroes the cursor and invokes the fetch method to reset
+// reset zeroes the cursor and invokes the fetch method to reset
 // the internal state of the Readdir struct.
-func (d *windowedReaddir) Reset() syscall.Errno {
+func (d *windowedReaddir) reset() syscall.Errno {
 	errno := d.init()
 	if errno != 0 {
 		return errno
@@ -822,7 +798,7 @@ func (d *windowedReaddir) Rewind(offset uint64) syscall.Errno {
 		// This means that there was a previous call to the dir, but cookie is reset.
 		// This happens when the program calls rewinddir, for example:
 		// https://github.com/WebAssembly/wasi-libc/blob/659ff414560721b1660a19685110e484a081c3d4/libc-bottom-half/cloudlibc/src/libc/dirent/rewinddir.c#L10-L12
-		return d.Reset()
+		return d.reset()
 	case offset < d.cursor:
 		if offset/direntBufSize != d.cursor/direntBufSize {
 			// The cookie is not 0, but it points into a window before the current one.
@@ -880,8 +856,8 @@ func (d *windowedReaddir) Next() (*fsapi.Dirent, syscall.Errno) {
 }
 
 // Close implements the same method as documented on fsapi.Readdir.
-func (c *windowedReaddir) Close() syscall.Errno {
-	return c.close()
+func (d *windowedReaddir) Close() syscall.Errno {
+	return d.close()
 }
 
 // newReaddirFromFile captures a reference to the given rawOsFile (fsapi.File subtype)

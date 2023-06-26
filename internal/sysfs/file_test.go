@@ -1224,7 +1224,7 @@ func TestReaddirStructs(t *testing.T) {
 				_, errno = r.Peek()
 				require.EqualErrno(t, syscall.ENOENT, errno)
 
-				errno = r.Reset()
+				errno = r.Rewind(0)
 				require.EqualErrno(t, 0, errno)
 
 				dirents, errno = fsapi.ReaddirAll(r)
