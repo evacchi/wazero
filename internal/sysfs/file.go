@@ -778,6 +778,11 @@ func (d *windowedReaddir) Rewind(offset uint64) syscall.Errno {
 	case offset < d.cursor:
 		if offset/direntBufSize != d.cursor/direntBufSize {
 			// The cookie is not 0, but it points into a window before the current one.
+			// If the offset is exactly one element before the current cursor.
+			if offset == d.cursor-1 && d.cursor%direntBufSize == 0 {
+				d.cursor = offset
+				return d.window.Rewind(offset % direntBufSize)
+			}
 			return syscall.ENOSYS
 		}
 		// We are allowed to rewind back to a previous offset within the current window.

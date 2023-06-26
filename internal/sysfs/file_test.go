@@ -1264,7 +1264,6 @@ func TestReaddirStructs(t *testing.T) {
 		{
 			name: "Rewind(Offset()-1) is always valid with Offset()>0",
 			f: func(t *testing.T, r fsapi.Readdir, size int) {
-				t.Skip("not working yet")
 				count := uint64(0)
 				var last *fsapi.Dirent
 				for {
