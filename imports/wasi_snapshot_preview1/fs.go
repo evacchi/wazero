@@ -971,7 +971,6 @@ func maxDirents(dir fsapi.Readdir, bufLen uint32) (dirents []fsapi.Dirent, bufus
 		direntCount++
 		//_, _ = dir.Next()
 	}
-	return
 }
 
 // writeDirents writes the directory entries to the buffer, which is pre-sized
