@@ -915,6 +915,8 @@ func maxDirents(dir fsapi.Readdir, bufLen uint32) (dirents []fsapi.Dirent, bufus
 		if errno != 0 {
 			return
 		}
+		_ = dir.Rewind(dir.Offset() - 1)
+
 		dirents = append(dirents, *d)
 
 		if lenRemaining < wasip1.DirentSize {
@@ -924,10 +926,7 @@ func maxDirents(dir fsapi.Readdir, bufLen uint32) (dirents []fsapi.Dirent, bufus
 			// bufused == bufLen means more dirents exist, which is the case
 			// when the dirent is larger than bytes remaining.
 			bufused = bufLen
-			errno = dir.Rewind(dir.Offset() - 1)
-			if errno != 0 {
-				return
-			}
+			break
 		}
 
 		// use int64 to guard against huge filenames
@@ -959,18 +958,16 @@ func maxDirents(dir fsapi.Readdir, bufLen uint32) (dirents []fsapi.Dirent, bufus
 			// We do have enough space to write the header, this value will be
 			// passed on to writeDirents to only write the header for this entry.
 			writeTruncatedEntry = true
-			errno = dir.Rewind(dir.Offset() - 1)
-			if errno != 0 {
-				return
-			}
+			break
 		}
 
 		// This won't go negative because we checked entryLen <= lenRemaining.
 		lenRemaining -= entryLen
 		bufused += entryLen
 		direntCount++
-		//_, _ = dir.Next()
+		_, _ = dir.Next()
 	}
+	return
 }
 
 // writeDirents writes the directory entries to the buffer, which is pre-sized
