@@ -17,7 +17,7 @@ import (
 	"github.com/tetratelabs/wazero/sys"
 )
 
-func _TestPythonRace(t *testing.T) {
+func TestPythonRace(t *testing.T) {
 	pyWASM, err := New()
 	require.NoError(t, err)
 
