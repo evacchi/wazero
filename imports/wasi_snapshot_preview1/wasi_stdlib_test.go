@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"context"
 	_ "embed"
+	"github.com/tetratelabs/wazero/experimental"
+	"github.com/tetratelabs/wazero/experimental/logging"
 	"io"
 	"io/fs"
 	"net"
@@ -361,6 +363,9 @@ func testOpen(t *testing.T, cmd string, bin []byte) {
 func Test_Hang(t *testing.T) {
 	var consoleBuf bytes.Buffer
 	ctx, cancel := context.WithCancel(testCtx)
+	ctx = context.WithValue(ctx,
+		experimental.FunctionListenerFactoryKey{},
+		logging.NewHostLoggingListenerFactory(os.Stderr, logging.LogScopeFilesystem))
 	r, w := io.Pipe()
 
 	rt := wazero.NewRuntime(ctx)
@@ -375,7 +380,7 @@ func Test_Hang(t *testing.T) {
 				WithArgs("wasi", "echo").
 				WithStdout(&consoleBuf).
 				WithStderr(&consoleBuf).
-				WithStdin(r)) // clear
+				WithStdin(r))
 
 		require.NoError(t, err)
 
