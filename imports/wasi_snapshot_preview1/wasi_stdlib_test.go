@@ -4,8 +4,6 @@ import (
 	"bytes"
 	"context"
 	_ "embed"
-	"github.com/tetratelabs/wazero/experimental"
-	"github.com/tetratelabs/wazero/experimental/logging"
 	"io"
 	"io/fs"
 	"net"

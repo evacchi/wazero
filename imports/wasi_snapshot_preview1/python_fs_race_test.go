@@ -27,7 +27,7 @@ func TestPythonRace(t *testing.T) {
 		close(done)
 	}()
 
-	pyWASM.stdin.Write([]byte("Hello python!"))
+	_, _ = pyWASM.stdin.Write([]byte("Hello python!"))
 	time.Sleep(5 * time.Second)
 
 	pyWASM.Close(context.Background())
