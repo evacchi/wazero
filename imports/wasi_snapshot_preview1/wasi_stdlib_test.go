@@ -20,8 +20,6 @@ import (
 
 	"github.com/tetratelabs/wazero"
 	"github.com/tetratelabs/wazero/api"
-	"github.com/tetratelabs/wazero/experimental"
-	"github.com/tetratelabs/wazero/experimental/logging"
 	experimentalsock "github.com/tetratelabs/wazero/experimental/sock"
 	"github.com/tetratelabs/wazero/imports/wasi_snapshot_preview1"
 	"github.com/tetratelabs/wazero/internal/fsapi"
@@ -365,9 +363,6 @@ func testOpen(t *testing.T, cmd string, bin []byte) {
 func Test_Hang(t *testing.T) {
 	var consoleBuf bytes.Buffer
 	ctx, cancel := context.WithCancel(testCtx)
-	ctx = context.WithValue(ctx,
-		experimental.FunctionListenerFactoryKey{},
-		logging.NewHostLoggingListenerFactory(os.Stderr, logging.LogScopeFilesystem))
 	r, w := io.Pipe()
 
 	rt := wazero.NewRuntime(ctx)
