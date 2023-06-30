@@ -4,9 +4,6 @@ import (
 	"bytes"
 	"context"
 	_ "embed"
-	"fmt"
-	"github.com/tetratelabs/wazero/experimental"
-	"github.com/tetratelabs/wazero/experimental/logging"
 	"io"
 	"io/fs"
 	"net"
@@ -359,58 +356,6 @@ func testOpen(t *testing.T, cmd string, bin []byte) {
 		console := compileAndRun(t, testCtx, moduleConfig, bin)
 		require.Equal(t, "OK", strings.TrimSpace(console))
 	})
-}
-
-func _Test_Hang(t *testing.T) {
-	var consoleBuf bytes.Buffer
-	r, w := io.Pipe()
-
-	ctx := context.Background()
-
-	ctx = context.WithValue(ctx, experimental.FunctionListenerFactoryKey{},
-		logging.NewHostLoggingListenerFactory(os.Stderr, logging.LogScopeAll))
-
-	rt := wazero.NewRuntimeWithConfig(ctx,
-		// Enables the WithCloseOnContextDone option.
-		wazero.NewRuntimeConfig().WithCloseOnContextDone(true))
-	defer rt.Close(ctx)
-	// Create the context.Context to be passed to the invocation of infinite_loop.
-	ctx, cancel := context.WithTimeout(ctx, time.Second)
-	defer cancel()
-	_, err := wasi_snapshot_preview1.Instantiate(ctx, rt)
-
-	mod, err := rt.InstantiateWithConfig(ctx, wasmZigCc,
-		wazero.NewModuleConfig().
-			WithArgs("wasi", "echo").
-			WithStdout(&consoleBuf).
-			WithStartFunctions().
-			WithStdin(r))
-
-	require.NoError(t, err)
-
-	done := make(chan struct{})
-	// Invoke the infinite loop with the timeout context.
-	go func() {
-		_, err = mod.ExportedFunction("_start").Call(ctx)
-		fmt.Println(err)
-		close(done)
-	}()
-
-	go func() {
-		_, _ = w.Write([]byte("test\n"))
-		//for {
-		//	time.Sleep(1 * time.Second)
-		//	_, _ = w.Write([]byte("test\n"))
-		//}
-	}()
-
-	<-ctx.Done()
-	w.Close()
-	r.Close()
-
-	// Timeout is correctly handled and triggers the termination of infinite loop.
-	<-done
-
 }
 
 func Test_Sock(t *testing.T) {
