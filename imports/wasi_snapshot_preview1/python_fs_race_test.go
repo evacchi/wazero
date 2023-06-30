@@ -71,6 +71,7 @@ type WASM struct {
 	modCtx         context.Context
 	moduleInstance api.Module
 	modCancel      func()
+	done           chan struct{}
 }
 
 type PyModule struct {
@@ -122,8 +123,7 @@ func New(mfiles ...PyModule) (*WASM, error) {
 	config := wazero.NewModuleConfig().
 		WithStdout(outPW).WithStderr(os.Stderr).WithStdin(inPR).
 		WithFSConfig(wazero.NewFSConfig().WithFSMount(mfs, "/")).
-		WithArgs("-m", "/hello.py").
-		WithStartFunctions()
+		WithArgs("-m", "/hello.py")
 
 	mod, err := r.CompileModule(ctx, pythonWasm)
 	if err != nil {
@@ -138,13 +138,14 @@ func New(mfiles ...PyModule) (*WASM, error) {
 		config:    config,
 		modCtx:    ctx,
 		modCancel: cancel,
+		done:      make(chan struct{}),
 	}, nil
 }
 
 func (w *WASM) Run() error {
 	var err error
 	w.moduleInstance, err = w.runtime.InstantiateModule(w.modCtx, w.module, w.config)
-	w.moduleInstance.ExportedFunction("_start").Call(w.modCtx)
+	close(w.done)
 	if errors.Is(err, sys.NewExitError(sys.ExitCodeContextCanceled)) {
 		return nil
 	}
@@ -152,11 +153,10 @@ func (w *WASM) Run() error {
 }
 
 func (w *WASM) Close(ctx context.Context) error {
-	w.stdin.Write([]byte{4})
 	w.modCancel()
-	w.moduleInstance.CloseWithExitCode(ctx, 1)
 	<-w.modCtx.Done()
 	w.stdin.Close()
 	w.stdout.Close()
+	<-w.done
 	return w.runtime.Close(ctx)
 }
