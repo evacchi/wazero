@@ -5,6 +5,7 @@ import (
 	"embed"
 	"errors"
 	"fmt"
+	"github.com/tetratelabs/wazero/api"
 	"io"
 	"os"
 	"testing"
@@ -67,8 +68,9 @@ type WASM struct {
 	stdin   *io.PipeWriter
 	stdout  *io.PipeReader
 	// modCtx is how we close the module on termination
-	modCtx    context.Context
-	modCancel func()
+	modCtx         context.Context
+	moduleInstance api.Module
+	modCancel      func()
 }
 
 type PyModule struct {
@@ -120,7 +122,8 @@ func New(mfiles ...PyModule) (*WASM, error) {
 	config := wazero.NewModuleConfig().
 		WithStdout(outPW).WithStderr(os.Stderr).WithStdin(inPR).
 		WithFSConfig(wazero.NewFSConfig().WithFSMount(mfs, "/")).
-		WithArgs("-m", "/hello.py")
+		WithArgs("-m", "/hello.py").
+		WithStartFunctions()
 
 	mod, err := r.CompileModule(ctx, pythonWasm)
 	if err != nil {
@@ -140,7 +143,8 @@ func New(mfiles ...PyModule) (*WASM, error) {
 
 func (w *WASM) Run() error {
 	var err error
-	_, err = w.runtime.InstantiateModule(w.modCtx, w.module, w.config)
+	w.moduleInstance, err = w.runtime.InstantiateModule(w.modCtx, w.module, w.config)
+	w.moduleInstance.ExportedFunction("_start").Call(w.modCtx)
 	if errors.Is(err, sys.NewExitError(sys.ExitCodeContextCanceled)) {
 		return nil
 	}
@@ -150,6 +154,7 @@ func (w *WASM) Run() error {
 func (w *WASM) Close(ctx context.Context) error {
 	w.stdin.Write([]byte{4})
 	w.modCancel()
+	w.moduleInstance.CloseWithExitCode(ctx, 1)
 	<-w.modCtx.Done()
 	w.stdin.Close()
 	w.stdout.Close()
