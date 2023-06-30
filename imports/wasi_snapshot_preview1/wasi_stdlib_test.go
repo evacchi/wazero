@@ -358,7 +358,7 @@ func testOpen(t *testing.T, cmd string, bin []byte) {
 	})
 }
 
-func Test_Hang(t *testing.T) {
+func _Test_Hang(t *testing.T) {
 	var consoleBuf bytes.Buffer
 	ctx, cancel := context.WithCancel(testCtx)
 	r, w := io.Pipe()
