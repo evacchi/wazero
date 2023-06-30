@@ -385,7 +385,7 @@ func _Test_Hang(t *testing.T) {
 	time.Sleep(2 * time.Second)
 	_, _ = w.Write([]byte("test\n"))
 	cancel()
-	mod.CloseWithExitCode(ctx, 1)
+	mod.Close(ctx)
 	<-ctx.Done()
 	_ = r.Close()
 	_ = rt.Close(context.Background())
