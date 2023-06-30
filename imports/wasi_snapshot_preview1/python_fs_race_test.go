@@ -148,7 +148,9 @@ func (w *WASM) Run() error {
 }
 
 func (w *WASM) Close(ctx context.Context) error {
+	w.stdin.Write([]byte{4})
 	w.modCancel()
+	<-w.modCtx.Done()
 	w.stdin.Close()
 	w.stdout.Close()
 	return w.runtime.Close(ctx)
