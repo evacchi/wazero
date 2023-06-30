@@ -4,6 +4,9 @@ import (
 	"bytes"
 	"context"
 	_ "embed"
+	"fmt"
+	"github.com/tetratelabs/wazero/experimental"
+	"github.com/tetratelabs/wazero/experimental/logging"
 	"io"
 	"io/fs"
 	"net"
@@ -360,41 +363,54 @@ func testOpen(t *testing.T, cmd string, bin []byte) {
 
 func _Test_Hang(t *testing.T) {
 	var consoleBuf bytes.Buffer
-	ctx, cancel := context.WithCancel(testCtx)
 	r, w := io.Pipe()
 
-	rt := wazero.NewRuntime(ctx)
+	ctx := context.Background()
 
+	ctx = context.WithValue(ctx, experimental.FunctionListenerFactoryKey{},
+		logging.NewHostLoggingListenerFactory(os.Stderr, logging.LogScopeAll))
+
+	rt := wazero.NewRuntimeWithConfig(ctx,
+		// Enables the WithCloseOnContextDone option.
+		wazero.NewRuntimeConfig().WithCloseOnContextDone(true))
+	defer rt.Close(ctx)
+	// Create the context.Context to be passed to the invocation of infinite_loop.
+	ctx, cancel := context.WithTimeout(ctx, time.Second)
+	defer cancel()
 	_, err := wasi_snapshot_preview1.Instantiate(ctx, rt)
-	require.NoError(t, err)
 
-	done := make(chan struct{})
 	mod, err := rt.InstantiateWithConfig(ctx, wasmZigCc,
 		wazero.NewModuleConfig().
 			WithArgs("wasi", "echo").
 			WithStdout(&consoleBuf).
 			WithStartFunctions().
 			WithStdin(r))
-	go func() {
-		mod.ExportedFunction("_start").Call(ctx)
-		require.NoError(t, err)
 
+	require.NoError(t, err)
+
+	done := make(chan struct{})
+	// Invoke the infinite loop with the timeout context.
+	go func() {
+		_, err = mod.ExportedFunction("_start").Call(ctx)
+		fmt.Println(err)
 		close(done)
 	}()
 
-	time.Sleep(2 * time.Second)
-	_, _ = w.Write([]byte("test\n"))
-	cancel()
-	mod.Close(ctx)
-	<-ctx.Done()
-	_ = r.Close()
-	_ = rt.Close(context.Background())
+	go func() {
+		_, _ = w.Write([]byte("test\n"))
+		//for {
+		//	time.Sleep(1 * time.Second)
+		//	_, _ = w.Write([]byte("test\n"))
+		//}
+	}()
 
-	select {
-	case <-done:
-	case <-time.After(10 * time.Second):
-		t.Errorf("should not timeout")
-	}
+	<-ctx.Done()
+	w.Close()
+	r.Close()
+
+	// Timeout is correctly handled and triggers the termination of infinite loop.
+	<-done
+
 }
 
 func Test_Sock(t *testing.T) {
@@ -499,7 +515,6 @@ func testHTTP(t *testing.T, bin []byte) {
 }
 
 func Test_Stdin(t *testing.T) {
-	t.Skip("for some reason now this fails the race detector")
 	toolchains := map[string][]byte{}
 	if wasmGotip != nil {
 		toolchains["gotip"] = wasmGotip
