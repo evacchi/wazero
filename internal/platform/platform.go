@@ -9,8 +9,10 @@ import (
 	"strings"
 )
 
-// TODO: IsAtLeastGo120
-var IsGo120 = strings.Contains(runtime.Version(), "go1.20")
+// IsAtLeastGo120 checks features added in 1.20. We can remove this when Go
+// 1.22 is out because we only support two versions. While hacky, this is ok
+// meanwhile.
+var IsAtLeastGo120 = strings.Contains(runtime.Version(), "1.20.") || strings.Contains(runtime.Version(), "1.21.")
 
 // archRequirementsVerified is set by platform-specific init to true if the platform is supported
 var archRequirementsVerified bool
