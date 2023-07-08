@@ -516,6 +516,7 @@ func testStdin(t *testing.T, bin []byte) {
 	}()
 	time.Sleep(2 * time.Second)
 	_, _ = w.WriteString("foo")
+	w.Close()
 	s := <-ch
 	require.Equal(t, "waiting for stdin...\nfoo", s)
 }
