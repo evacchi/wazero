@@ -506,7 +506,7 @@ func Test_Stdin(t *testing.T) {
 func testStdin(t *testing.T, bin []byte) {
 	ctx := context.WithValue(
 		testCtx, experimental.FunctionListenerFactoryKey{},
-		logging.NewHostLoggingListenerFactory(os.Stderr, logging.LogScopeFilesystem))
+		logging.NewHostLoggingListenerFactory(os.Stderr, logging.LogScopeFilesystem|logging.LogScopePoll))
 
 	stdinReader, stdinWriter, err := os.Pipe()
 	require.NoError(t, err)
@@ -526,9 +526,9 @@ func testStdin(t *testing.T, bin []byte) {
 		WithStdout(stdoutWriter)
 	ch := make(chan struct{}, 1)
 	go func() {
-		r := wazero.NewRuntime(testCtx)
-		defer r.Close(testCtx)
-		_, err := wasi_snapshot_preview1.Instantiate(testCtx, r)
+		r := wazero.NewRuntime(ctx)
+		defer r.Close(ctx)
+		_, err := wasi_snapshot_preview1.Instantiate(ctx, r)
 		require.NoError(t, err)
 		_, err = r.InstantiateWithConfig(ctx, bin, moduleConfig)
 		require.NoError(t, err)
