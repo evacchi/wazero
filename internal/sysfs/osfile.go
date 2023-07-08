@@ -146,7 +146,10 @@ func (f *osFile) Read(buf []byte) (n int, errno syscall.Errno) {
 	if NonBlockingFileIoSupported && f.IsNonblock() {
 		n, errno = readFd(f.fd, buf)
 	} else {
-		f.file.SetDeadline(time.Now().Add(100 * time.Millisecond))
+		err := f.file.SetDeadline(time.Now().Add(100 * time.Millisecond))
+		if err != nil {
+			panic(err)
+		}
 		n, errno = read(f.file, buf)
 	}
 	if errno != 0 {
@@ -158,6 +161,8 @@ func (f *osFile) Read(buf []byte) (n int, errno syscall.Errno) {
 
 // Pread implements the same method as documented on fsapi.File
 func (f *osFile) Pread(buf []byte, off int64) (n int, errno syscall.Errno) {
+	f.file.SetDeadline(time.Now().Add(500 * time.Millisecond))
+
 	if n, errno = pread(f.file, buf, off); errno != 0 {
 		// Defer validation overhead until we've already had an error.
 		errno = fileError(f, f.closed, errno)
