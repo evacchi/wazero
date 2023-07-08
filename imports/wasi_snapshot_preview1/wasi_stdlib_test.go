@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"context"
 	_ "embed"
+	"github.com/tetratelabs/wazero/experimental"
+	"github.com/tetratelabs/wazero/experimental/logging"
 	"io"
 	"net"
 	"net/http"
@@ -498,6 +500,10 @@ func Test_Stdin(t *testing.T) {
 }
 
 func testStdin(t *testing.T, bin []byte) {
+	ctx := context.WithValue(
+		testCtx, experimental.FunctionListenerFactoryKey{},
+		logging.NewHostLoggingListenerFactory(os.Stderr, logging.LogScopeFilesystem))
+
 	r, w, err := os.Pipe()
 	require.NoError(t, err)
 	moduleConfig := wazero.NewModuleConfig().
@@ -506,7 +512,7 @@ func testStdin(t *testing.T, bin []byte) {
 		WithStdin(r)
 	ch := make(chan string, 1)
 	go func() {
-		ch <- compileAndRun(t, testCtx, moduleConfig, bin)
+		ch <- compileAndRun(t, ctx, moduleConfig, bin)
 	}()
 	time.Sleep(2 * time.Second)
 	_, _ = w.WriteString("foo")
