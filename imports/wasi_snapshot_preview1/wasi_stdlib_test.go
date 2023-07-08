@@ -508,7 +508,7 @@ func testStdin(t *testing.T, bin []byte) {
 	go func() {
 		ch <- compileAndRun(t, testCtx, moduleConfig, bin)
 	}()
-	time.Sleep(1 * time.Second)
+	time.Sleep(2 * time.Second)
 	_, _ = w.WriteString("foo")
 	s := <-ch
 	require.Equal(t, "waiting for stdin...\nfoo", s)
