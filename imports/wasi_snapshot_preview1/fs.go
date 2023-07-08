@@ -6,6 +6,7 @@ import (
 	"io/fs"
 	"math"
 	"path"
+	"runtime"
 	"strings"
 	"syscall"
 	"unsafe"
@@ -815,6 +816,7 @@ func readv(mem api.Memory, iovs uint32, iovsCount uint32, reader func(buf []byte
 			return 0, syscall.EFAULT
 		}
 
+		runtime.Gosched()
 		n, errno := reader(b)
 		nread += uint32(n)
 

@@ -4,8 +4,6 @@ import (
 	"bytes"
 	"context"
 	_ "embed"
-	"github.com/tetratelabs/wazero/experimental"
-	"github.com/tetratelabs/wazero/experimental/logging"
 	"io"
 	"net"
 	"net/http"
@@ -21,6 +19,8 @@ import (
 
 	"github.com/tetratelabs/wazero"
 	"github.com/tetratelabs/wazero/api"
+	"github.com/tetratelabs/wazero/experimental"
+	"github.com/tetratelabs/wazero/experimental/logging"
 	experimentalsock "github.com/tetratelabs/wazero/experimental/sock"
 	"github.com/tetratelabs/wazero/imports/wasi_snapshot_preview1"
 	"github.com/tetratelabs/wazero/internal/fsapi"
@@ -485,6 +485,10 @@ func testHTTP(t *testing.T, bin []byte) {
 }
 
 func Test_Stdin(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("syscall.Nonblocking() is not supported on wasip1+windows.")
+	}
+
 	toolchains := map[string][]byte{}
 	if wasmGotip != nil {
 		toolchains["gotip"] = wasmGotip
@@ -505,7 +509,9 @@ func testStdin(t *testing.T, bin []byte) {
 		logging.NewHostLoggingListenerFactory(os.Stderr, logging.LogScopeFilesystem))
 
 	stdinReader, stdinWriter, err := os.Pipe()
+	require.NoError(t, err)
 	stdoutReader, stdoutWriter, err := os.Pipe()
+	require.NoError(t, err)
 	defer func() {
 		stdinReader.Close()
 		stdinWriter.Close()
