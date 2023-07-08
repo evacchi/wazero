@@ -514,7 +514,7 @@ func testStdin(t *testing.T, bin []byte) {
 	go func() {
 		ch <- compileAndRun(t, ctx, moduleConfig, bin)
 	}()
-	time.Sleep(2 * time.Second)
+	time.Sleep(3 * time.Second)
 	_, _ = w.WriteString("foo")
 	w.Close()
 	s := <-ch
