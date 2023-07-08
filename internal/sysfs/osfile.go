@@ -146,6 +146,7 @@ func (f *osFile) Read(buf []byte) (n int, errno syscall.Errno) {
 	if NonBlockingFileIoSupported && f.IsNonblock() {
 		n, errno = readFd(f.fd, buf)
 	} else {
+		f.file.SetDeadline(time.Now().Add(100 * time.Millisecond))
 		n, errno = read(f.file, buf)
 	}
 	if errno != 0 {
