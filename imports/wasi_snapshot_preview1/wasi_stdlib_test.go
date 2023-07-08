@@ -529,6 +529,7 @@ func testStdin(t *testing.T, bin []byte) {
 		close(ch)
 	}()
 
+	time.Sleep(1 * time.Second)
 	buf := make([]byte, 21)
 	_, _ = stdoutReader.Read(buf)
 	require.Equal(t, "waiting for stdin...\n", string(buf))
