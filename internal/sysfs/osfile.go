@@ -23,11 +23,12 @@ func newOsFile(openPath string, openFlag int, openPerm fs.FileMode, f *os.File) 
 // osFile is a file opened with this package, and uses os.File or syscalls to
 // implement api.File.
 type osFile struct {
-	path string
-	flag int
-	perm fs.FileMode
-	file *os.File
-	fd   uintptr
+	path     string
+	flag     int
+	perm     fs.FileMode
+	file     *os.File
+	nbreader *nbreader
+	fd       uintptr
 
 	// reopenDir is true if reopen should be called before Readdir. This flag
 	// is deferred until Readdir to prevent redundant rewinds. This could
@@ -146,11 +147,10 @@ func (f *osFile) Read(buf []byte) (n int, errno syscall.Errno) {
 	if NonBlockingFileIoSupported && f.IsNonblock() {
 		n, errno = readFd(f.fd, buf)
 	} else {
-		err := f.file.SetDeadline(time.Now().Add(100 * time.Millisecond))
-		if err != nil {
-			panic(err)
+		if f.nbreader == nil {
+			f.nbreader = newNbreader(f.file)
 		}
-		n, errno = read(f.file, buf)
+		n, errno = read(f.nbreader, buf)
 	}
 	if errno != 0 {
 		// Defer validation overhead until we've already had an error.
@@ -161,8 +161,9 @@ func (f *osFile) Read(buf []byte) (n int, errno syscall.Errno) {
 
 // Pread implements the same method as documented on fsapi.File
 func (f *osFile) Pread(buf []byte, off int64) (n int, errno syscall.Errno) {
-	f.file.SetDeadline(time.Now().Add(500 * time.Millisecond))
-
+	if f.nbreader == nil {
+		f.nbreader = newNbreader(f.file)
+	}
 	if n, errno = pread(f.file, buf, off); errno != 0 {
 		// Defer validation overhead until we've already had an error.
 		errno = fileError(f, f.closed, errno)
