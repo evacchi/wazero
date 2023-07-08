@@ -21,6 +21,11 @@ type StdinFile struct {
 
 // Read implements the same method as documented on fsapi.File
 func (f *StdinFile) Read(buf []byte) (int, syscall.Errno) {
+	if f.IsNonblock() {
+		if ff, ok := f.Reader.(*os.File); ok {
+			ff.SetDeadline(time.Now().Add(500 * time.Millisecond))
+		}
+	}
 	n, err := f.Reader.Read(buf)
 	return n, platform.UnwrapOSError(err)
 }
