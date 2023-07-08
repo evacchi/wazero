@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"context"
 	_ "embed"
+	"github.com/tetratelabs/wazero/experimental"
+	"github.com/tetratelabs/wazero/experimental/logging"
 	"io"
 	"net"
 	"net/http"
@@ -498,9 +500,9 @@ func Test_Stdin(t *testing.T) {
 }
 
 func testStdin(t *testing.T, bin []byte) {
-	//ctx := context.WithValue(
-	//	testCtx, experimental.FunctionListenerFactoryKey{},
-	//	logging.NewHostLoggingListenerFactory(os.Stderr, logging.LogScopeFilesystem))
+	ctx := context.WithValue(
+		testCtx, experimental.FunctionListenerFactoryKey{},
+		logging.NewHostLoggingListenerFactory(os.Stderr, logging.LogScopeFilesystem))
 
 	stdinReader, stdinWriter, err := os.Pipe()
 	stdoutReader, stdoutWriter, err := os.Pipe()
@@ -522,7 +524,7 @@ func testStdin(t *testing.T, bin []byte) {
 		defer r.Close(testCtx)
 		_, err := wasi_snapshot_preview1.Instantiate(testCtx, r)
 		require.NoError(t, err)
-		_, err = r.InstantiateWithConfig(testCtx, bin, moduleConfig)
+		_, err = r.InstantiateWithConfig(ctx, bin, moduleConfig)
 		require.NoError(t, err)
 		close(ch)
 	}()
