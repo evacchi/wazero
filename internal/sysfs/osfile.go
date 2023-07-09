@@ -189,16 +189,19 @@ func (f *osFile) Seek(offset int64, whence int) (newOffset int64, errno syscall.
 
 // PollRead implements the same method as documented on fsapi.File
 func (f *osFile) PollRead(timeout *time.Duration) (ready bool, errno syscall.Errno) {
-	fdSet := platform.FdSet{}
-	fd := int(f.fd)
-	fdSet.Set(fd)
-	nfds := fd + 1 // See https://man7.org/linux/man-pages/man2/select.2.html#:~:text=condition%20has%20occurred.-,nfds,-This%20argument%20should
-	count, err := _select(nfds, &fdSet, nil, nil, timeout)
-	if errno = platform.UnwrapOSError(err); errno != 0 {
-		// Defer validation overhead until we've already had an error.
-		errno = fileError(f, f.closed, errno)
-	}
-	return count > 0, errno
+	ok, err := f.nbreader.PollRead(timeout)
+	return ok, platform.UnwrapOSError(err)
+
+	//fdSet := platform.FdSet{}
+	//fd := int(f.fd)
+	//fdSet.Set(fd)
+	//nfds := fd + 1 // See https://man7.org/linux/man-pages/man2/select.2.html#:~:text=condition%20has%20occurred.-,nfds,-This%20argument%20should
+	//count, err := _select(nfds, &fdSet, nil, nil, timeout)
+	//if errno = platform.UnwrapOSError(err); errno != 0 {
+	//	// Defer validation overhead until we've already had an error.
+	//	errno = fileError(f, f.closed, errno)
+	//}
+	//return count > 0, errno
 }
 
 // Readdir implements File.Readdir. Notably, this uses "Readdir", not

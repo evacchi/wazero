@@ -25,6 +25,20 @@ type resp struct {
 	err error
 }
 
+func (r *nbreader) PollRead(timeout *time.Duration) (ready bool, err error) {
+	// Peek 1 byte.
+	r.rreq <- req{tpe: 0, n: 1}
+	select {
+	case rr := <-r.rresp:
+		if rr.err != io.EOF {
+			err = rr.err
+		}
+		return len(rr.res) > 0, err
+	case <-time.After(*timeout):
+		return false, nil
+	}
+}
+
 func (r *nbreader) Read(p []byte) (n int, err error) {
 	r.rreq <- req{tpe: 0, n: len(p)}
 	select {

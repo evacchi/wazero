@@ -2,6 +2,7 @@ package sysfs
 
 import (
 	"context"
+	"io"
 	"strings"
 	"testing"
 	"time"
@@ -24,6 +25,16 @@ func Test_nbreader_Read(t *testing.T) {
 		{
 			name:    "blocking reader",
 			rd:      newNbreader(newBlockingReader(t)),
+			reqN:    11,
+			wantN:   0,
+			wantErr: true,
+		},
+		{
+			name: "pipe reader",
+			rd: newNbreader(func() io.Reader {
+				r, _ := io.Pipe()
+				return r
+			}()),
 			reqN:    11,
 			wantN:   0,
 			wantErr: true,
