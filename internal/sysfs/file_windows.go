@@ -21,19 +21,16 @@ var procPeekNamedPipe = kernel32.NewProc("PeekNamedPipe")
 // https://learn.microsoft.com/en-us/windows/console/console-handles
 func readFd(fd uintptr, buf []byte) (int, syscall.Errno) {
 	handle := syscall.Handle(fd)
-	fileType, err := syscall.GetFileType(syscall.Stdin)
+	fileType, err := syscall.GetFileType(handle)
 	if err != nil {
 		return 0, platform.UnwrapOSError(err)
 	}
 	if fileType&syscall.FILE_TYPE_CHAR == 0 {
 		return -1, syscall.ENOSYS
 	}
-	n, err := peekNamedPipe(handle)
-	if err != nil {
-		errno := platform.UnwrapOSError(err)
-		if errno == syscall.ERROR_BROKEN_PIPE {
-			return 0, 0
-		}
+	n, errno := peekNamedPipe(handle)
+	if errno == syscall.ERROR_BROKEN_PIPE {
+		return 0, 0
 	}
 	if n == 0 {
 		return -1, syscall.EAGAIN
@@ -42,9 +39,31 @@ func readFd(fd uintptr, buf []byte) (int, syscall.Errno) {
 	return un, platform.UnwrapOSError(err)
 }
 
+func readSocket(h syscall.Handle, buf []byte) (int, syscall.Errno) {
+	var overlapped syscall.Overlapped
+	var done uint32
+	err := syscall.ReadFile(h, buf, &done, &overlapped)
+	errno := platform.UnwrapOSError(err)
+	if errno == syscall.ERROR_IO_PENDING {
+		errno = syscall.EAGAIN
+	}
+	return int(done), errno
+}
+
+func writeFd(fd uintptr, buf []byte) (int, syscall.Errno) {
+	var done uint32
+	var overlapped syscall.Overlapped
+	err := syscall.WriteFile(syscall.Handle(fd), buf, &done, &overlapped)
+	errno := platform.UnwrapOSError(err)
+	if errno == syscall.ERROR_IO_PENDING {
+		errno = syscall.EAGAIN
+	}
+	return int(done), errno
+}
+
 // peekNamedPipe partially exposes PeekNamedPipe from the Win32 API
 // see https://learn.microsoft.com/en-us/windows/win32/api/namedpipeapi/nf-namedpipeapi-peeknamedpipe
-func peekNamedPipe(handle syscall.Handle) (uint32, error) {
+func peekNamedPipe(handle syscall.Handle) (uint32, syscall.Errno) {
 	var totalBytesAvail uint32
 	totalBytesPtr := unsafe.Pointer(&totalBytesAvail)
 	_, _, err := procPeekNamedPipe.Call(
@@ -54,8 +73,5 @@ func peekNamedPipe(handle syscall.Handle) (uint32, error) {
 		0,                      // [out, optional] LPDWORD lpBytesRead
 		uintptr(totalBytesPtr), // [out, optional] LPDWORD lpTotalBytesAvail,
 		0)                      // [out, optional] LPDWORD lpBytesLeftThisMessage
-	if err == syscall.Errno(0) {
-		return totalBytesAvail, nil
-	}
-	return totalBytesAvail, err
+	return totalBytesAvail, platform.UnwrapOSError(err)
 }
