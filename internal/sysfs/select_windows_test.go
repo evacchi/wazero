@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/tetratelabs/wazero/internal/platform"
 	"github.com/tetratelabs/wazero/internal/testing/require"
 )
 
@@ -19,9 +20,16 @@ func TestSelect_Windows(t *testing.T) {
 	testCtx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
+	handleAsFdSet := func(readHandle syscall.Handle) *platform.InternalFdSet {
+		var fdSet platform.InternalFdSet
+		fdSet.Set(int(readHandle))
+		return &fdSet
+	}
+
 	pollToChannel := func(readHandle syscall.Handle, duration *time.Duration, ch chan result) {
 		r := result{}
-		r.hasData, r.err = pollNamedPipe(testCtx, readHandle, duration)
+		fdSet := handleAsFdSet(readHandle)
+		r.hasData, r.err = pollNamedPipe(testCtx, fdSet, duration)
 		ch <- r
 		close(ch)
 	}
@@ -54,7 +62,7 @@ func TestSelect_Windows(t *testing.T) {
 		require.NoError(t, err)
 		rh := syscall.Handle(r.Fd())
 		d := time.Duration(0)
-		hasData, err := pollNamedPipe(testCtx, rh, &d)
+		hasData, err := pollNamedPipe(testCtx, handleAsFdSet(rh), &d)
 		require.NoError(t, err)
 		require.False(t, hasData)
 	})
@@ -62,7 +70,7 @@ func TestSelect_Windows(t *testing.T) {
 	t.Run("pollNamedPipe should return immediately when duration is nil (data)", func(t *testing.T) {
 		r, w, err := os.Pipe()
 		require.NoError(t, err)
-		rh := syscall.Handle(r.Fd())
+		rh := handleAsFdSet(syscall.Handle(r.Fd()))
 		wh := syscall.Handle(w.Fd())
 
 		// Write to the channel immediately.

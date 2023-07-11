@@ -75,12 +75,6 @@ func TestSelect(t *testing.T) {
 
 		for {
 			n, err := _select(fd+1, rFdSet, nil, nil, nil)
-			if runtime.GOOS == "windows" {
-				// Not implemented for fds != wasiFdStdin
-				require.ErrorIs(t, err, syscall.ENOSYS)
-				require.Equal(t, -1, n)
-				break
-			}
 			if err == syscall.EINTR {
 				t.Log("Select interrupted")
 				continue

@@ -21,7 +21,7 @@ var procPeekNamedPipe = kernel32.NewProc("PeekNamedPipe")
 // https://learn.microsoft.com/en-us/windows/console/console-handles
 func readFd(fd uintptr, buf []byte) (int, syscall.Errno) {
 	handle := syscall.Handle(fd)
-	fileType, err := syscall.GetFileType(syscall.Stdin)
+	fileType, err := syscall.GetFileType(handle)
 	if err != nil {
 		return 0, platform.UnwrapOSError(err)
 	}
@@ -40,6 +40,17 @@ func readFd(fd uintptr, buf []byte) (int, syscall.Errno) {
 	}
 	un, err := syscall.Read(handle, buf[0:n])
 	return un, platform.UnwrapOSError(err)
+}
+
+func readSocket(h syscall.Handle, buf []byte) (int, syscall.Errno) {
+	var overlapped syscall.Overlapped
+	var done uint32
+	err := syscall.ReadFile(h, buf, &done, &overlapped)
+	errno := platform.UnwrapOSError(err)
+	if errno == syscall.ERROR_IO_PENDING {
+		errno = syscall.EAGAIN
+	}
+	return int(done), errno
 }
 
 // peekNamedPipe partially exposes PeekNamedPipe from the Win32 API

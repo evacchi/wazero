@@ -36,26 +36,40 @@ func syscall_select(n int, r, w, e *platform.FdSet, timeout *time.Duration) (int
 		time.Sleep(*timeout)
 		return 0, nil
 	}
-	if r.IsSet(wasiFdStdin) {
-		fileType, err := syscall.GetFileType(syscall.Stdin)
-		if err != nil {
-			return 0, err
-		}
-		if fileType&syscall.FILE_TYPE_CHAR != 0 {
-			res, err := pollNamedPipe(context.TODO(), syscall.Stdin, timeout)
-			if err != nil {
-				return -1, err
-			}
-			if !res {
-				r.Zero()
-				return 0, nil
-			}
-		}
-		r.Zero()
-		r.Set(wasiFdStdin)
-		return 1, nil
+
+	n, err := selectPipe(&r.Regular, timeout)
+	if err != nil {
+		return n, err
 	}
-	return -1, syscall.ENOSYS
+
+	var rs, ws, es *platform.InternalFdSet
+	if r != nil {
+		rs = &r.Sockets
+	}
+	if w != nil {
+		ws = &w.Sockets
+	}
+	if e != nil {
+		es = &e.Sockets
+	}
+
+	n2, err := winsock_select(n, rs, ws, es, timeout)
+	if err == syscall.Errno(0) {
+		return n + n2, nil
+	}
+	return n + n2, err
+}
+
+func selectPipe(r *platform.InternalFdSet, timeout *time.Duration) (int, error) {
+	res, err := pollNamedPipe(context.TODO(), r, timeout)
+	if err != nil {
+		return -1, err
+	}
+	if !res {
+		r.Zero()
+		return 0, nil
+	}
+	return 1, nil
 }
 
 // pollNamedPipe polls the given named pipe handle for the given duration.
@@ -63,11 +77,10 @@ func syscall_select(n int, r, w, e *platform.FdSet, timeout *time.Duration) (int
 // The implementation actually polls every 100 milliseconds until it reaches the given duration.
 // The duration may be nil, in which case it will wait undefinely. The given ctx is
 // used to allow for cancellation. Currently used only in tests.
-func pollNamedPipe(ctx context.Context, pipeHandle syscall.Handle, duration *time.Duration) (bool, error) {
+func pollNamedPipe(ctx context.Context, pipeHandles *platform.InternalFdSet, duration *time.Duration) (bool, error) {
 	// Short circuit when the duration is zero.
 	if duration != nil && *duration == time.Duration(0) {
-		bytes, err := peekNamedPipe(pipeHandle)
-		return bytes > 0, err
+		return peekAllPipes(pipeHandles)
 	}
 
 	// Ticker that emits at every pollInterval.
@@ -92,13 +105,36 @@ func pollNamedPipe(ctx context.Context, pipeHandle syscall.Handle, duration *tim
 		case <-afterCh:
 			return false, nil
 		case <-tichCh:
-			res, err := peekNamedPipe(pipeHandle)
+			res, err := peekAllPipes(pipeHandles)
 			if err != nil {
 				return false, err
 			}
-			if res > 0 {
+			if res {
 				return true, nil
 			}
 		}
 	}
+}
+
+func peekAllPipes(pipeHandles *platform.InternalFdSet) (bool, error) {
+	for i := 0; i < pipeHandles.Count(); i++ {
+		h := pipeHandles.Get(i)
+		bytes, err := peekNamedPipe(h)
+		if err != nil {
+			return false, err
+		}
+		if bytes > 0 {
+			return bytes > 0, err
+		}
+	}
+	return false, nil
+}
+
+func wsastartup() error {
+	var d syscall.WSAData
+	e := syscall.WSAStartup(uint32(0x202), &d)
+	if e != nil {
+		return e
+	}
+	return nil
 }
