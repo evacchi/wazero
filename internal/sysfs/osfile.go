@@ -213,7 +213,12 @@ func (f *osFile) Readdir(n int) (dirents []fsapi.Dirent, errno syscall.Errno) {
 
 // Write implements the same method as documented on fsapi.File
 func (f *osFile) Write(buf []byte) (n int, errno syscall.Errno) {
-	if n, errno = write(f.file, buf); errno != 0 {
+	if len(buf) == 0 {
+		return 0, 0 // Short-circuit 0-len reads.
+	}
+	if NonBlockingFileIoSupported && f.IsNonblock() {
+		n, errno = writeFd(f.fd, buf)
+	} else if n, errno = write(f.file, buf); errno != 0 {
 		// Defer validation overhead until we've already had an error.
 		errno = fileError(f, f.closed, errno)
 	}

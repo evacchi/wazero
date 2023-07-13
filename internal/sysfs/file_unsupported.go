@@ -10,3 +10,8 @@ const NonBlockingFileIoSupported = false
 func readFd(fd uintptr, buf []byte) (int, syscall.Errno) {
 	return -1, syscall.ENOSYS
 }
+
+// writeFd returns ENOSYS on unsupported platforms.
+func writeFd(fd uintptr, buf []byte) (int, syscall.Errno) {
+	return -1, syscall.ENOSYS
+}

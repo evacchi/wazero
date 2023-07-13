@@ -59,3 +59,15 @@ func peekNamedPipe(handle syscall.Handle) (uint32, error) {
 	}
 	return totalBytesAvail, err
 }
+
+func writeFd(fd uintptr, buf []byte) (int, syscall.Errno) {
+	handle := syscall.Handle(fd)
+	var done uint32
+	var overlapped syscall.Overlapped
+	err := syscall.WriteFile(handle, buf, &done, &overlapped)
+	if err != nil {
+		return int(done), platform.UnwrapOSError(err)
+	} else {
+		return int(done), 0
+	}
+}
