@@ -61,6 +61,9 @@ func peekNamedPipe(handle syscall.Handle) (uint32, error) {
 }
 
 func writeFd(fd uintptr, buf []byte) (int, syscall.Errno) {
+	if len(buf) == 0 {
+		return 0, 0 // Short-circuit 0-len writes.
+	}
 	handle := syscall.Handle(fd)
 	var done uint32
 	var overlapped syscall.Overlapped

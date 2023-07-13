@@ -23,7 +23,7 @@ func readFd(fd uintptr, buf []byte) (int, syscall.Errno) {
 // writeFd exposes syscall.Write.
 func writeFd(fd uintptr, buf []byte) (int, syscall.Errno) {
 	if len(buf) == 0 {
-		return 0, 0 // Short-circuit 0-len reads.
+		return 0, 0 // Short-circuit 0-len writes.
 	}
 	n, err := syscall.Write(int(fd), buf)
 	errno := platform.UnwrapOSError(err)

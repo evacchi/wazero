@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"os/exec"
 	"path"
 	"runtime"
 	"sort"
@@ -536,4 +537,54 @@ func testStdin(t *testing.T, bin []byte) {
 	_, _ = stdoutReader.Read(buf)
 	require.Equal(t, "foo", string(buf))
 	<-ch
+}
+
+func Test_LargeStdout(t *testing.T) {
+	toolchains := map[string][]byte{}
+	if wasmGotip != nil {
+		toolchains["gotip"] = wasmGotip
+	}
+
+	for toolchain, bin := range toolchains {
+		toolchain := toolchain
+		bin := bin
+		t.Run(toolchain, func(t *testing.T) {
+			testLargeStdout(t, bin)
+		})
+	}
+}
+
+func testLargeStdout(t *testing.T, bin []byte) {
+	stdoutReader, stdoutWriter, err := os.Pipe()
+	require.NoError(t, err)
+	tempDir := t.TempDir()
+	temp, err := os.Create(joinPath(tempDir, "out.go"))
+	require.NoError(t, err)
+	defer func() {
+		stdoutWriter.Close()
+		stdoutReader.Close()
+	}()
+	require.NoError(t, err)
+	moduleConfig := wazero.NewModuleConfig().
+		WithSysNanotime(). // poll_oneoff requires nanotime.
+		WithArgs("wasi", "largestdout").
+		WithStdout(temp)
+	ch := make(chan struct{}, 1)
+	go func() {
+		defer close(ch)
+
+		r := wazero.NewRuntime(testCtx)
+		defer r.Close(testCtx)
+		_, err := wasi_snapshot_preview1.Instantiate(testCtx, r)
+		require.NoError(t, err)
+		_, err = r.InstantiateWithConfig(testCtx, bin, moduleConfig)
+		require.NoError(t, err)
+	}()
+	<-ch
+
+	gotipBin, err := findGotipBin()
+	require.NoError(t, err)
+	cmd := exec.CommandContext(testCtx, gotipBin, "build", "-o", joinPath(tempDir, "outbin"), temp.Name()) //nolint:gosec
+	output, err := cmd.CombinedOutput()
+	require.NoError(t, err, string(output))
 }
