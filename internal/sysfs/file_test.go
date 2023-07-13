@@ -91,6 +91,32 @@ func TestReadFdNonblock(t *testing.T) {
 	require.EqualErrno(t, syscall.EAGAIN, e)
 }
 
+func TestWriteFdNonblock(t *testing.T) {
+	// Test using os.Pipe as it is known to support non-blocking reads.
+	r, w, err := os.Pipe()
+	require.NoError(t, err)
+	defer r.Close()
+	defer w.Close()
+
+	fd := w.Fd()
+	err = setNonblock(fd, true)
+
+	require.NoError(t, err)
+
+	// Create a buffer (the content is not relevant)
+	buf := make([]byte, 1024)
+	// Write to the file until the pipe buffer gets filled up.
+	numWrites := 100
+	for i := 0; i < numWrites; i++ {
+		_, e := writeFd(fd, buf)
+		if e != 0 {
+			require.EqualErrno(t, syscall.EAGAIN, e)
+			return
+		}
+	}
+	t.Fatal("writeFd should return EAGAIN at some point")
+}
+
 func TestFileSetAppend(t *testing.T) {
 	tmpDir := t.TempDir()
 
