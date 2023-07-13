@@ -401,10 +401,6 @@ func Test_Sock(t *testing.T) {
 func testSock(t *testing.T, bin []byte) {
 	sockCfg := experimentalsock.NewConfig().WithTCPListener("127.0.0.1", 0)
 	ctx := experimentalsock.WithConfig(testCtx, sockCfg)
-	// ctx = context.WithValue(ctx,
-	// 	experimental.FunctionListenerFactoryKey{},
-	// 	logging.NewHostLoggingListenerFactory(os.Stderr,
-	// 		logging.LogScopeFilesystem|logging.LogScopeSock))
 	moduleConfig := wazero.NewModuleConfig().WithArgs("wasi", "sock")
 	tcpAddrCh := make(chan *net.TCPAddr, 1)
 	ch := make(chan string, 1)
@@ -498,13 +494,6 @@ func Test_Stdin(t *testing.T) {
 }
 
 func testStdin(t *testing.T, bin []byte) {
-	ctx := testCtx
-
-	// ctx.WithValue(testCtx,
-	// 	experimental.FunctionListenerFactoryKey{},
-	// 	logging.NewHostLoggingListenerFactory(os.Stderr,
-	// 		logging.LogScopeFilesystem|logging.LogScopeSock))
-
 	stdinReader, stdinWriter, err := os.Pipe()
 	require.NoError(t, err)
 	stdoutReader, stdoutWriter, err := os.Pipe()
@@ -525,11 +514,11 @@ func testStdin(t *testing.T, bin []byte) {
 	go func() {
 		defer close(ch)
 
-		r := wazero.NewRuntime(ctx)
-		defer r.Close(ctx)
-		_, err := wasi_snapshot_preview1.Instantiate(ctx, r)
+		r := wazero.NewRuntime(testCtx)
+		defer r.Close(testCtx)
+		_, err := wasi_snapshot_preview1.Instantiate(testCtx, r)
 		require.NoError(t, err)
-		_, err = r.InstantiateWithConfig(ctx, bin, moduleConfig)
+		_, err = r.InstantiateWithConfig(testCtx, bin, moduleConfig)
 		require.NoError(t, err)
 	}()
 

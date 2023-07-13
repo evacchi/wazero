@@ -20,8 +20,8 @@ func TestSelect_Windows(t *testing.T) {
 	testCtx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	handleAsFdSet := func(readHandle syscall.Handle) *platform.InternalFdSet {
-		var fdSet platform.InternalFdSet
+	handleAsFdSet := func(readHandle syscall.Handle) *platform.WinSockFdSet {
+		var fdSet platform.WinSockFdSet
 		fdSet.Set(int(readHandle))
 		return &fdSet
 	}

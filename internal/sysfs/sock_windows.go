@@ -55,7 +55,7 @@ func recvfrom(s syscall.Handle, buf []byte, flags int32) (n int, errno syscall.E
 	return int(r0), e1
 }
 
-func winsock_select(n int, r, w, e *platform.InternalFdSet, timeout *time.Duration) (int, syscall.Errno) {
+func winsock_select(n int, r, w, e *platform.WinSockFdSet, timeout *time.Duration) (int, syscall.Errno) {
 	if r == nil || r.Count() == 0 && w == nil || w.Count() == 0 && e == nil || e.Count() == 0 {
 		return 0, 0
 	}

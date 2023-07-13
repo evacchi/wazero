@@ -42,7 +42,7 @@ func syscall_select(n int, r, w, e *platform.FdSet, timeout *time.Duration) (int
 		return n, err
 	}
 
-	var rs, ws, es *platform.InternalFdSet
+	var rs, ws, es *platform.WinSockFdSet
 	if r != nil {
 		rs = &r.Sockets
 	}
@@ -60,7 +60,7 @@ func syscall_select(n int, r, w, e *platform.FdSet, timeout *time.Duration) (int
 	return n + n2, err
 }
 
-func selectPipe(r *platform.InternalFdSet, timeout *time.Duration) (int, error) {
+func selectPipe(r *platform.WinSockFdSet, timeout *time.Duration) (int, error) {
 	res, err := pollNamedPipe(context.TODO(), r, timeout)
 	if err != nil {
 		return -1, err
@@ -77,7 +77,7 @@ func selectPipe(r *platform.InternalFdSet, timeout *time.Duration) (int, error) 
 // The implementation actually polls every 100 milliseconds until it reaches the given duration.
 // The duration may be nil, in which case it will wait undefinely. The given ctx is
 // used to allow for cancellation. Currently used only in tests.
-func pollNamedPipe(ctx context.Context, pipeHandles *platform.InternalFdSet, duration *time.Duration) (bool, error) {
+func pollNamedPipe(ctx context.Context, pipeHandles *platform.WinSockFdSet, duration *time.Duration) (bool, error) {
 	// Short circuit when the duration is zero.
 	if duration != nil && *duration == time.Duration(0) {
 		return peekAllPipes(pipeHandles)
@@ -116,7 +116,7 @@ func pollNamedPipe(ctx context.Context, pipeHandles *platform.InternalFdSet, dur
 	}
 }
 
-func peekAllPipes(pipeHandles *platform.InternalFdSet) (bool, error) {
+func peekAllPipes(pipeHandles *platform.WinSockFdSet) (bool, error) {
 	for i := 0; i < pipeHandles.Count(); i++ {
 		h := pipeHandles.Get(i)
 		bytes, err := peekNamedPipe(h)

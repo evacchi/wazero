@@ -7,16 +7,20 @@ import (
 
 var procGetNamedPipeInfo = kernel32.NewProc("GetNamedPipeInfo")
 
-const FD_SETSIZE = 64
+const _FD_SETSIZE = 64
 
-type InternalFdSet struct {
+// WinSockFdSet implements the FdSet representation that is used internally by WinSock.
+//
+// Note that this representation is quite different from the one used in most POSIX implementations.
+type WinSockFdSet struct {
 	count uint64
-	Array [FD_SETSIZE]syscall.Handle
+	Array [_FD_SETSIZE]syscall.Handle
 }
 
+// FdSet re-exports syscall.FdSet with utility methods.
 type FdSet struct {
-	Sockets InternalFdSet
-	Regular InternalFdSet
+	Sockets WinSockFdSet
+	Regular WinSockFdSet
 }
 
 // Set adds the given fd to the set.
@@ -53,15 +57,15 @@ func (f *FdSet) Zero() {
 }
 
 // Set adds the given fd to the set.
-func (f *InternalFdSet) Set(fd int) {
-	if f.count < FD_SETSIZE {
+func (f *WinSockFdSet) Set(fd int) {
+	if f.count < _FD_SETSIZE {
 		f.Array[f.count] = syscall.Handle(fd)
 		f.count++
 	}
 }
 
 // Clear removes the given fd from the set.
-func (f *InternalFdSet) Clear(fd int) {
+func (f *WinSockFdSet) Clear(fd int) {
 	h := syscall.Handle(fd)
 	if !isSocket(h) {
 		return
@@ -79,7 +83,7 @@ func (f *InternalFdSet) Clear(fd int) {
 }
 
 // IsSet returns true when fd is in the set.
-func (f *InternalFdSet) IsSet(fd int) bool {
+func (f *WinSockFdSet) IsSet(fd int) bool {
 	h := syscall.Handle(fd)
 	if !isSocket(h) {
 		return false
@@ -94,18 +98,20 @@ func (f *InternalFdSet) IsSet(fd int) bool {
 }
 
 // Zero clears the set.
-func (f *InternalFdSet) Zero() {
+func (f *WinSockFdSet) Zero() {
 	f.count = 0
 }
 
-func (f *InternalFdSet) Count() int {
+func (f *WinSockFdSet) Count() int {
 	return int(f.count)
 }
 
-func (f *InternalFdSet) Get(index int) syscall.Handle {
+func (f *WinSockFdSet) Get(index int) syscall.Handle {
 	return f.Array[index]
 }
 
+// isSocket returns true if the given file handle
+// is a pipe.
 func isSocket(fd syscall.Handle) bool {
 	n, err := syscall.GetFileType(fd)
 	if err != nil {
@@ -114,6 +120,8 @@ func isSocket(fd syscall.Handle) bool {
 	if n != syscall.FILE_TYPE_PIPE {
 		return false
 	}
+	// If the call to GetNamedPipeInfo succeeds then
+	// the handle is a pipe handle, otherwise it is a socket.
 	r, _, errno := syscall.SyscallN(
 		procGetNamedPipeInfo.Addr(),
 		uintptr(unsafe.Pointer(nil)),
