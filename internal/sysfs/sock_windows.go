@@ -107,31 +107,31 @@ type winTcpListenerFile struct {
 // be consistent with the listener that created the connection.
 // This may not be always true, but it's a good strategy to get started.
 func (f *winTcpListenerFile) Accept() (socketapi.TCPConn, syscall.Errno) {
-	if f.IsNonblock() {
-		rawConn, err := f.tl.SyscallConn()
-		if err != nil {
-			return nil, platform.UnwrapOSError(err)
-		}
-
-		var tcpFd syscall.Handle
-		var errno syscall.Errno
-		rawConn.Control(func(fd uintptr) {
-			tcpFd, errno = accept(syscall.Handle(fd))
-		})
-		if errno == _WASWOULDBLOCK {
-			errno = syscall.EAGAIN
-		}
-		if errno != 0 {
-			return nil, errno
-		}
-		return &winNonblockingTcpConnFile{fd: tcpFd}, 0
-	} else {
-		if conn, err := f.tl.Accept(); err != nil {
-			return nil, platform.UnwrapOSError(err)
-		} else {
-			return &winTcpConnFile{tc: conn.(*net.TCPConn)}, 0
-		}
+	//if f.IsNonblock() {
+	rawConn, err := f.tl.SyscallConn()
+	if err != nil {
+		return nil, platform.UnwrapOSError(err)
 	}
+
+	var tcpFd syscall.Handle
+	var errno syscall.Errno
+	rawConn.Control(func(fd uintptr) {
+		tcpFd, errno = accept(syscall.Handle(fd))
+	})
+	if errno == _WASWOULDBLOCK {
+		errno = syscall.EAGAIN
+	}
+	if errno != 0 {
+		return nil, errno
+	}
+	return &rawHandleTcpConnFile{fd: tcpFd}, 0
+	//} else {
+	//	if conn, err := f.tl.Accept(); err != nil {
+	//		return nil, platform.UnwrapOSError(err)
+	//	} else {
+	//		return &winTcpConnFile{tc: conn.(*net.TCPConn)}, 0
+	//	}
+	//}
 }
 
 // SOCKET WSAAPI accept(
@@ -381,6 +381,81 @@ func (f *winNonblockingTcpConnFile) Recvfrom(p []byte, flags int) (n int, errno 
 
 // Shutdown implements the same method as documented on fsapi.Conn
 func (f *winNonblockingTcpConnFile) Shutdown(how int) syscall.Errno {
+	var err error
+	switch how {
+	case syscall.SHUT_RD:
+		err = syscall.Shutdown(f.fd, syscall.SHUT_RD)
+	case syscall.SHUT_WR:
+		err = syscall.Shutdown(f.fd, syscall.SHUT_WR)
+	case syscall.SHUT_RDWR:
+		err = syscall.Shutdown(f.fd, syscall.SHUT_RDWR)
+	default:
+		return syscall.EINVAL
+	}
+	return platform.UnwrapOSError(err)
+}
+
+var _ socketapi.TCPConn = (*rawHandleTcpConnFile)(nil)
+
+// winNonblockingTcpConnFile is a nonblocking connection.
+//
+// It wraps a bare TCP handle, manipulated via WinSock APIs.
+type rawHandleTcpConnFile struct {
+	baseSockFile
+
+	fd syscall.Handle
+
+	// closed is true when closed was called. This ensures proper syscall.EBADF
+	closed bool
+}
+
+// IsNonblock implements File.IsNonblock
+func (f *rawHandleTcpConnFile) IsNonblock() bool {
+	return true
+}
+
+// SetNonblock implements the same method as documented on fsapi.File
+func (f *rawHandleTcpConnFile) SetNonblock(enabled bool) (errno syscall.Errno) {
+	err := setNonblockSocket(f.fd, enabled)
+	return platform.UnwrapOSError(err)
+}
+
+// Read implements the same method as documented on fsapi.File
+func (f *rawHandleTcpConnFile) Read(buf []byte) (n int, errno syscall.Errno) {
+	if n, errno = readSocket(f.fd, buf); errno != 0 {
+		// Defer validation overhead until we've already had an error.
+		errno = fileError(f, f.closed, errno)
+	}
+	return
+}
+
+// Write implements the same method as documented on fsapi.File
+func (f *rawHandleTcpConnFile) Write(buf []byte) (n int, errno syscall.Errno) {
+	var done uint32
+	var overlapped syscall.Overlapped
+	err := syscall.WriteFile(f.fd, buf, &done, &overlapped)
+	errno = platform.UnwrapOSError(err)
+	n = int(done)
+	if errno == syscall.ERROR_IO_PENDING {
+		errno = syscall.EAGAIN
+	}
+	return
+}
+
+// Recvfrom implements the same method as documented on socketapi.TCPConn
+func (f *rawHandleTcpConnFile) Recvfrom(p []byte, flags int) (n int, errno syscall.Errno) {
+	if flags != MSG_PEEK {
+		errno = syscall.EINVAL
+		return
+	}
+	var recvfromErr error
+	n, recvfromErr = recvfrom(f.fd, p, MSG_PEEK)
+	errno = platform.UnwrapOSError(recvfromErr)
+	return
+}
+
+// Shutdown implements the same method as documented on fsapi.Conn
+func (f *rawHandleTcpConnFile) Shutdown(how int) syscall.Errno {
 	var err error
 	switch how {
 	case syscall.SHUT_RD:
