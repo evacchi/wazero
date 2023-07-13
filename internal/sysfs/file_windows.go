@@ -53,6 +53,17 @@ func readSocket(h syscall.Handle, buf []byte) (int, syscall.Errno) {
 	return int(done), errno
 }
 
+func writeFd(fd uintptr, buf []byte) (int, syscall.Errno) {
+	var done uint32
+	var overlapped syscall.Overlapped
+	err := syscall.WriteFile(syscall.Handle(fd), buf, &done, &overlapped)
+	errno := platform.UnwrapOSError(err)
+	if errno == syscall.ERROR_IO_PENDING {
+		errno = syscall.EAGAIN
+	}
+	return int(done), errno
+}
+
 // peekNamedPipe partially exposes PeekNamedPipe from the Win32 API
 // see https://learn.microsoft.com/en-us/windows/win32/api/namedpipeapi/nf-namedpipeapi-peeknamedpipe
 func peekNamedPipe(handle syscall.Handle) (uint32, error) {
