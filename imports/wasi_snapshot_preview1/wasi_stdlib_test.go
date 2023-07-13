@@ -18,6 +18,8 @@ import (
 
 	"github.com/tetratelabs/wazero"
 	"github.com/tetratelabs/wazero/api"
+	"github.com/tetratelabs/wazero/experimental"
+	"github.com/tetratelabs/wazero/experimental/logging"
 	experimentalsock "github.com/tetratelabs/wazero/experimental/sock"
 	"github.com/tetratelabs/wazero/imports/wasi_snapshot_preview1"
 	"github.com/tetratelabs/wazero/internal/fsapi"
@@ -401,6 +403,9 @@ func Test_Sock(t *testing.T) {
 func testSock(t *testing.T, bin []byte) {
 	sockCfg := experimentalsock.NewConfig().WithTCPListener("127.0.0.1", 0)
 	ctx := experimentalsock.WithConfig(testCtx, sockCfg)
+	ctx = context.WithValue(ctx, experimental.FunctionListenerFactoryKey{},
+		logging.NewHostLoggingListenerFactory(os.Stderr,
+			logging.LogScopeSock|logging.LogScopeFilesystem))
 	moduleConfig := wazero.NewModuleConfig().WithArgs("wasi", "sock")
 	tcpAddrCh := make(chan *net.TCPAddr, 1)
 	ch := make(chan string, 1)

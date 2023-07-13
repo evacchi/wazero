@@ -107,7 +107,7 @@ type winTcpListenerFile struct {
 // be consistent with the listener that created the connection.
 // This may not be always true, but it's a good strategy to get started.
 func (f *winTcpListenerFile) Accept() (socketapi.TCPConn, syscall.Errno) {
-	//if f.IsNonblock() {
+	// if f.IsNonblock() {
 	rawConn, err := f.tl.SyscallConn()
 	if err != nil {
 		return nil, platform.UnwrapOSError(err)
@@ -124,14 +124,16 @@ func (f *winTcpListenerFile) Accept() (socketapi.TCPConn, syscall.Errno) {
 	if errno != 0 {
 		return nil, errno
 	}
-	return &rawHandleTcpConnFile{fd: tcpFd}, 0
-	//} else {
-	//	if conn, err := f.tl.Accept(); err != nil {
-	//		return nil, platform.UnwrapOSError(err)
-	//	} else {
-	//		return &winTcpConnFile{tc: conn.(*net.TCPConn)}, 0
-	//	}
-	//}
+	conn := &rawHandleTcpConnFile{fd: tcpFd}
+	conn.SetNonblock(false)
+	return conn, 0
+	// } else {
+	// 	if conn, err := f.tl.Accept(); err != nil {
+	// 		return nil, platform.UnwrapOSError(err)
+	// 	} else {
+	// 		return &winTcpConnFile{tc: conn.(*net.TCPConn)}, 0
+	// 	}
+	// }
 }
 
 // SOCKET WSAAPI accept(
@@ -405,17 +407,20 @@ type rawHandleTcpConnFile struct {
 
 	fd syscall.Handle
 
+	nonblock bool
+
 	// closed is true when closed was called. This ensures proper syscall.EBADF
 	closed bool
 }
 
 // IsNonblock implements File.IsNonblock
 func (f *rawHandleTcpConnFile) IsNonblock() bool {
-	return true
+	return f.nonblock
 }
 
 // SetNonblock implements the same method as documented on fsapi.File
 func (f *rawHandleTcpConnFile) SetNonblock(enabled bool) (errno syscall.Errno) {
+	f.nonblock = enabled
 	err := setNonblockSocket(f.fd, enabled)
 	return platform.UnwrapOSError(err)
 }
