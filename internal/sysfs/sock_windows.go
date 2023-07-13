@@ -12,11 +12,13 @@ import (
 	socketapi "github.com/tetratelabs/wazero/internal/sock"
 )
 
-// MSG_PEEK is the flag PEEK for syscall.Recvfrom on Windows.
-// This constant is not exported on this platform.
 const (
-	MSG_PEEK       = 0x2
-	_FIONBIO       = 0x8004667e
+	// MSG_PEEK is the flag PEEK for syscall.Recvfrom on Windows.
+	// This constant is not exported on this platform.
+	MSG_PEEK = 0x2
+	// _FIONBIO is the flag to set the O_NONBLOCK flag on socket handles using ioctlsocket.
+	_FIONBIO = 0x8004667e
+	// _WASWOULDBLOCK corresponds to syscall.EWOULDBLOCK in WinSock.
 	_WASWOULDBLOCK = 10035
 )
 
@@ -177,17 +179,17 @@ func (f *winTcpListenerFile) SetNonblock(enabled bool) syscall.Errno {
 }
 
 func setNonblockSocket(fd syscall.Handle, enabled bool) syscall.Errno {
-	opt := 0
+	opt := uint64(0)
 	if enabled {
 		opt = 1
 	}
-	_, _, e1 := syscall.SyscallN(
+	// ioctlsocket(fd, FIONBIO, &opt)
+	_, _, errno := syscall.SyscallN(
 		procioctlsocket.Addr(),
 		uintptr(fd),
 		uintptr(_FIONBIO),
 		uintptr(unsafe.Pointer(&opt)))
-
-	return e1 // setNonblock() is a no-op on Windows
+	return errno
 }
 
 // Close implements the same method as documented on fsapi.File
@@ -324,26 +326,12 @@ type winNonblockingTcpConnFile struct {
 
 	fd syscall.Handle
 
-	tc *net.TCPConn
-
 	// closed is true when closed was called. This ensures proper syscall.EBADF
 	closed bool
 }
 
-func newNonblockingTcpConn(tc *net.TCPConn) socketapi.TCPConn {
-	// we cannot duplicate a file handle,
-	// but we can get the raw value
-	// and keep it valid by holding the
-	// real underlying tc.
-	rawConn, err := tc.SyscallConn()
-	if err != nil {
-		panic(err)
-	}
-	var fd syscall.Handle
-	rawConn.Control(func(_fd uintptr) {
-		fd = syscall.Handle(_fd)
-	})
-	return &winNonblockingTcpConnFile{tc: tc, fd: fd}
+func newNonblockingTcpConn(fd syscall.Handle) socketapi.TCPConn {
+	return &winNonblockingTcpConnFile{fd: fd}
 }
 
 // IsNonblock implements File.IsNonblock
@@ -393,15 +381,14 @@ func (f *winNonblockingTcpConnFile) Recvfrom(p []byte, flags int) (n int, errno 
 
 // Shutdown implements the same method as documented on fsapi.Conn
 func (f *winNonblockingTcpConnFile) Shutdown(how int) syscall.Errno {
-	// FIXME: can userland shutdown listeners?
 	var err error
 	switch how {
 	case syscall.SHUT_RD:
-		err = f.tc.CloseRead()
+		err = syscall.Shutdown(f.fd, syscall.SHUT_RD)
 	case syscall.SHUT_WR:
-		err = f.tc.CloseWrite()
+		err = syscall.Shutdown(f.fd, syscall.SHUT_WR)
 	case syscall.SHUT_RDWR:
-		err = f.tc.Close()
+		err = syscall.Shutdown(f.fd, syscall.SHUT_RDWR)
 	default:
 		return syscall.EINVAL
 	}
