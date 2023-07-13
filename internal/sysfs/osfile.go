@@ -144,7 +144,7 @@ func (f *osFile) Read(buf []byte) (n int, errno syscall.Errno) {
 	if len(buf) == 0 {
 		return 0, 0 // Short-circuit 0-len reads.
 	}
-	if NonBlockingFileIoSupported && f.IsNonblock() {
+	if NonBlockingFileReadSupported && f.IsNonblock() {
 		n, errno = readFd(f.fd, buf)
 	} else {
 		n, errno = read(f.file, buf)
@@ -216,7 +216,7 @@ func (f *osFile) Write(buf []byte) (n int, errno syscall.Errno) {
 	if len(buf) == 0 {
 		return 0, 0 // Short-circuit 0-len writes.
 	}
-	if NonBlockingFileIoSupported && f.IsNonblock() {
+	if NonBlockingFileWriteSupported && f.IsNonblock() {
 		n, errno = writeFd(f.fd, buf)
 	} else if n, errno = write(f.file, buf); errno != 0 {
 		// Defer validation overhead until we've already had an error.

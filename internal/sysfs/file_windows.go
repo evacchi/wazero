@@ -7,7 +7,10 @@ import (
 	"github.com/tetratelabs/wazero/internal/platform"
 )
 
-const NonBlockingFileIoSupported = true
+const (
+	NonBlockingFileReadSupported  = true
+	NonBlockingFileWriteSupported = false
+)
 
 var kernel32 = syscall.NewLazyDLL("kernel32.dll")
 
@@ -61,16 +64,5 @@ func peekNamedPipe(handle syscall.Handle) (uint32, error) {
 }
 
 func writeFd(fd uintptr, buf []byte) (int, syscall.Errno) {
-	if len(buf) == 0 {
-		return 0, 0 // Short-circuit 0-len writes.
-	}
-	handle := syscall.Handle(fd)
-	var done uint32
-	var overlapped syscall.Overlapped
-	err := syscall.WriteFile(handle, buf, &done, &overlapped)
-	if err != nil {
-		return int(done), platform.UnwrapOSError(err)
-	} else {
-		return int(done), 0
-	}
+	return -1, syscall.ENOSYS
 }

@@ -4,7 +4,10 @@ package sysfs
 
 import "syscall"
 
-const NonBlockingFileIoSupported = false
+const (
+	NonBlockingFileReadSupported  = false
+	NonBlockingFileWriteSupported = false
+)
 
 // readFd returns ENOSYS on unsupported platforms.
 func readFd(fd uintptr, buf []byte) (int, syscall.Errno) {
