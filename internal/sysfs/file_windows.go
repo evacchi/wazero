@@ -66,7 +66,7 @@ func writeFd(fd uintptr, buf []byte) (int, syscall.Errno) {
 
 // peekNamedPipe partially exposes PeekNamedPipe from the Win32 API
 // see https://learn.microsoft.com/en-us/windows/win32/api/namedpipeapi/nf-namedpipeapi-peeknamedpipe
-func peekNamedPipe(handle syscall.Handle) (uint32, error) {
+func peekNamedPipe(handle syscall.Handle) (uint32, syscall.Errno) {
 	var totalBytesAvail uint32
 	totalBytesPtr := unsafe.Pointer(&totalBytesAvail)
 	_, _, err := procPeekNamedPipe.Call(
@@ -76,8 +76,5 @@ func peekNamedPipe(handle syscall.Handle) (uint32, error) {
 		0,                      // [out, optional] LPDWORD lpBytesRead
 		uintptr(totalBytesPtr), // [out, optional] LPDWORD lpTotalBytesAvail,
 		0)                      // [out, optional] LPDWORD lpBytesLeftThisMessage
-	if err == syscall.Errno(0) {
-		return totalBytesAvail, nil
-	}
-	return totalBytesAvail, err
+	return totalBytesAvail, platform.UnwrapOSError(err)
 }

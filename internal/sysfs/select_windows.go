@@ -37,28 +37,28 @@ func syscall_select(n int, r, w, e *platform.FdSet, timeout *time.Duration) (int
 		return 0, nil
 	}
 
-	n, err := selectPipes(r.Regular(), timeout)
-	if err != nil {
-		return n, err
+	npipes, err := selectPipes(r.Regular(), timeout)
+	if err != 0 {
+		return npipes, err
 	}
 
-	n2, err := winsock_select(n, r.Sockets(), w.Sockets(), e.Sockets(), timeout)
+	nsocks, err := winsock_select(n, r.Sockets(), w.Sockets(), e.Sockets(), timeout)
 	if err == syscall.Errno(0) {
-		return n + n2, nil
+		return npipes + nsocks, nil
 	}
-	return n + n2, err
+	return npipes + nsocks, err
 }
 
-func selectPipes(r *platform.WinSockFdSet, timeout *time.Duration) (int, error) {
+func selectPipes(r *platform.WinSockFdSet, timeout *time.Duration) (int, syscall.Errno) {
 	res, err := pollNamedPipes(context.TODO(), r, timeout)
-	if err != nil {
+	if err != 0 {
 		return -1, err
 	}
-	if !res {
+	if res != 0 {
 		r.Zero()
-		return 0, nil
+		return 0, 0
 	}
-	return 1, nil
+	return res, err
 }
 
 // pollNamedPipes polls the given named pipe handles for the given duration.
@@ -66,7 +66,7 @@ func selectPipes(r *platform.WinSockFdSet, timeout *time.Duration) (int, error) 
 // The implementation actually polls every 100 milliseconds until it reaches the given duration.
 // The duration may be nil, in which case it will wait undefinely. The given ctx is
 // used to allow for cancellation. Currently used only in tests.
-func pollNamedPipes(ctx context.Context, pipeHandles *platform.WinSockFdSet, duration *time.Duration) (bool, error) {
+func pollNamedPipes(ctx context.Context, pipeHandles *platform.WinSockFdSet, duration *time.Duration) (int, syscall.Errno) {
 	// Short circuit when the duration is zero.
 	if duration != nil && *duration == time.Duration(0) {
 		return peekAllPipes(pipeHandles)
@@ -74,7 +74,7 @@ func pollNamedPipes(ctx context.Context, pipeHandles *platform.WinSockFdSet, dur
 
 	// Ticker that emits at every pollInterval.
 	tick := time.NewTicker(pollInterval)
-	tichCh := tick.C
+	tickCh := tick.C
 	defer tick.Stop()
 
 	// Timer that expires after the given duration.
@@ -90,31 +90,26 @@ func pollNamedPipes(ctx context.Context, pipeHandles *platform.WinSockFdSet, dur
 	for {
 		select {
 		case <-ctx.Done():
-			return false, nil
+			return 0, 0
 		case <-afterCh:
-			return false, nil
-		case <-tichCh:
-			res, err := peekAllPipes(pipeHandles)
-			if err != nil {
-				return false, err
-			}
-			if res {
-				return true, nil
-			}
+			return 0, 0
+		case <-tickCh:
+			return peekAllPipes(pipeHandles)
 		}
 	}
 }
 
-func peekAllPipes(pipeHandles *platform.WinSockFdSet) (bool, error) {
+func peekAllPipes(pipeHandles *platform.WinSockFdSet) (int, syscall.Errno) {
+	ready := 0
 	for i := 0; i < pipeHandles.Count(); i++ {
 		h := pipeHandles.Get(i)
 		bytes, err := peekNamedPipe(h)
-		if err != nil {
-			return false, err
-		}
 		if bytes > 0 {
-			return bytes > 0, err
+			ready++
+		}
+		if err != 0 {
+			return ready, err
 		}
 	}
-	return false, nil
+	return ready, 0
 }
