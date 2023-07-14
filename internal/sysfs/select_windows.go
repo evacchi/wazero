@@ -4,29 +4,25 @@ import (
 	"context"
 	"syscall"
 	"time"
+	"unsafe"
 
 	"github.com/tetratelabs/wazero/internal/platform"
 )
 
-// wasiFdStdin is the constant value for stdin on Wasi.
-// We need this constant because on Windows os.Stdin.Fd() != 0.
-const wasiFdStdin = 0
-
-// pollInterval is the interval between each calls to peekNamedPipe in pollNamedPipe
+// pollInterval is the interval between each calls to peekNamedPipe in selectAllHandles
 const pollInterval = 100 * time.Millisecond
 
-// syscall_select emulates the select syscall on Windows for two, well-known cases, returns syscall.ENOSYS for all others.
-// If r contains fd 0, and it is a regular file, then it immediately returns 1 (data ready on stdin)
-// and r will have the fd 0 bit set.
-// If r contains fd 0, and it is a FILE_TYPE_CHAR, then it invokes PeekNamedPipe to check the buffer for input;
-// if there is data ready, then it returns 1 and r will have fd 0 bit set.
+// syscall_select emulates the select syscall on Windows, for a subset of cases.
+//
+// r, w, e may contain any number of file handles, but regular files and pipes are only processed for r (Read).
+// Stdin is a pipe, thus it is checked for readiness when present. Pipes are checked using PeekNamedPipe.
+// Regular files always immediately report as ready, regardless their actual state and timeouts.
+//
 // If n==0 it will wait for the given timeout duration, but it will return syscall.ENOSYS if timeout is nil,
 // i.e. it won't block indefinitely.
 //
-// Note: idea taken from https://stackoverflow.com/questions/6839508/test-if-stdin-has-input-for-c-windows-and-or-linux
+// Note: ideas taken from https://stackoverflow.com/questions/6839508/test-if-stdin-has-input-for-c-windows-and-or-linux
 // PeekNamedPipe: https://learn.microsoft.com/en-us/windows/win32/api/namedpipeapi/nf-namedpipeapi-peeknamedpipe
-// "GetFileType can assist in determining what device type the handle refers to. A console handle presents as FILE_TYPE_CHAR."
-// https://learn.microsoft.com/en-us/windows/console/console-handles
 func syscall_select(n int, r, w, e *platform.FdSet, timeout *time.Duration) (int, error) {
 	if n == 0 {
 		// Don't block indefinitely.
@@ -37,82 +33,169 @@ func syscall_select(n int, r, w, e *platform.FdSet, timeout *time.Duration) (int
 		return 0, nil
 	}
 
-	npipes, err := selectPipes(r.Regular(), timeout)
-	if err != 0 {
-		return npipes, err
+	n, errno := selectAllHandles(context.TODO(), r, w, e, timeout)
+	if errno == 0 {
+		return n, nil
 	}
-
-	nsocks, err := winsock_select(n, r.Sockets(), w.Sockets(), e.Sockets(), timeout)
-	return npipes + nsocks, err
+	return n, errno
 }
 
-func selectPipes(r *platform.WinSockFdSet, timeout *time.Duration) (int, syscall.Errno) {
-	res, err := pollNamedPipes(context.TODO(), r, timeout)
-	if err != 0 {
-		return -1, err
-	}
-	if res != 0 {
-		r.Zero()
-		return res, 0
-	}
-	return res, err
-}
-
-// pollNamedPipes polls the given named pipe handles for the given duration.
+// selectAllHandles emulates a general-purpose POSIX select on Windows.
 //
 // The implementation actually polls every 100 milliseconds until it reaches the given duration.
 // The duration may be nil, in which case it will wait undefinely. The given ctx is
-// used to allow for cancellation. Currently used only in tests.
-func pollNamedPipes(ctx context.Context, pipeHandles *platform.WinSockFdSet, duration *time.Duration) (int, syscall.Errno) {
+// used to allow for cancellation and it is currently used only in tests.
+func selectAllHandles(ctx context.Context, r, w, e *platform.FdSet, duration *time.Duration) (int, syscall.Errno) {
+	nregular := r.Regular().Count() + w.Regular().Count() + e.Regular().Count()
+
+	nsocks := 0
+
+	rp, errno := peekAllPipes(r.Pipes())
+	npipes := rp.Count()
+
+	if errno != 0 {
+		r.Zero()
+		w.Zero()
+		e.Zero()
+		r.SetPipes(*rp)
+		return nregular + npipes, errno
+	}
+
+	// winsock_select mutates the given references, so we create copies.
+	rs, ws, es := r.Sockets().Copy(), w.Sockets().Copy(), e.Sockets().Copy()
+
 	// Short circuit when the duration is zero.
 	if duration != nil && *duration == time.Duration(0) {
-		return peekAllPipes(pipeHandles)
-	}
+		nsocks, errno = winsock_select(rs, ws, es, duration)
+	} else {
+		// Ticker that emits at every pollInterval.
+		tick := time.NewTicker(pollInterval)
+		tickCh := tick.C
+		defer tick.Stop()
 
-	// Ticker that emits at every pollInterval.
-	tick := time.NewTicker(pollInterval)
-	tickCh := tick.C
-	defer tick.Stop()
+		// Timer that expires after the given duration.
+		// Initialize afterCh as nil: the select below will wait forever.
+		var afterCh <-chan time.Time
+		if duration != nil {
+			// If duration is not nil, instantiate the timer.
+			after := time.NewTimer(*duration)
+			defer after.Stop()
+			afterCh = after.C
+		}
 
-	// Timer that expires after the given duration.
-	// Initialize afterCh as nil: the select below will wait forever.
-	var afterCh <-chan time.Time
-	if duration != nil {
-		// If duration is not nil, instantiate the timer.
-		after := time.NewTimer(*duration)
-		defer after.Stop()
-		afterCh = after.C
-	}
+		// winsock_select is a blocking call. We spin a goroutine
+		// and write back to a channel the result. We consume
+		// this result in the for loop together with the polling
+		// routines.
+		type selectResult struct {
+			n     int
+			errno syscall.Errno
+		}
 
-	for {
-		select {
-		case <-ctx.Done():
-			return 0, 0
-		case <-afterCh:
-			return 0, 0
-		case <-tickCh:
-			n, errno := peekAllPipes(pipeHandles)
-			if errno != 0 {
-				return n, errno
-			}
-			if n > 0 {
-				return n, 0
+		winsockSelectCh := make(chan selectResult, 1)
+		defer close(winsockSelectCh)
+
+		go func() {
+			res := selectResult{}
+			res.n, res.errno = winsock_select(rs, ws, es, duration)
+			winsockSelectCh <- res
+		}()
+
+		nsocks := 0
+
+	outer:
+		for {
+			select {
+			case <-ctx.Done():
+				break outer
+			case <-afterCh:
+				break outer
+			case <-tickCh:
+				rp, errno = peekAllPipes(r.Pipes())
+				npipes = rp.Count()
+				if errno != 0 || npipes > 0 {
+					break outer
+				}
+			case res := <-winsockSelectCh:
+				nsocks = res.n
+				if res.errno != 0 {
+					break outer
+				}
+				// winsock_select has returned with no result, ignore
+				// and wait for the other pipes.
+				if nsocks == 0 {
+					continue
+				}
+				// If select has return successfully we peek for the last time at the other pipes
+				// to see if data is available and return the sum.
+				rp, errno = peekAllPipes(r.Pipes())
+				npipes = rp.Count()
+				break outer
 			}
 		}
 	}
+
+	rr, wr, er := r.Regular().Copy(), w.Regular().Copy(), e.Regular().Copy()
+
+	// Clear all FdSets and set them in accordance to the returned values.
+
+	if r != nil {
+		// Pipes are handled only for r
+		r.SetPipes(*rp)
+		r.SetRegular(*rr)
+		r.SetSockets(*rs)
+	}
+
+	if w != nil {
+		w.SetRegular(*wr)
+		w.SetSockets(*ws)
+	}
+
+	if e != nil {
+		e.SetRegular(*er)
+		e.SetSockets(*es)
+	}
+
+	return nregular + npipes + nsocks, errno
 }
 
-func peekAllPipes(pipeHandles *platform.WinSockFdSet) (int, syscall.Errno) {
-	ready := 0
+func peekAllPipes(pipeHandles *platform.WinSockFdSet) (*platform.WinSockFdSet, syscall.Errno) {
+	ready := &platform.WinSockFdSet{}
 	for i := 0; i < pipeHandles.Count(); i++ {
 		h := pipeHandles.Get(i)
 		bytes, err := peekNamedPipe(h)
 		if bytes > 0 {
-			ready++
+			ready.Set(int(h))
 		}
 		if err != 0 {
 			return ready, err
 		}
 	}
 	return ready, 0
+}
+
+func winsock_select(r, w, e *platform.WinSockFdSet, timeout *time.Duration) (int, syscall.Errno) {
+	if r.Count() == 0 && w.Count() == 0 && e.Count() == 0 {
+		return 0, 0
+	}
+
+	var t *syscall.Timeval
+	if timeout != nil {
+		tv := syscall.NsecToTimeval(timeout.Nanoseconds())
+		t = &tv
+	}
+
+	rp := unsafe.Pointer(r)
+	wp := unsafe.Pointer(w)
+	ep := unsafe.Pointer(e)
+	tp := unsafe.Pointer(t)
+
+	r0, _, err := syscall.SyscallN(
+		procselect.Addr(),
+		uintptr(0), // the first argument is ignored and exists only for compat with BSD sockets.
+		uintptr(rp),
+		uintptr(wp),
+		uintptr(ep),
+		uintptr(tp))
+	return int(r0), err
 }

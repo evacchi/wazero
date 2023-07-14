@@ -79,7 +79,7 @@ func TestSelect(t *testing.T) {
 				t.Log("Select interrupted")
 				continue
 			}
-			require.Zero(t, err)
+			require.NoError(t, err)
 			require.Equal(t, 1, n)
 			break
 		}

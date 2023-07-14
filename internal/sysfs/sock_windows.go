@@ -57,25 +57,6 @@ func recvfrom(s syscall.Handle, buf []byte, flags int32) (n int, errno syscall.E
 	return int(r0), e1
 }
 
-func winsock_select(n int, r, w, e *platform.WinSockFdSet, timeout *time.Duration) (int, syscall.Errno) {
-	if (r == nil || r.Count() == 0) && (w == nil || w.Count() == 0) && (e == nil || e.Count() == 0) {
-		return 0, 0
-	}
-	var t *syscall.Timeval
-	if timeout != nil {
-		tv := syscall.NsecToTimeval(timeout.Nanoseconds())
-		t = &tv
-	}
-	r0, _, err := syscall.SyscallN(
-		procselect.Addr(),
-		uintptr(unsafe.Pointer(nil)), // the first argument is ignored and exists only for compat with BSD sockets.
-		uintptr(unsafe.Pointer(r)),
-		uintptr(unsafe.Pointer(w)),
-		uintptr(unsafe.Pointer(e)),
-		uintptr(unsafe.Pointer(t)))
-	return int(r0), err
-}
-
 func setNonblockSocket(fd syscall.Handle, enabled bool) syscall.Errno {
 	opt := uint64(0)
 	if enabled {
@@ -141,7 +122,7 @@ func (f *winTcpListenerFile) Accept() (socketapi.TCPConn, syscall.Errno) {
 		fdSet := platform.WinSockFdSet{}
 		fdSet.Set(int(fd))
 		t := time.Duration(0)
-		return winsock_select(1, &fdSet, nil, nil, &t)
+		return winsock_select(&fdSet, nil, nil, &t)
 	})
 
 	// Otherwise return immediately.

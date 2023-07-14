@@ -28,12 +28,9 @@ func readFd(fd uintptr, buf []byte) (int, syscall.Errno) {
 	if fileType&syscall.FILE_TYPE_CHAR == 0 {
 		return -1, syscall.ENOSYS
 	}
-	n, err := peekNamedPipe(handle)
-	if err != nil {
-		errno := platform.UnwrapOSError(err)
-		if errno == syscall.ERROR_BROKEN_PIPE {
-			return 0, 0
-		}
+	n, errno := peekNamedPipe(handle)
+	if errno == syscall.ERROR_BROKEN_PIPE {
+		return 0, 0
 	}
 	if n == 0 {
 		return -1, syscall.EAGAIN
