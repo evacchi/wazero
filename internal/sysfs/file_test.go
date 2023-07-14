@@ -110,7 +110,12 @@ func TestWriteFdNonblock(t *testing.T) {
 	for i := 0; i < numWrites; i++ {
 		_, e := writeFd(fd, buf)
 		if e != 0 {
-			require.EqualErrno(t, syscall.EAGAIN, e)
+			if runtime.GOOS == "windows" {
+				// This is currently not supported on Windows.
+				require.EqualErrno(t, syscall.ENOSYS, e)
+			} else {
+				require.EqualErrno(t, syscall.EAGAIN, e)
+			}
 			return
 		}
 	}
