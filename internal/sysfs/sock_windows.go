@@ -68,34 +68,12 @@ func winsock_select(n int, r, w, e *platform.WinSockFdSet, timeout *time.Duratio
 	}
 	r0, _, err := syscall.SyscallN(
 		procselect.Addr(),
-		uintptr(unsafe.Pointer(nil)),
+		uintptr(unsafe.Pointer(nil)), // the first argument is ignored and exists only for compat with BSD sockets.
 		uintptr(unsafe.Pointer(r)),
 		uintptr(unsafe.Pointer(w)),
 		uintptr(unsafe.Pointer(e)),
 		uintptr(unsafe.Pointer(t)))
 	return int(r0), err
-}
-
-// SOCKET WSAAPI accept(
-// [in]      SOCKET   s,
-// A descriptor that identifies a socket that has been placed in a listening state with the listen
-// function. The connection is actually made with the socket that is returned by accept.
-// [out]     sockaddr *addr,
-// An optional pointer to a buffer that receives the address of the connecting entity,
-// as known to the communications layer. The exact format of the addr parameter is determined by
-// the address family that was established when the socket from the sockaddr structure was created.
-// [in, out] int      *addrlen
-// An optional pointer to an integer that contains the length of structure
-// pointed to by the addr parameter.
-// );
-func accept(s syscall.Handle) (fd syscall.Handle, errno syscall.Errno) {
-	r0, _, e1 := syscall.SyscallN(
-		procaccept.Addr(),
-		uintptr(s),
-		uintptr(unsafe.Pointer(nil)),
-		uintptr(unsafe.Pointer(nil)),
-	) // fromlen *int (optional)
-	return syscall.Handle(r0), e1
 }
 
 func setNonblockSocket(fd syscall.Handle, enabled bool) syscall.Errno {
@@ -112,6 +90,12 @@ func setNonblockSocket(fd syscall.Handle, enabled bool) syscall.Errno {
 	return errno
 }
 
+// syscallConnControl extracts a syscall.RawConn from the given syscall.Conn and applies
+// the given fn to a file descriptor, returning an integer or a nonzero syscall.Errno on failure.
+//
+// syscallConnControl streamlines the pattern of extracting the syscall.Rawconn,
+// invoking its syscall.RawConn.Control method, then handling properly the errors that may occur
+// within fn or returned by syscall.RawConn.Control itself.
 func syscallConnControl(conn syscall.Conn, fn func(fd uintptr) (int, syscall.Errno)) (n int, errno syscall.Errno) {
 	syscallConn, err := conn.SyscallConn()
 	if err != nil {
@@ -136,7 +120,7 @@ func syscallConnControl(conn syscall.Conn, fn func(fd uintptr) (int, syscall.Err
 // because they are sensibly different from Unix's.
 func newTCPListenerFile(tl *net.TCPListener) socketapi.TCPSock {
 	w := &winTcpListenerFile{tl: tl}
-	w.SetNonblock(true)
+	_ = w.SetNonblock(true)
 	return w
 }
 
@@ -171,9 +155,7 @@ func (f *winTcpListenerFile) Accept() (socketapi.TCPConn, syscall.Errno) {
 	if conn, err := f.tl.Accept(); err != nil {
 		return nil, platform.UnwrapOSError(err)
 	} else {
-		conn := &winTcpConnFile{tc: conn.(*net.TCPConn)}
-		conn.SetNonblock(true)
-		return conn, 0
+		return newTcpConn(conn.(*net.TCPConn)), 0
 	}
 }
 
@@ -185,17 +167,9 @@ func (f *winTcpListenerFile) IsNonblock() bool {
 // SetNonblock implements the same method as documented on fsapi.File
 func (f *winTcpListenerFile) SetNonblock(enabled bool) syscall.Errno {
 	f.nonblock = enabled
-	rawConn, err := f.tl.SyscallConn()
-	if err != nil {
-		return platform.UnwrapOSError(err)
-	}
-	var errno syscall.Errno
-	err = rawConn.Control(func(fd uintptr) {
-		errno = setNonblockSocket(syscall.Handle(fd), enabled)
+	_, errno := syscallConnControl(f.tl, func(fd uintptr) (int, syscall.Errno) {
+		return 0, setNonblockSocket(syscall.Handle(fd), enabled)
 	})
-	if err != nil {
-		return platform.UnwrapOSError(err)
-	}
 	return errno
 }
 

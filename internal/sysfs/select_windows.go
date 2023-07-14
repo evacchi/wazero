@@ -37,31 +37,20 @@ func syscall_select(n int, r, w, e *platform.FdSet, timeout *time.Duration) (int
 		return 0, nil
 	}
 
-	n, err := selectPipe(&r.Regular, timeout)
+	n, err := selectPipes(r.Regular(), timeout)
 	if err != nil {
 		return n, err
 	}
 
-	var rs, ws, es *platform.WinSockFdSet
-	if r != nil {
-		rs = &r.Sockets
-	}
-	if w != nil {
-		ws = &w.Sockets
-	}
-	if e != nil {
-		es = &e.Sockets
-	}
-
-	n2, err := winsock_select(n, rs, ws, es, timeout)
+	n2, err := winsock_select(n, r.Sockets(), w.Sockets(), e.Sockets(), timeout)
 	if err == syscall.Errno(0) {
 		return n + n2, nil
 	}
 	return n + n2, err
 }
 
-func selectPipe(r *platform.WinSockFdSet, timeout *time.Duration) (int, error) {
-	res, err := pollNamedPipe(context.TODO(), r, timeout)
+func selectPipes(r *platform.WinSockFdSet, timeout *time.Duration) (int, error) {
+	res, err := pollNamedPipes(context.TODO(), r, timeout)
 	if err != nil {
 		return -1, err
 	}
@@ -72,12 +61,12 @@ func selectPipe(r *platform.WinSockFdSet, timeout *time.Duration) (int, error) {
 	return 1, nil
 }
 
-// pollNamedPipe polls the given named pipe handle for the given duration.
+// pollNamedPipes polls the given named pipe handles for the given duration.
 //
 // The implementation actually polls every 100 milliseconds until it reaches the given duration.
 // The duration may be nil, in which case it will wait undefinely. The given ctx is
 // used to allow for cancellation. Currently used only in tests.
-func pollNamedPipe(ctx context.Context, pipeHandles *platform.WinSockFdSet, duration *time.Duration) (bool, error) {
+func pollNamedPipes(ctx context.Context, pipeHandles *platform.WinSockFdSet, duration *time.Duration) (bool, error) {
 	// Short circuit when the duration is zero.
 	if duration != nil && *duration == time.Duration(0) {
 		return peekAllPipes(pipeHandles)
@@ -128,13 +117,4 @@ func peekAllPipes(pipeHandles *platform.WinSockFdSet) (bool, error) {
 		}
 	}
 	return false, nil
-}
-
-func wsastartup() error {
-	var d syscall.WSAData
-	e := syscall.WSAStartup(uint32(0x202), &d)
-	if e != nil {
-		return e
-	}
-	return nil
 }
