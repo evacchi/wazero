@@ -539,7 +539,64 @@ func testStdin(t *testing.T, bin []byte) {
 	<-ch
 }
 
+/**
+
+cmd := exec.Command(args[0], args[1:]...)
+var buf bytes.Buffer
+cmd.Stdout = &buf
+cmd.Stderr = &buf
+cmd.Env = append(os.Environ(), "GOENV=off", "GOFLAGS=")
+if runInDir != "" {
+	cmd.Dir = runInDir
+	// Set PWD to match Dir to speed up os.Getwd in the child process.
+	cmd.Env = append(cmd.Env, "PWD="+cmd.Dir)
+} else {
+	// Default to running in the GOROOT/test directory.
+	cmd.Dir = t.gorootTestDir
+	// Set PWD to match Dir to speed up os.Getwd in the child process.
+	cmd.Env = append(cmd.Env, "PWD="+cmd.Dir)
+}
+if tempDirIsGOPATH {
+	cmd.Env = append(cmd.Env, "GOPATH="+tempDir)
+}
+cmd.Env = append(cmd.Env, "STDLIB_IMPORTCFG="+stdlibImportcfgFile())
+cmd.Env = append(cmd.Env, runenv...)
+
+
+*/
+
 func Test_LargeStdout(t *testing.T) {
+	if os.Getenv("RUN_FORKED") != "1" {
+		cmd := exec.Command(os.Args[0], "-test.run=Test_LargeStdout")
+		var buf bytes.Buffer
+		cmd.Stdout = &buf
+		cmd.Stderr = &buf
+		cmd.Env = append(os.Environ(), "RUN_FORKED=1")
+		err := cmd.Run()
+		if e, ok := err.(*exec.ExitError); ok && !e.Success() {
+			t.Fatalf("The test quit with an error code: %v\n", e)
+		}
+
+		tempDir := t.TempDir()
+		temp, err := os.Create(joinPath(tempDir, "out.go"))
+		defer temp.Close()
+
+		require.NoError(t, err)
+		bs := buf.Bytes()
+		temp.Write(bs[0:(len(bs) - 5)])
+		temp.Close()
+
+		gotipBin, err := findGotipBin()
+		require.NoError(t, err)
+		cmd = exec.CommandContext(testCtx, gotipBin, "build", "-o", joinPath(tempDir, "outbin"), temp.Name()) //nolint:gosec
+		require.NoError(t, err)
+		output, err := cmd.CombinedOutput()
+		require.NoError(t, err, string(output))
+
+		t.Fatalf("process ran with err %v, want exit status 1", err)
+		return
+	}
+
 	toolchains := map[string][]byte{}
 	if wasmGotip != nil {
 		toolchains["gotip"] = wasmGotip
@@ -555,36 +612,15 @@ func Test_LargeStdout(t *testing.T) {
 }
 
 func testLargeStdout(t *testing.T, bin []byte) {
-	stdoutReader, stdoutWriter, err := os.Pipe()
-	require.NoError(t, err)
-	tempDir := t.TempDir()
-	temp, err := os.Create(joinPath(tempDir, "out.go"))
-	require.NoError(t, err)
-	defer func() {
-		stdoutWriter.Close()
-		stdoutReader.Close()
-	}()
-	require.NoError(t, err)
 	moduleConfig := wazero.NewModuleConfig().
 		WithSysNanotime(). // poll_oneoff requires nanotime.
 		WithArgs("wasi", "largestdout").
-		WithStdout(temp)
-	ch := make(chan struct{}, 1)
-	go func() {
-		defer close(ch)
+		WithStdout(os.Stdout)
 
-		r := wazero.NewRuntime(testCtx)
-		defer r.Close(testCtx)
-		_, err := wasi_snapshot_preview1.Instantiate(testCtx, r)
-		require.NoError(t, err)
-		_, err = r.InstantiateWithConfig(testCtx, bin, moduleConfig)
-		require.NoError(t, err)
-	}()
-	<-ch
-
-	gotipBin, err := findGotipBin()
+	r := wazero.NewRuntime(testCtx)
+	defer r.Close(testCtx)
+	_, err := wasi_snapshot_preview1.Instantiate(testCtx, r)
 	require.NoError(t, err)
-	cmd := exec.CommandContext(testCtx, gotipBin, "build", "-o", joinPath(tempDir, "outbin"), temp.Name()) //nolint:gosec
-	output, err := cmd.CombinedOutput()
-	require.NoError(t, err, string(output))
+	_, err = r.InstantiateWithConfig(testCtx, bin, moduleConfig)
+	require.NoError(t, err)
 }
