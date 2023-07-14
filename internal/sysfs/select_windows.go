@@ -43,9 +43,6 @@ func syscall_select(n int, r, w, e *platform.FdSet, timeout *time.Duration) (int
 	}
 
 	nsocks, err := winsock_select(n, r.Sockets(), w.Sockets(), e.Sockets(), timeout)
-	if err == syscall.Errno(0) {
-		return npipes + nsocks, nil
-	}
 	return npipes + nsocks, err
 }
 
@@ -56,7 +53,7 @@ func selectPipes(r *platform.WinSockFdSet, timeout *time.Duration) (int, syscall
 	}
 	if res != 0 {
 		r.Zero()
-		return 0, 0
+		return res, 0
 	}
 	return res, err
 }
@@ -94,7 +91,13 @@ func pollNamedPipes(ctx context.Context, pipeHandles *platform.WinSockFdSet, dur
 		case <-afterCh:
 			return 0, 0
 		case <-tickCh:
-			return peekAllPipes(pipeHandles)
+			n, errno := peekAllPipes(pipeHandles)
+			if errno != 0 {
+				return n, errno
+			}
+			if n > 0 {
+				return n, 0
+			}
 		}
 	}
 }

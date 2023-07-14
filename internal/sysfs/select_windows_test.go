@@ -13,8 +13,8 @@ import (
 
 func TestSelect_Windows(t *testing.T) {
 	type result struct {
-		hasData bool
-		err     error
+		n   int
+		err syscall.Errno
 	}
 
 	testCtx, cancel := context.WithCancel(context.Background())
@@ -29,7 +29,7 @@ func TestSelect_Windows(t *testing.T) {
 	pollToChannel := func(readHandle syscall.Handle, duration *time.Duration, ch chan result) {
 		r := result{}
 		fdSet := handleAsFdSet(readHandle)
-		r.hasData, r.err = pollNamedPipe(testCtx, fdSet, duration)
+		r.n, r.err = pollNamedPipes(testCtx, fdSet, duration)
 		ch <- r
 		close(ch)
 	}
@@ -40,10 +40,10 @@ func TestSelect_Windows(t *testing.T) {
 		rh := syscall.Handle(r.Fd())
 		wh := syscall.Handle(w.Fd())
 
-		// Ensure the pipe has data.
+		// Ensure the pipe has no data.
 		n, err := peekNamedPipe(rh)
-		require.NoError(t, err)
-		require.NotEqual(t, 0, n)
+		require.Zero(t, err)
+		require.Zero(t, n)
 
 		// Write to the channel.
 		msg, err := syscall.ByteSliceFromString("test\n")
@@ -53,8 +53,8 @@ func TestSelect_Windows(t *testing.T) {
 
 		// Ensure the pipe has data.
 		n, err = peekNamedPipe(rh)
-		require.NoError(t, err)
-		require.NotEqual(t, 0, n)
+		require.Zero(t, err)
+		require.Equal(t, 6, int(n))
 	})
 
 	t.Run("pollNamedPipe should return immediately when duration is nil (no data)", func(t *testing.T) {
@@ -62,9 +62,9 @@ func TestSelect_Windows(t *testing.T) {
 		require.NoError(t, err)
 		rh := syscall.Handle(r.Fd())
 		d := time.Duration(0)
-		hasData, err := pollNamedPipe(testCtx, handleAsFdSet(rh), &d)
-		require.NoError(t, err)
-		require.False(t, hasData)
+		n, err := pollNamedPipes(testCtx, handleAsFdSet(rh), &d)
+		require.Zero(t, err)
+		require.Equal(t, 0, n)
 	})
 
 	t.Run("pollNamedPipe should return immediately when duration is nil (data)", func(t *testing.T) {
@@ -81,9 +81,9 @@ func TestSelect_Windows(t *testing.T) {
 
 		// Verify that the write is reported.
 		d := time.Duration(0)
-		hasData, err := pollNamedPipe(testCtx, rh, &d)
-		require.NoError(t, err)
-		require.True(t, hasData)
+		n, err := pollNamedPipes(testCtx, rh, &d)
+		require.Zero(t, err)
+		require.NotEqual(t, 0, n)
 	})
 
 	t.Run("pollNamedPipe should wait forever when duration is nil", func(t *testing.T) {
@@ -123,8 +123,8 @@ func TestSelect_Windows(t *testing.T) {
 		case <-time.After(500 * time.Millisecond):
 			panic("unreachable!")
 		case r := <-ch:
-			require.NoError(t, r.err)
-			require.True(t, r.hasData)
+			require.Zero(t, r.err)
+			require.NotEqual(t, 0, r.n)
 		}
 	})
 
@@ -153,8 +153,8 @@ func TestSelect_Windows(t *testing.T) {
 		case <-time.After(500 * time.Millisecond):
 			panic("no data!")
 		case r := <-ch:
-			require.NoError(t, r.err)
-			require.True(t, r.hasData)
+			require.Zero(t, r.err)
+			require.Equal(t, 1, r.n)
 		}
 	})
 
@@ -173,8 +173,8 @@ func TestSelect_Windows(t *testing.T) {
 
 		// Ensure that the timer has expired.
 		res := <-ch
-		require.NoError(t, res.err)
-		require.False(t, res.hasData)
+		require.Zero(t, res.err)
+		require.Zero(t, res.n)
 	})
 
 	t.Run("pollNamedPipe should return when a write occurs before the given duration", func(t *testing.T) {
@@ -196,7 +196,7 @@ func TestSelect_Windows(t *testing.T) {
 		require.NoError(t, err)
 
 		res := <-ch
-		require.NoError(t, res.err)
-		require.True(t, res.hasData)
+		require.Zero(t, res.err)
+		require.Equal(t, 1, res.n)
 	})
 }
