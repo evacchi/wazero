@@ -270,6 +270,40 @@ func compileAndRunWithPreStart(t *testing.T, ctx context.Context, config wazero.
 	return
 }
 
+func compileAndRunForked(t *testing.T, ctx context.Context, config wazero.ModuleConfig, tname string, bin []byte) ([]byte, bool) {
+	var buf bytes.Buffer
+	if os.Getenv("_TEST_FORKED") != "1" {
+		cmd := exec.Command(os.Args[0], "-test.run", tname)
+		cmd.Stdout = &buf
+		cmd.Stderr = &buf
+		cmd.Env = append(os.Environ(), "_TEST_FORKED=1")
+		err := cmd.Run()
+		if e, ok := err.(*exec.ExitError); ok && !e.Success() {
+			require.NoError(t, e, "The test quit with an error code: %v\n", e)
+		}
+		res := buf.Bytes()
+		return res[0 : len(res)-len("PASS")], true
+	}
+
+	r := wazero.NewRuntime(ctx)
+	defer r.Close(ctx)
+
+	_, err := wasi_snapshot_preview1.Instantiate(ctx, r)
+	require.NoError(t, err)
+
+	mod, err := r.InstantiateWithConfig(ctx, bin, config.
+		WithStartFunctions()) // clear
+	require.NoError(t, err)
+
+	_, err = mod.ExportedFunction("_start").Call(ctx)
+	if exitErr, ok := err.(*sys.ExitError); ok {
+		require.Zero(t, exitErr.ExitCode())
+	} else {
+		require.NoError(t, err)
+	}
+	return nil, false
+}
+
 func Test_Poll(t *testing.T) {
 	// The following test cases replace Stdin with a custom reader.
 	// For more precise coverage, see poll_test.go.
@@ -539,39 +573,41 @@ func testStdin(t *testing.T, bin []byte) {
 	<-ch
 }
 
-/**
-
-cmd := exec.Command(args[0], args[1:]...)
-var buf bytes.Buffer
-cmd.Stdout = &buf
-cmd.Stderr = &buf
-cmd.Env = append(os.Environ(), "GOENV=off", "GOFLAGS=")
-if runInDir != "" {
-	cmd.Dir = runInDir
-	// Set PWD to match Dir to speed up os.Getwd in the child process.
-	cmd.Env = append(cmd.Env, "PWD="+cmd.Dir)
-} else {
-	// Default to running in the GOROOT/test directory.
-	cmd.Dir = t.gorootTestDir
-	// Set PWD to match Dir to speed up os.Getwd in the child process.
-	cmd.Env = append(cmd.Env, "PWD="+cmd.Dir)
-}
-if tempDirIsGOPATH {
-	cmd.Env = append(cmd.Env, "GOPATH="+tempDir)
-}
-cmd.Env = append(cmd.Env, "STDLIB_IMPORTCFG="+stdlibImportcfgFile())
-cmd.Env = append(cmd.Env, runenv...)
-
-
-*/
-
 func Test_LargeStdout(t *testing.T) {
-	if os.Getenv("RUN_FORKED") != "1" {
+	if buf, ok := compileAndRunForked(t, testCtx,
+		wazero.NewModuleConfig().
+			WithArgs("wasi", "largestdout").
+			WithStdout(os.Stdout),
+		"Test_LargeStdout", wasmGotip); ok {
+
+		tempDir := t.TempDir()
+		temp, err := os.Create(joinPath(tempDir, "out.go"))
+		defer temp.Close()
+
+		require.NoError(t, err)
+		temp.Write(buf)
+		temp.Close()
+
+		gotipBin, err := findGotipBin()
+		require.NoError(t, err)
+
+		cmd := exec.CommandContext(testCtx, gotipBin, "build", "-o", joinPath(tempDir, "outbin"), temp.Name()) //nolint:gosec
+		require.NoError(t, err)
+		output, err := cmd.CombinedOutput()
+		require.NoError(t, err, string(output))
+	}
+}
+
+func Test_LargeStdout2(t *testing.T) {
+	// In order to simulate correctly the error conditions,
+	// we need to run this test forked.
+
+	if os.Getenv("_TEST_FORKED") != "1" {
 		cmd := exec.Command(os.Args[0], "-test.run=Test_LargeStdout")
 		var buf bytes.Buffer
 		cmd.Stdout = &buf
 		cmd.Stderr = &buf
-		cmd.Env = append(os.Environ(), "RUN_FORKED=1")
+		cmd.Env = append(os.Environ(), "_TEST_FORKED=1")
 		err := cmd.Run()
 		if e, ok := err.(*exec.ExitError); ok && !e.Success() {
 			t.Fatalf("The test quit with an error code: %v\n", e)
@@ -583,17 +619,19 @@ func Test_LargeStdout(t *testing.T) {
 
 		require.NoError(t, err)
 		bs := buf.Bytes()
+
+		// Discard "PASS" at the end.
 		temp.Write(bs[0:(len(bs) - 5)])
 		temp.Close()
 
 		gotipBin, err := findGotipBin()
 		require.NoError(t, err)
+
 		cmd = exec.CommandContext(testCtx, gotipBin, "build", "-o", joinPath(tempDir, "outbin"), temp.Name()) //nolint:gosec
 		require.NoError(t, err)
 		output, err := cmd.CombinedOutput()
 		require.NoError(t, err, string(output))
 
-		t.Fatalf("process ran with err %v, want exit status 1", err)
 		return
 	}
 
@@ -613,7 +651,6 @@ func Test_LargeStdout(t *testing.T) {
 
 func testLargeStdout(t *testing.T, bin []byte) {
 	moduleConfig := wazero.NewModuleConfig().
-		WithSysNanotime(). // poll_oneoff requires nanotime.
 		WithArgs("wasi", "largestdout").
 		WithStdout(os.Stdout)
 
