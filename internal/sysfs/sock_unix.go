@@ -67,6 +67,10 @@ func (f *tcpListenerFile) SetNonblock(enabled bool) sys.Errno {
 	return sys.UnwrapOSError(setNonblock(f.fd, enabled))
 }
 
+func (f *tcpListenerFile) IsNonblock() bool {
+	return f.nonblock
+}
+
 // Close implements the same method as documented on sys.File
 func (f *tcpListenerFile) Close() sys.Errno {
 	return sys.UnwrapOSError(syscall.Close(int(f.fd)))

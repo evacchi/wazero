@@ -196,6 +196,7 @@ func newTcpConn(tc *net.TCPConn) socketapi.TCPConn {
 
 // SetNonblock implements the same method as documented on sys.File
 func (f *winTcpConnFile) SetNonblock(enabled bool) (errno sys.Errno) {
+	f.nonblock = true
 	_, errno = syscallConnControl(f.tc, func(fd uintptr) (int, sys.Errno) {
 		return 0, sys.UnwrapOSError(setNonblockSocket(syscall.Handle(fd), enabled))
 	})
