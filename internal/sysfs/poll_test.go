@@ -41,6 +41,12 @@ func Test_poll(t *testing.T) {
 				t.Logf("Select interrupted after %v", took)
 				continue
 			}
+			if err == sys.ENOSYS {
+				if runtime.GOOS == "windows" {
+					// On Windows the implementation is stubbed because we are only using 0-delay anyway.
+					return
+				}
+			}
 			require.EqualErrno(t, 0, err)
 			require.Equal(t, 0, n)
 

@@ -5,25 +5,12 @@ import (
 	"os"
 	"syscall"
 	"testing"
-	"time"
 
 	"github.com/tetratelabs/wazero/experimental/sys"
 	"github.com/tetratelabs/wazero/internal/testing/require"
 )
 
 func TestPoll_Windows(t *testing.T) {
-	type result struct {
-		n   int
-		err sys.Errno
-	}
-
-	pollToChannel := func(fd uintptr, timeoutMillis int32, ch chan result) {
-		r := result{}
-		fds := []pollFd{{fd: fd, events: _POLLIN}}
-		r.n, r.err = _poll(fds, timeoutMillis)
-		ch <- r
-		close(ch)
-	}
 
 	t.Run("poll returns sys.ENOSYS when n == 0 and timeoutMillis is negative", func(t *testing.T) {
 		n, errno := _poll(nil, -1)
@@ -158,106 +145,24 @@ func TestPoll_Windows(t *testing.T) {
 		require.Equal(t, 1, n)
 	})
 
-	t.Run("poll should wait forever when duration is nil (no writes)", func(t *testing.T) {
+	t.Run("poll should error when duration is negative", func(t *testing.T) {
 		r, _, err := os.Pipe()
 		require.NoError(t, err)
+		fds := []pollFd{{fd: r.Fd(), events: _POLLIN}}
 
-		ch := make(chan result, 1)
-		go pollToChannel(r.Fd(), -1, ch)
-
-		// Wait a little, then ensure no writes occurred.
-		<-time.After(500 * time.Millisecond)
-		require.Equal(t, 0, len(ch))
+		n, errno := _poll(fds, -1)
+		require.EqualErrno(t, errno, sys.ENOSYS)
+		require.Equal(t, -1, n)
 	})
 
-	t.Run("poll should wait forever when duration is nil", func(t *testing.T) {
-		r, w, err := os.Pipe()
-		require.NoError(t, err)
-		wh := syscall.Handle(w.Fd())
-
-		ch := make(chan result, 1)
-		go pollToChannel(r.Fd(), -1, ch)
-
-		// Wait a little, then ensure no writes occurred.
-		<-time.After(100 * time.Millisecond)
-		require.Equal(t, 0, len(ch))
-
-		// Write a message to the pipe.
-		msg, err := syscall.ByteSliceFromString("test\n")
-		require.NoError(t, err)
-		_, err = syscall.Write(wh, msg)
-		require.NoError(t, err)
-
-		// Ensure that the write occurs (panic after an arbitrary timeout).
-		select {
-		case <-time.After(500 * time.Millisecond):
-			t.Fatal("unreachable!")
-		case r := <-ch:
-			require.Zero(t, r.err)
-			require.NotEqual(t, 0, r.n)
-		}
-	})
-
-	t.Run("poll should wait for the given duration", func(t *testing.T) {
-		r, w, err := os.Pipe()
-		require.NoError(t, err)
-		wh := syscall.Handle(w.Fd())
-
-		ch := make(chan result, 1)
-		go pollToChannel(r.Fd(), 500, ch)
-
-		// Wait a little, then ensure no writes occurred.
-		<-time.After(100 * time.Millisecond)
-		require.Equal(t, 0, len(ch))
-
-		// Write a message to the pipe.
-		msg, err := syscall.ByteSliceFromString("test\n")
-		require.NoError(t, err)
-		_, err = syscall.Write(wh, msg)
-		require.NoError(t, err)
-
-		// Ensure that the write occurs before the timer expires.
-		select {
-		case <-time.After(500 * time.Millisecond):
-			panic("no data!")
-		case r := <-ch:
-			require.Zero(t, r.err)
-			require.Equal(t, 1, r.n)
-		}
-	})
-
-	t.Run("poll should timeout after the given duration", func(t *testing.T) {
+	t.Run("poll should error when duration is greater than zero", func(t *testing.T) {
 		r, _, err := os.Pipe()
 		require.NoError(t, err)
+		fds := []pollFd{{fd: r.Fd(), events: _POLLIN}}
 
-		ch := make(chan result, 1)
-		go pollToChannel(r.Fd(), 200, ch)
-
-		// Ensure that the timer has expired.
-		res := <-ch
-		require.Zero(t, res.err)
-		require.Zero(t, res.n)
-	})
-
-	t.Run("poll should return when a write occurs before the given duration", func(t *testing.T) {
-		r, w, err := os.Pipe()
-		require.NoError(t, err)
-		wh := syscall.Handle(w.Fd())
-
-		ch := make(chan result, 1)
-		go pollToChannel(r.Fd(), 800, ch)
-
-		<-time.After(300 * time.Millisecond)
-		require.Equal(t, 0, len(ch))
-
-		msg, err := syscall.ByteSliceFromString("test\n")
-		require.NoError(t, err)
-		_, err = syscall.Write(wh, msg)
-		require.NoError(t, err)
-
-		res := <-ch
-		require.Zero(t, res.err)
-		require.Equal(t, 1, res.n)
+		n, errno := _poll(fds, 1)
+		require.EqualErrno(t, errno, sys.ENOSYS)
+		require.Equal(t, -1, n)
 	})
 
 	t.Run("poll should return when a regular file is given", func(t *testing.T) {

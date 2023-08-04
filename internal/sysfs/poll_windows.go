@@ -2,7 +2,6 @@ package sysfs
 
 import (
 	"syscall"
-	"time"
 	"unsafe"
 
 	"github.com/tetratelabs/wazero/experimental/sys"
@@ -37,9 +36,6 @@ func newPollFd(fd uintptr, events, revents int16) pollFd {
 	return pollFd{fd: fd, events: events, revents: revents}
 }
 
-// pollInterval is the interval between each calls to peekNamedPipe in selectAllHandles
-const pollInterval = 100 * time.Millisecond
-
 // _poll implements poll on Windows, for a subset of cases.
 //
 // fds may contain any number of file handles, but regular files and pipes are only processed for _POLLIN.
@@ -59,6 +55,10 @@ func _poll(fds []pollFd, timeoutMillis int32) (n int, errno sys.Errno) {
 	if fds == nil {
 		return -1, sys.ENOSYS
 	}
+	// We only support delay .
+	if timeoutMillis != 0 {
+		return -1, sys.ENOSYS
+	}
 
 	regular, pipes, sockets, errno := partionByFtype(fds)
 	nregular := len(regular)
@@ -66,45 +66,12 @@ func _poll(fds []pollFd, timeoutMillis int32) (n int, errno sys.Errno) {
 		return -1, errno
 	}
 
-	// Ticker that emits at every pollInterval.
-	tick := time.NewTicker(pollInterval)
-	tickCh := tick.C
-	defer tick.Stop()
-
-	// Timer that expires after the given duration.
-	// Initialize afterCh as nil: the select below will wait forever.
-	var afterCh <-chan time.Time
-	if timeoutMillis >= 0 {
-		// If duration is not nil, instantiate the timer.
-		after := time.NewTimer(time.Duration(timeoutMillis) * time.Millisecond)
-		defer after.Stop()
-		afterCh = after.C
-	}
-
 	npipes, nsockets, errno := peekAll(pipes, sockets)
 	if errno != 0 {
 		return -1, errno
 	}
 	count := nregular + npipes + nsockets
-	if count > 0 {
-		return count, 0
-	}
-
-	for {
-		select {
-		case <-afterCh:
-			return 0, 0
-		case <-tickCh:
-			npipes, nsockets, errno := peekAll(pipes, sockets)
-			if errno != 0 {
-				return -1, errno
-			}
-			count = nregular + npipes + nsockets
-			if count > 0 {
-				return count, 0
-			}
-		}
-	}
+	return count, 0
 }
 
 func peekAll(pipes, sockets []pollFd) (npipes, nsockets int, errno sys.Errno) {
