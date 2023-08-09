@@ -496,6 +496,19 @@ func TestInstantiateForModule(t *testing.T) {
 <--
 `,
 		},
+		{
+			name:        "broken func",
+			funcName:    "blah_I_dont_exist_lol",
+			tableOffset: 18,
+			params:      []uint64{1, 2, 4, 8},
+			expectedLog: `--> .calli32_i32i32i32i32_v(18,1,2,4,8)
+	==> env.invoke_viiii(index=18,a1=1,a2=2,a3=4,a4=8)
+		--> .i32i32i32i32_v(1,2,4,8)
+		<--
+	<==
+<--
+`,
+		},
 	}
 
 	for _, tt := range tests {
@@ -507,7 +520,8 @@ func TestInstantiateForModule(t *testing.T) {
 			params := tc.params
 			params = append([]uint64{uint64(tc.tableOffset)}, params...)
 
-			results, err := mod.ExportedFunction(tc.funcName).Call(testCtx, params...)
+			f := mod.ExportedFunction(tc.funcName)
+			results, err := f.Call(testCtx, params...)
 			require.NoError(t, err)
 			require.Equal(t, tc.expectedResults, results)
 
