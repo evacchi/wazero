@@ -731,6 +731,33 @@ var (
 			wasm.OpcodeEnd,
 		}, []wasm.ValueType{}),
 	}
+	IntegerBitCounts = TestCase{
+		Name: "integer_bit_counts",
+		Module: SingleFunctionModule(wasm.FunctionType{
+			Params:  []wasm.ValueType{i32, i64},
+			Results: []wasm.ValueType{i32, i32, i32, i64, i64, i64},
+		}, []byte{
+			wasm.OpcodeLocalGet, 0,
+			wasm.OpcodeI32Clz,
+
+			wasm.OpcodeLocalGet, 0,
+			wasm.OpcodeI32Ctz,
+
+			wasm.OpcodeLocalGet, 0,
+			wasm.OpcodeI32Popcnt,
+
+			wasm.OpcodeLocalGet, 1,
+			wasm.OpcodeI64Clz,
+
+			wasm.OpcodeLocalGet, 1,
+			wasm.OpcodeI64Ctz,
+
+			wasm.OpcodeLocalGet, 1,
+			wasm.OpcodeI64Popcnt,
+
+			wasm.OpcodeEnd,
+		}, []wasm.ValueType{}),
+	}
 	FloatComparisons = TestCase{
 		Name: "float_comparisons",
 		Module: SingleFunctionModule(wasm.FunctionType{
