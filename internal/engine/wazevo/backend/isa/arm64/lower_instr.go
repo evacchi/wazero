@@ -147,6 +147,16 @@ func (m *machine) LowerInstr(instr *ssa.Instruction) {
 	case ssa.OpcodeSelect:
 		c, x, y := instr.SelectData()
 		m.lowerSelect(c, x, y, instr.Return())
+	case ssa.OpcodeClz:
+		x := instr.UnaryData()
+		result := instr.Return()
+		m.lowerClz(x, result)
+
+	case ssa.OpcodeCtz:
+		x := instr.UnaryData()
+		result := instr.Return()
+		m.lowerCtz(x, result)
+
 	default:
 		panic("TODO: lowering " + instr.Opcode().String())
 	}
@@ -293,6 +303,22 @@ func (m *machine) lowerImul(x, y, result ssa.Value) {
 	mul := m.allocateInstr()
 	mul.asALURRRR(aluOpMAdd, operandNR(rd), rn, rm, operandNR(xzrVReg), x.Type().Bits() == 64)
 	m.insert(mul)
+}
+
+func (m *machine) lowerClz(x, result ssa.Value) {
+	rd := m.compiler.VRegOf(result)
+	rm := m.getOperand_NR(m.compiler.ValueDefinition(x), extModeNone)
+	clz := m.allocateInstr()
+	clz.asClz(rd, rm)
+	m.insert(clz)
+}
+
+func (m *machine) lowerCtz(x, result ssa.Value) {
+	rd := m.compiler.VRegOf(result)
+	rm := m.getOperand_NR(m.compiler.ValueDefinition(x), extModeNone)
+	clz := m.allocateInstr()
+	clz.asClz(rd, rm) // fixme
+	m.insert(clz)
 }
 
 const exitWithCodeEncodingSize = exitSequenceSize + 8

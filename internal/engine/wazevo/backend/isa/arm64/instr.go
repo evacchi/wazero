@@ -631,6 +631,12 @@ func (i *instruction) asExtend(rd, rn regalloc.VReg, fromBits, toBits byte, sign
 	}
 }
 
+func (i *instruction) asClz(rd regalloc.VReg, rm operand) {
+	i.kind = clz
+	i.rd = operandNR(rd)
+	i.rm = rm
+}
+
 func (i *instruction) asMove32(rd, rn regalloc.VReg) {
 	i.kind = mov32
 	i.rn, i.rd = operandNR(rn), operandNR(rd)
@@ -893,6 +899,8 @@ func (i *instruction) String() (str string) {
 		} else {
 			str = fmt.Sprintf("bl %s", ssa.FuncRef(i.u1))
 		}
+	case clz:
+		str = fmt.Sprintf("clz %s, %s", formatVRegSized(i.rd.nr(), 32), formatVRegSized(i.rm.nr(), 32))
 	case callInd:
 		str = fmt.Sprintf("bl %s", formatVRegSized(i.rn.nr(), 32))
 	case ret:
@@ -1022,6 +1030,8 @@ const (
 	movK
 	// extend represents a sign- or zero-extend operation.
 	extend
+	// clz represents a 32-bit count leading zeros.
+	clz
 	// cSel represents a conditional-select operation.
 	cSel
 	// cSet represents a conditional-set operation.

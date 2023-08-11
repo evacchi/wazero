@@ -1418,6 +1418,19 @@ L1 (SSA Block: blk0):
 `,
 		},
 		{
+			name: "integer bit counts", m: testcases.IntegerBitCounts.Module,
+			afterLoweringARM64: `
+L1 (SSA Block: blk0):
+...
+	ret
+`,
+			afterFinalizeARM64: `
+L1 (SSA Block: blk0):
+...
+	ret
+`,
+		},
+		{
 			name: "float_comparisons",
 			m:    testcases.FloatComparisons.Module,
 			afterLoweringARM64: `

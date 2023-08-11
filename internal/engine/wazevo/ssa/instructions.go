@@ -1329,6 +1329,11 @@ func (i *Instruction) AsPopcnt(x Value) {
 	i.typ = x.Type()
 }
 
+// UnaryData return the operand for a unary instruction.
+func (i *Instruction) UnaryData() Value {
+	return i.v
+}
+
 // AsSExtend initializes this instruction as a sign extension instruction with OpcodeSExtend.
 func (i *Instruction) AsSExtend(v Value, from, to byte) {
 	i.opcode = OpcodeSExtend
