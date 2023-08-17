@@ -70,6 +70,7 @@ var defKinds = [numInstructionKinds]defKind{
 	br:              defKindNone,
 	cSet:            defKindRD,
 	extend:          defKindRD,
+	clz:             defKindRD,
 	fpuCmp:          defKindNone,
 	uLoad8:          defKindRD,
 	uLoad16:         defKindRD,
@@ -163,6 +164,7 @@ var useKinds = [numInstructionKinds]useKind{
 	br:              useKindNone,
 	cSet:            useKindNone,
 	extend:          useKindRN,
+	clz:             useKindRN,
 	fpuCmp:          useKindRNRM,
 	uLoad8:          useKindAMode,
 	uLoad16:         useKindAMode,
@@ -631,10 +633,9 @@ func (i *instruction) asExtend(rd, rn regalloc.VReg, fromBits, toBits byte, sign
 	}
 }
 
-func (i *instruction) asClz(rd regalloc.VReg, rm operand) {
+func (i *instruction) asClz(rd, rn regalloc.VReg) {
 	i.kind = clz
-	i.rd = operandNR(rd)
-	i.rm = rm
+	i.rn, i.rd = operandNR(rn), operandNR(rd)
 }
 
 func (i *instruction) asCtz(rd regalloc.VReg, rm operand) {
@@ -906,7 +907,7 @@ func (i *instruction) String() (str string) {
 			str = fmt.Sprintf("bl %s", ssa.FuncRef(i.u1))
 		}
 	case clz:
-		str = fmt.Sprintf("clz %s, %s", formatVRegSized(i.rd.nr(), 32), formatVRegSized(i.rm.nr(), 32))
+		str = fmt.Sprintf("clz %s, %s", formatVRegSized(i.rd.nr(), 32), formatVRegSized(i.rn.nr(), 32))
 	case callInd:
 		str = fmt.Sprintf("bl %s", formatVRegSized(i.rn.nr(), 32))
 	case ret:

@@ -191,6 +191,14 @@ func (i *instruction) encode(c backend.Compiler) {
 		c.Emit4Bytes(0b1001101010011111<<16 | uint32(cf.invert())<<12 | 0b111111<<5 | rd)
 	case extend:
 		c.Emit4Bytes(encodeExtend(i.u3 == 1, byte(i.u1), byte(i.u2), regNumberInEncoding[i.rd.realReg()], regNumberInEncoding[i.rn.realReg()]))
+	case clz:
+		rd := regNumberInEncoding[i.rd.realReg()]
+		rn := regNumberInEncoding[i.rn.realReg()]
+		// CLZ is the CLZ instruction. https://developer.arm.com/documentation/dui0802/a/A64-General-Instructions/CLZ
+		// CLZW is the CLZ instruction, in 64-bit mode. https://developer.arm.com/documentation/dui0802/a/A64-General-Instructions/CLZ
+		// https://developer.arm.com/documentation/ddi0596/2021-12/Base-Instructions/CLZ--Count-Leading-Zeros-?lang=en
+
+		c.Emit4Bytes(0b1101101011000000000100<<10 | rn<<5 | rd)
 	case fpuCmp:
 		// https://developer.arm.com/documentation/ddi0596/2020-12/SIMD-FP-Instructions/FCMP--Floating-point-quiet-Compare--scalar--?lang=en
 		rn, rm := regNumberInEncoding[i.rn.realReg()], regNumberInEncoding[i.rm.realReg()]
