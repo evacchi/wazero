@@ -317,7 +317,7 @@ func (m *machine) lowerCtz(x, result ssa.Value) {
 	rd := m.compiler.VRegOf(result)
 	rm := m.getOperand_NR(m.compiler.ValueDefinition(x), extModeNone)
 	clz := m.allocateInstr()
-	clz.asClz(rd, rm) // fixme
+	clz.asCtz(rd, rm) // fixme
 	m.insert(clz)
 }
 

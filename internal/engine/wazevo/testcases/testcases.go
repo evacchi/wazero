@@ -743,8 +743,8 @@ var (
 			wasm.OpcodeLocalGet, 0,
 			wasm.OpcodeI32Ctz,
 
-			//wasm.OpcodeLocalGet, 0,
-			//wasm.OpcodeI32Popcnt,
+			// wasm.OpcodeLocalGet, 0,
+			// wasm.OpcodeI32Popcnt,
 
 			wasm.OpcodeLocalGet, 1,
 			wasm.OpcodeI64Clz,
@@ -752,8 +752,8 @@ var (
 			wasm.OpcodeLocalGet, 1,
 			wasm.OpcodeI64Ctz,
 
-			//wasm.OpcodeLocalGet, 1,
-			//wasm.OpcodeI64Popcnt,
+			// wasm.OpcodeLocalGet, 1,
+			// wasm.OpcodeI64Popcnt,
 
 			wasm.OpcodeEnd,
 		}, []wasm.ValueType{}),
