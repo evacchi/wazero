@@ -1418,13 +1418,19 @@ L1 (SSA Block: blk0):
 `,
 		},
 		{
-			name: "integer count leading zeros", m: testcases.IntegerClz.Module,
+			name: "integer bit counts", m: testcases.IntegerBitCounts.Module,
 			afterLoweringARM64: `
 L1 (SSA Block: blk0):
 	mov x2?, x2
 	mov x3?, x3
 	clz w4?, w2?
-	clz w5?, w3?
+	rbit w5?, w2?
+	clz w5?, w5?
+	clz x6?, x3?
+	rbit x7?, x3?
+	clz x7?, x7?
+	mov x3, x7?
+	mov x2, x6?
 	mov x1, x5?
 	mov x0, x4?
 	ret
@@ -1433,7 +1439,11 @@ L1 (SSA Block: blk0):
 L1 (SSA Block: blk0):
 	str x30, [sp, #-0x10]!
 	clz w0, w2
-	clz w1, w3
+	rbit w1, w2
+	clz w1, w1
+	clz x2, x3
+	rbit x3, x3
+	clz x3, x3
 	ldr x30, [sp], #0x10
 	ret
 `,

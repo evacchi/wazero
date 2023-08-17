@@ -307,17 +307,21 @@ func (m *machine) lowerImul(x, y, result ssa.Value) {
 
 func (m *machine) lowerClz(x, result ssa.Value) {
 	rd := m.compiler.VRegOf(result)
-	rm := m.getOperand_NR(m.compiler.ValueDefinition(x), extModeNone)
+	rn := m.getOperand_NR(m.compiler.ValueDefinition(x), extModeNone)
 	clz := m.allocateInstr()
-	clz.asClz(rd, rm.nr())
+	clz.asBitRR(bitOpClz, rd, rn.nr(), x.Type().Bits() == 64)
 	m.insert(clz)
 }
 
 func (m *machine) lowerCtz(x, result ssa.Value) {
 	rd := m.compiler.VRegOf(result)
-	rm := m.getOperand_NR(m.compiler.ValueDefinition(x), extModeNone)
+	rn := m.getOperand_NR(m.compiler.ValueDefinition(x), extModeNone)
+	rbit := m.allocateInstr()
+	rbit.asBitRR(bitOpRbit, rd, rn.nr(), x.Type().Bits() == 64)
+	m.insert(rbit)
+
 	clz := m.allocateInstr()
-	clz.asCtz(rd, rm) // fixme
+	clz.asBitRR(bitOpClz, rd, rd, x.Type().Bits() == 64)
 	m.insert(clz)
 }
 
