@@ -637,6 +637,12 @@ func (i *instruction) asClz(rd regalloc.VReg, rm operand) {
 	i.rm = rm
 }
 
+func (i *instruction) asCtz(rd regalloc.VReg, rm operand) {
+	i.kind = ctz
+	i.rd = operandNR(rd)
+	i.rm = rm
+}
+
 func (i *instruction) asMove32(rd, rn regalloc.VReg) {
 	i.kind = mov32
 	i.rn, i.rd = operandNR(rn), operandNR(rd)
@@ -1032,6 +1038,8 @@ const (
 	extend
 	// clz represents a 32-bit count leading zeros.
 	clz
+	// ctz represents a 32-bit count leading zeros.
+	ctz
 	// cSel represents a conditional-select operation.
 	cSel
 	// cSet represents a conditional-set operation.
