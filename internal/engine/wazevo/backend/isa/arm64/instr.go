@@ -1252,8 +1252,7 @@ const (
 )
 
 // bitOp determines the type of bitwise operation. Instructions whose kind is one of
-// ...
-// would use this type.
+// bitOpRbit and bitOpClz would use this type.
 type bitOp int
 
 func (b bitOp) String() string {

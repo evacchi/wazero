@@ -151,12 +151,10 @@ func (m *machine) LowerInstr(instr *ssa.Instruction) {
 		x := instr.UnaryData()
 		result := instr.Return()
 		m.lowerClz(x, result)
-
 	case ssa.OpcodeCtz:
 		x := instr.UnaryData()
 		result := instr.Return()
 		m.lowerCtz(x, result)
-
 	default:
 		panic("TODO: lowering " + instr.Opcode().String())
 	}

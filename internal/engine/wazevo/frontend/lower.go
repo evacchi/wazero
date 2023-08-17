@@ -427,7 +427,6 @@ func (c *Compiler) lowerOpcode(op wasm.Opcode) {
 		builder.InsertInstruction(ishl)
 		value := ishl.Return()
 		state.push(value)
-
 	case wasm.OpcodeI32Clz, wasm.OpcodeI64Clz:
 		if state.unreachable {
 			return
@@ -438,7 +437,6 @@ func (c *Compiler) lowerOpcode(op wasm.Opcode) {
 		builder.InsertInstruction(clz)
 		value := clz.Return()
 		state.push(value)
-
 	case wasm.OpcodeI32Ctz, wasm.OpcodeI64Ctz:
 		if state.unreachable {
 			return
@@ -449,18 +447,6 @@ func (c *Compiler) lowerOpcode(op wasm.Opcode) {
 		builder.InsertInstruction(ctz)
 		value := ctz.Return()
 		state.push(value)
-
-	case wasm.OpcodeI32Popcnt, wasm.OpcodeI64Popcnt:
-		if state.unreachable {
-			return
-		}
-		x := state.pop()
-		popcnt := builder.AllocateInstruction()
-		popcnt.AsPopcnt(x)
-		builder.InsertInstruction(popcnt)
-		value := popcnt.Return()
-		state.push(value)
-
 	case wasm.OpcodeGlobalGet:
 		index := c.readI32u()
 		if state.unreachable {
