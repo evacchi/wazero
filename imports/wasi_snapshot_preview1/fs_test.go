@@ -4456,6 +4456,16 @@ func Test_pathSymlink_errors(t *testing.T) {
 	ok = mem.Write(link, []byte(linkName))
 	require.True(t, ok)
 
+	leadingSlashFile := uint32(0xffa)
+	leadingSlashFileName := "/tmp/blah"
+	ok = mem.Write(leadingSlashFile, []byte(leadingSlashFileName))
+	require.True(t, ok)
+
+	trailingSlashLink := uint32(0xffb)
+	trailingSlashLinkName := "target/"
+	ok = mem.Write(trailingSlashLink, []byte(trailingSlashLinkName))
+	require.True(t, ok)
+
 	t.Run("success", func(t *testing.T) {
 		requireErrnoResult(t, wasip1.ErrnoSuccess, mod, wasip1.PathSymlinkName,
 			uint64(file), uint64(len(fileName)), uint64(fd), uint64(link), uint64(len(linkName)))
@@ -4491,6 +4501,16 @@ func Test_pathSymlink_errors(t *testing.T) {
 			{
 				errno: wasip1.ErrnoExist, oldPath: file, oldPathLen: uint32(len(fileName)),
 				newPath: file, newPathLen: uint32(len(fileName)), fd: fd,
+			},
+			// Leading slash in source.
+			{
+				errno: wasip1.ErrnoPerm, oldPath: leadingSlashFile, oldPathLen: uint32(len(leadingSlashFileName)),
+				newPath: 0, newPathLen: 5, fd: fd,
+			},
+			// Trailing slash in link.
+			{
+				errno: wasip1.ErrnoNoent, oldPath: file, oldPathLen: uint32(len(fileName)),
+				newPath: trailingSlashLink, newPathLen: uint32(len(trailingSlashLinkName)), fd: fd,
 			},
 		} {
 			name := wasip1.ErrnoName(tc.errno)

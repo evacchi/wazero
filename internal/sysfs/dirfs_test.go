@@ -747,9 +747,6 @@ func TestDirFS_Symlink(t *testing.T) {
 
 	testFS := DirFS(tmpDir)
 
-	// Root is not allowed in old name.
-	require.EqualErrno(t, sys.EPERM, testFS.Symlink("/sub/test.txt", "newtest.txt"))
-
 	require.EqualErrno(t, sys.EEXIST, testFS.Symlink("sub/test.txt", "sub/test.txt"))
 	// Non-existing old name is allowed.
 	require.EqualErrno(t, 0, testFS.Symlink("non-existing", "aa"))

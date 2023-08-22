@@ -3,7 +3,6 @@ package sysfs
 import (
 	"io/fs"
 	"os"
-	"strings"
 
 	experimentalsys "github.com/tetratelabs/wazero/experimental/sys"
 	"github.com/tetratelabs/wazero/internal/platform"
@@ -105,15 +104,6 @@ func (d *dirFS) Unlink(path string) (err experimentalsys.Errno) {
 
 // Symlink implements the same method as documented on sys.FS
 func (d *dirFS) Symlink(oldName, link string) experimentalsys.Errno {
-	// NOTE: Don't allow creating symlinks to absolute paths. This isn't strictly
-	// necessary to preserve the sandbox, since `open` will refuse to follow
-	// absolute symlinks in any case. However, it is useful to enforce this
-	// restriction so that a WASI program can't trick some other non-WASI
-	// program into following an absolute path.
-	// https://github.com/bytecodealliance/cap-std/blob/v1.0.4/cap-primitives/src/fs/symlink.rs#L20C1-L29C1
-	if strings.HasPrefix(oldName, "/") {
-		return experimentalsys.EPERM
-	}
 	// Note: do not resolve `oldName` relative to this dirFS. The link result is always resolved
 	// when dereference the `link` on its usage (e.g. readlink, read, etc).
 	// https://github.com/bytecodealliance/cap-std/blob/v1.0.4/cap-std/src/fs/dir.rs#L404-L409

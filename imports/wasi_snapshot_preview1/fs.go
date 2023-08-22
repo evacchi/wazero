@@ -1953,11 +1953,27 @@ func pathSymlinkFn(_ context.Context, mod api.Module, params []uint64) experimen
 		return experimentalsys.EFAULT
 	}
 
+	// NOTE: Don't allow creating symlinks to absolute paths. This isn't strictly
+	// necessary to preserve the sandbox, since `open` will refuse to follow
+	// absolute symlinks in any case. However, it is useful to enforce this
+	// restriction so that a WASI program can't trick some other non-WASI
+	// program into following an absolute path.
+	// https://github.com/bytecodealliance/cap-std/blob/v1.0.4/cap-primitives/src/fs/symlink.rs#L20C1-L29C1
+	oldPathStr := bufToStr(oldPathBuf)
+	if strings.HasPrefix(oldPathStr, "/") {
+		return experimentalsys.EPERM
+	}
+
+	newPathStr := bufToStr(newPathBuf)
+	if strings.HasSuffix(newPathStr, "/") {
+		return experimentalsys.ENOENT
+	}
+
 	return dir.FS.Symlink(
 		// Do not join old path since it's only resolved when dereference the link created here.
 		// And the dereference result depends on the opening directory's file descriptor at that point.
-		bufToStr(oldPathBuf),
-		path.Join(dir.Name, bufToStr(newPathBuf)),
+		oldPathStr,
+		path.Join(dir.Name, newPathStr),
 	)
 }
 
