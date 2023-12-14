@@ -714,9 +714,6 @@ jobs:
           echo 'CMD ["/test"]' >> Dockerfile
           docker buildx build -t wazero:test --platform linux/${{ matrix.arch }} .
 
-      - name: Setup tmate session
-        uses: mxschmitt/action-tmate@v3
-
       - name: Run standard library tests
         run: |
           echo "Running $(find ~/tests -name *.test | wc -l) test binaries"
@@ -725,8 +722,8 @@ jobs:
           for bin in ~/tests/*.test; do
             dir=$(basename $bin); dir=${dir%.test}; dir=${dir//_/\/}
             pushd $(go env GOROOT)/$dir
-            # mount / as /ROOT in docker and then remount /ROOT as / in wazero
-            docker run --platform linux/${{ matrix.arch }} -v /:/ROOT -v ~/wazerocli:/wazero -e WAZEROCLI=/wazero --tmpfs /tmp --rm -t wazero:test \
-              /wazero run -optimizing-compiler -mount=/ROOT:/ -env PWD=$PWD $bin -- -test.short -test.v
+            # Mount / as /ROOT in docker and then remount /ROOT as / in wazero; $bin is now in /ROOT/$bin.
+            docker run --platform linux/arm64 -v /:/ROOT -v ~/wazerocli:/wazero -e WAZEROCLI=/wazero --tmpfs /tmp --rm -t wazero:test \
+              /wazero run -optimizing-compiler -mount=/ROOT:/ -env PWD=$PWD /ROOT/$bin -- -test.short -test.v
             popd
           done
