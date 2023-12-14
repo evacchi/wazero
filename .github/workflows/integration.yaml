@@ -75,7 +75,7 @@ jobs:
 
   zig:
     needs: build_zig_test_binary
-    name: Zig (${{ matrix.os }})
+    name: Zig (${{ matrix.os }} / ${{ matrix.arch }} / ${{ matrix.compiler }})
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false # don't fail fast as sometimes failures are arch/OS specific
@@ -113,21 +113,21 @@ jobs:
           GOARCH: ${{ matrix.arch }}
 
       - name: Set up QEMU
-        if: ${{ matrix.arch != 'amd64' }}
+        if: ${{ matrix.compiler == 'optimizing' && matrix.arch == 'arm64' }}
         uses: docker/setup-qemu-action@v2
         with: # Avoid docker.io rate-limits; built with internal-images.yml
           image: ghcr.io/tetratelabs/wazero/internal-binfmt
           platforms: ${{ matrix.arch }}
 
       - name: Build scratch container
-        if: ${{ runner.os != 'Windows' }}
+        if: ${{ matrix.compiler == 'optimizing' }}
         run: |
           echo 'FROM scratch' >> Dockerfile
           echo 'CMD ["/test"]' >> Dockerfile
           docker buildx build -t wazero:test --platform linux/${{ matrix.arch }} .
 
       - name: Run built test binaries
-        if: ${{ runner.os != 'Windows' }}
+        if: ${{ matrix.compiler == 'optimizing' }}
         # This runs the previously compiled Zig tests with wazero. If you need
         # to troubleshoot one, you can add "-hostlogging=filesystem" after
         # adding filter argument to the "Build Stdlib test binary" step.
@@ -137,7 +137,7 @@ jobs:
             /wazero run -optimizing-compiler -mount=:/ ./test/test.wasm
 
       - name: Run the test binary with wazero CLI
-        if: ${{ runner.os == 'Windows' }}
+        if: ${{ matrix.compiler != 'optimizing' }}
         run: ./wazerocli run -mount=:/ ./zigbin/test.wasm
 
   build_tinygo_test_binary:
@@ -223,7 +223,7 @@ jobs:
 
   tinygo:
     needs: build_tinygo_test_binary
-    name: TinyGo (${{ matrix.os }})
+    name: TinyGo (${{ matrix.os }} / ${{ matrix.arch }} / ${{ matrix.compiler }})
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false # don't fail fast as sometimes failures are arch/OS specific
@@ -261,20 +261,21 @@ jobs:
           GOARCH: ${{ matrix.arch }}
 
       - name: Set up QEMU
-        if: ${{ matrix.arch != 'amd64' }}
+        if: ${{ matrix.compiler == 'optimizing' && matrix.arch == 'arm64' }}
         uses: docker/setup-qemu-action@v2
         with: # Avoid docker.io rate-limits; built with internal-images.yml
           image: ghcr.io/tetratelabs/wazero/internal-binfmt
           platforms: ${{ matrix.arch }}
 
       - name: Build scratch container
+        if: ${{ matrix.compiler == 'optimizing' }}
         run: |
           echo 'FROM scratch' >> Dockerfile
           echo 'CMD ["/test"]' >> Dockerfile
           docker buildx build -t wazero:test --platform linux/${{ matrix.arch }} .
 
       - name: Run built test binaries
-        if: ${{ runner.os != 'Windows' }}
+        if: ${{ matrix.compiler == 'optimizing' }}
         # This runs all tests compiled above in sequence. Note: This mounts /tmp to allow t.TempDir() in tests.
         run: |
           cd ./tinygobin
@@ -290,7 +291,7 @@ jobs:
       # trailing argument narrowing which test to execute.
       # e.g. "-test.run '^TestStatBadDir$'"
       - name: Run standard library tests
-        if: ${{ runner.os == 'Windows' }}
+        if: ${{ matrix.compiler != 'optimizing' }}
         run: |
           cd ./tinygobin
           for bin in *.test; do
