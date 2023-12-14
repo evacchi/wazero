@@ -80,6 +80,7 @@ jobs:
     strategy:
       fail-fast: false # don't fail fast as sometimes failures are arch/OS specific
       matrix:
+        os:       [ubuntu-22.04, macos-12, windows-2022]
         compiler: [baseline]
         arch:     [amd64]
         include:
