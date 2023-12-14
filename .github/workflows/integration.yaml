@@ -722,7 +722,8 @@ jobs:
           for bin in ~/tests/*.test; do
             dir=$(basename $bin); dir=${dir%.test}; dir=${dir//_/\/}
             pushd $(go env GOROOT)/$dir
-            docker run --platform linux/${{ matrix.arch }} -v $(pwd):/test -v /:/ROOT -v ~/wazerocli:/wazero -e WAZEROCLI=/wazero --tmpfs /tmp --rm -t wazero:test \
+            # mount / as /ROOT in docker and then remount /ROOT as / in wazero
+            docker run --platform linux/${{ matrix.arch }} -v /:/ROOT -v ~/wazerocli:/wazero -e WAZEROCLI=/wazero --tmpfs /tmp --rm -t wazero:test \
               /wazero run -optimizing-compiler -mount=/ROOT:/ -env PWD=$PWD $bin -- -test.short -test.v
             popd
           done
