@@ -597,7 +597,7 @@ jobs:
     # we have to build and cache on each OS unlike others in this file.
     name: Go / Optimizing Compiler
     runs-on: ${{ matrix.os }}
-    needs: go_tests
+    #    needs: go_tests
     strategy:
       fail-fast: false # don't fail fast as sometimes failures are arch/OS specific
       matrix:
@@ -713,6 +713,9 @@ jobs:
           echo 'FROM scratch' >> Dockerfile
           echo 'CMD ["/test"]' >> Dockerfile
           docker buildx build -t wazero:test --platform linux/${{ matrix.arch }} .
+
+      - name: Setup tmate session
+        uses: mxschmitt/action-tmate@v3
 
       - name: Run standard library tests
         run: |
