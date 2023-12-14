@@ -80,46 +80,13 @@ jobs:
     strategy:
       fail-fast: false # don't fail fast as sometimes failures are arch/OS specific
       matrix:
-        os: [ubuntu-22.04, macos-12, windows-2022]
-
-    steps:
-      - name: Checkout wazero
-        uses: actions/checkout@v3
-
-      - uses: actions/cache@v3
-        id: binary-cache
-        with:
-          # Use share the cache containing archives across OSes.
-          enableCrossOsArchive: true
-          # We need this cache to run tests.
-          fail-on-cache-miss: true
-          key: zig-stdlib-test-binary-${{ env.ZIG_VERSION }}
-          path:
-            ./zigbin/
-
-      - uses: actions/setup-go@v4
-        with:
-          go-version: ${{ env.GO_VERSION }}
-
-      - name: Install wazero
-        run: go install ./cmd/wazero
-
-      # This runs the previously compiled Zig tests with wazero. If you need
-      # to troubleshoot one, you can add "-hostlogging=filesystem" after
-      # adding filter argument to the "Build Stdlib test binary" step.
-      # e.g. --test-filter "Dir.Iterator but dir is deleted during iteration"
-      - name: Run the test binary with wazero CLI
-        run: wazero run -mount=:/ ./zigbin/test.wasm
-
-  zig-opt:
-    needs: build_zig_test_binary
-    name: Zig / Optimizing Compiler
-    runs-on: ubuntu-22.04
-    strategy:
-      fail-fast: false # don't fail fast as sometimes failures are arch/OS specific
-      matrix:
-        arch:
-          - "arm64"
+        os:       [ubuntu-22.04, macos-12, windows-2022]
+        compiler: [plain]
+        arch:     [amd64]
+        include:
+          - os: ubuntu-22.04
+            compiler: optimizing
+            arch: "arm64"
 
     steps:
       - name: Checkout wazero
@@ -153,16 +120,24 @@ jobs:
           platforms: ${{ matrix.arch }}
 
       - name: Build scratch container
+        if: ${{ runner.os != 'Windows' }}
         run: |
           echo 'FROM scratch' >> Dockerfile
           echo 'CMD ["/test"]' >> Dockerfile
           docker buildx build -t wazero:test --platform linux/${{ matrix.arch }} .
 
       - name: Run built test binaries
-        # This runs all tests compiled above in sequence. Note: This mounts /tmp to allow t.TempDir() in tests.
+        if: ${{ runner.os != 'Windows' }}
+        # This runs the previously compiled Zig tests with wazero. If you need
+        # to troubleshoot one, you can add "-hostlogging=filesystem" after
+        # adding filter argument to the "Build Stdlib test binary" step.
+        # e.g. --test-filter "Dir.Iterator but dir is deleted during iteration"
         run: |
           docker run --platform linux/${{ matrix.arch }} -v $(pwd)/zigbin:/test -v $(pwd)/wazerocli:/wazero -e WAZEROCLI=/wazero --tmpfs /tmp --rm -t wazero:test \
             /wazero run -optimizing-compiler -mount=:/ ./test/test.wasm
+
+      - name: Run the test binary with wazero CLI
+        run: ./wazerocli run -mount=:/ ./zigbin/test.wasm
 
   build_tinygo_test_binary:
     name: Build TinyGo test binary
