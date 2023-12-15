@@ -126,17 +126,20 @@ jobs:
           echo 'CMD ["/test"]' >> Dockerfile
           docker buildx build -t wazero:test --platform linux/${{ matrix.arch }} .
 
-      - name: Run built test binaries
+
+      # The following two steps run the previously compiled Zig tests with wazero.
+      # If you need to troubleshoot any of the test, you can add "-hostlogging=filesystem" after
+      # adding filter argument either to step "Run built test binaries" or
+      # "Run built test binaries (container)".
+      # e.g. --test-filter "Dir.Iterator but dir is deleted during iteration"
+
+      - name: Run built test binaries (container)
         if: ${{ matrix.compiler == 'optimizing' }}
-        # This runs the previously compiled Zig tests with wazero. If you need
-        # to troubleshoot one, you can add "-hostlogging=filesystem" after
-        # adding filter argument to the "Build Stdlib test binary" step.
-        # e.g. --test-filter "Dir.Iterator but dir is deleted during iteration"
         run: |
           docker run --platform linux/${{ matrix.arch }} -v $(pwd)/zigbin:/test -v $(pwd)/wazerocli:/wazero -e WAZEROCLI=/wazero --tmpfs /tmp --rm -t wazero:test \
             /wazero run -optimizing-compiler -mount=:/ ./test/test.wasm
 
-      - name: Run the test binary with wazero CLI
+      - name: Run built test binaries
         if: ${{ matrix.compiler != 'optimizing' }}
         run: ./wazerocli run -mount=:/ ./zigbin/test.wasm
 
@@ -274,6 +277,11 @@ jobs:
           echo 'CMD ["/test"]' >> Dockerfile
           docker buildx build -t wazero:test --platform linux/${{ matrix.arch }} .
 
+      # The following steps run the previously compiled TinyGo tests with wazero. If you need
+      # to troubleshoot one, you can add "-hostlogging=filesystem" and also a
+      # trailing argument narrowing which test to execute.
+      # e.g. "-test.run '^TestStatBadDir$'"
+
       - name: Run test binaries (container)
         if: ${{ matrix.compiler == 'optimizing' }}
         # This runs all tests compiled above in sequence. Note: This mounts /tmp to allow t.TempDir() in tests.
@@ -285,11 +293,6 @@ jobs:
               /wazero run -optimizing-compiler -mount=:/  /test/$bin -- -test.v
           done
 
-
-      # This runs the previously compiled TinyGo tests with wazero. If you need
-      # to troubleshoot one, you can add "-hostlogging=filesystem" and also a
-      # trailing argument narrowing which test to execute.
-      # e.g. "-test.run '^TestStatBadDir$'"
       - name: Run test binaries
         if: ${{ matrix.compiler != 'optimizing' }}
         run: |
@@ -525,7 +528,7 @@ jobs:
             pushd $(go env GOROOT)/$dir
             # Mount / as /ROOT in docker and then remount /ROOT as / in wazero; $bin is now in /ROOT/$bin.
             docker run --platform linux/arm64 -v /:/ROOT -v ~/wazerocli:/wazero -e WAZEROCLI=/wazero --tmpfs /tmp --rm -t wazero:test \
-              /wazero run -optimizing-compiler -mount=/ROOT:/ -env PWD=$PWD /ROOT/$bin -- -test.short -test.v
+              /wazero run -optimizing-compiler -mount=/ROOT:/ -mount=/tmp:/tmp -env PWD=$PWD /ROOT/$bin -- -test.short -test.v
             popd
           done
 
