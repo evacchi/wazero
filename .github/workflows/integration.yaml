@@ -371,8 +371,9 @@ jobs:
           make build.gowasip1
 
       - if: ${{ matrix.os.name == 'Windows' }}
-        name: tmate
-        uses: mxschmitt/action-tmate@v3
+        run: |
+          mkdir /c/tmp
+          mkdir /d/tmp
 
       - name: Run built test binaries
         run: |
