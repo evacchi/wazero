@@ -77,7 +77,8 @@ var (
 			bin, err := os.ReadFile(fpath)
 
 			fsconfig := wazero.NewFSConfig().
-				WithDirMount(".", "/")
+				WithDirMount(".", "/").
+				WithDirMount(os.TempDir(), "/tmp")
 
 			c, stdout, stderr = defaultModuleConfig()
 			c = c.WithFSConfig(fsconfig).
