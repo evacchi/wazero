@@ -370,6 +370,10 @@ jobs:
           cd ${{ env.STDLIB_TESTS }}
           make build.gowasip1
 
+      - if: ${{ matrix.os.name == 'Windows' }}
+        name: tmate
+        uses: mxschmitt/action-tmate@v3
+
       - name: Run built test binaries
         run: |
           cd ${{ env.STDLIB_TESTS }}
