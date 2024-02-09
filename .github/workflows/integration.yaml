@@ -375,7 +375,6 @@ jobs:
       - if: ${{ matrix.os.name == 'Windows' }}
         run: |
           mkdir /c/tmp
-          mkdir /d/tmp
 
       - name: Run built test binaries
         run: |
