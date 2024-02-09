@@ -77,8 +77,8 @@ var (
 			bin, err := os.ReadFile(fpath)
 
 			fsconfig := wazero.NewFSConfig().
-				WithDirMount(".", "/")
-			//WithDirMount(os.TempDir(), "tmp")
+				WithDirMount(".", "/").
+				WithDirMount(os.TempDir(), "tmp")
 
 			c, stdout, stderr = defaultModuleConfig()
 			c = c.WithFSConfig(fsconfig).
@@ -109,7 +109,8 @@ var (
 			c, stdout, stderr = defaultModuleConfig()
 			c = c.WithFSConfig(
 				wazero.NewFSConfig().
-					WithDirMount(sysroot, "/")).
+					WithDirMount(sysroot, "/").
+					WithDirMount(os.TempDir(), "tmp")).
 				WithEnv("PWD", normalizedTestdir)
 
 			args := []string{fname, "-test.short", "-test.v"}
