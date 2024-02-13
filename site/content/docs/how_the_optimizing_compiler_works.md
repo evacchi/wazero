@@ -113,17 +113,26 @@ The wazero optimizing compiler implements the following compilation passes:
                                                   Finalization/Encoding
 ```
 
+Like the other engines, the implementation can be found under `engine`, specifically
+in the `wazevo` sub-package. The entry-point is found under `internal/engine/wazevo/engine.go`,
+where the implementation of the interface `wasm.Engine` is found.
+
+All the passes can be dumped to the console for debugging, by enabling, the build-time
+flags under `internal/engine/wazevo/wazevoapi/debug_options.go`. The flags are disabled
+by default and should only be enabled during debugging. These may also change in the future.
+
+In the following we will assume all paths to be relative to the `internal/engine/wazevo`,
+so we will omit the prefix.
+
 ## Front-End: Translation to SSA
 
 We mentioned earlier that wazero uses an internal representation called an "SSA"
 form or "Static Single-Assignment" form, but we never explained what that is.
 
 In short terms, every program, or, in our case, every Wasm function, can be
-translated in a control-flow graph.
-The control-flow graph is a directed graph where each node is a sequence of
-statements that do not contain a control flow instruction,
-called a **basic block**. Instead, control-flow instructions are translated into
-edges.
+translated in a control-flow graph. The control-flow graph is a directed graph where
+each node is a sequence of statements that do not contain a control flow instruction,
+called a **basic block**. Instead, control-flow instructions are translated into edges.
 
 For instance, take the following implementation of the `abs` function:
 
@@ -179,9 +188,9 @@ This is translated to the following block diagram:
 
 We use the ["block argument" variant of SSA][ssa-blocks], which is also the same
 representation [used in LLVM's MLIR][llvm-mlir]. In this variant, each block
-takes a list of arguments. Each block ends with a jump instruction with an
-optional list of arguments; these arguments, are assigned to the target block's
-arguments like a function.
+takes a list of arguments. Each block ends with a branching instruction (Branch, Return,
+Jump, etc...) with an optional list of arguments; these arguments are assigned
+to the target block's arguments like a function.
 
 Consider the first block `blk0`.
 
@@ -194,17 +203,24 @@ blk0: (exec_ctx:i64, module_ctx:i64, v2:i32)
 ```
 
 You will notice that, compared to the original function, it takes two extra
-parameters (`exec_ctx` and `module_ctx`). It then takes one parameter `v2`,
-corresponding to the function parameter, and it defines two variables `v3`,
-`v4`. `v3` is the constant 0, `v4` is the result of comparing `v2` to `v3` using
-the `i32.lt_s` instruction. Then, it branches to `blk2` if `v4` is zero,
-otherwise it jumps to `blk1`.
+parameters (`exec_ctx` and `module_ctx`):
+
+1. `exec_ctx` is a pointer to `wazevo.executionContext`. This is used to exit the execution
+   in the face of traps or for host function calls.
+2. `module_ctx`: pointer to `wazevo.moduleContextOpaque`. This is used, among other things,
+   to access memory. It is also used during host function calls.
+
+It then takes one parameter `v2`, corresponding to the function parameter, and
+it defines two variables `v3`, `v4`. `v3` is the constant 0, `v4` is the result of
+comparing `v2` to `v3` using the `i32.lt_s` instruction. Then, it branches to
+`blk2` if `v4` is zero, otherwise it jumps to `blk1`.
 
 You might also have noticed that the instructions do not correspond strictly to
 the original Wasm opcodes. This is because, similarly to the wazero IR used by
-the old compiler, this is a custom IR. You will also notice that, _on the
-right-hand side of the assignments_ of any statement, no name occurs _twice_:
-this is why this form is called **single-assignment**.
+the old compiler, this is a custom IR.
+
+You will also notice that, _on the right-hand side of the assignments_ of any statement,
+no name occurs _twice_: this is why this form is called **single-assignment**.
 
 Finally, notice how `blk1` and `blk2` end with a jump to the last block `blk3`.
 
@@ -228,6 +244,20 @@ arguments is equivalent to the role of the *Phi (Φ) function*, a special
 function that returns a different value depending on the incoming edge; e.g., in
 this case: `v5 := Φ(v7, v2)`.
 
+### Code
+
+The relevant APIs can be found under sub-package `ssa` and `frontend`.
+
+- Basic Blocks are represented by the type `ssa.Block` (`ssa/basic_block.go`).
+- The SSA form is constructed using an `ssa.Builder`. The `ssa.Builder` is instantiated
+  in the context of `wasm.Engine.CompileModule()`, more specifically in the method
+  `frontend.Compiler.LowerToSSA()`.
+- The mapping between Wasm opcodes and the IR happens in `frontend/lower.go`,
+  more specifically in the method `frontend.Compiler.lowerCurrentOpcode()`.
+
+### Debug Flags
+
+To dump the SSA form to the console, you can set the flag `wazevoapi.PrintSSA`.
 
 ## Front-End: Optimization
 
@@ -280,6 +310,17 @@ wazero are also work-in-progress and, at the time of writing, further work is
 expected to implement more advanced optimizations.
 
 <!-- say more about block layout etc... -->
+
+
+### Code
+
+	ssaBuilder.RunPasses()
+
+### Debug Flags
+
+    wazevoapi.PrintOptimizedSSA
+
+
 
 ## Back-End
 
