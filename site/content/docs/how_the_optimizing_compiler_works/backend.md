@@ -95,20 +95,71 @@ where `<arch>` is either `amd64` or `arm64`.
 
 ## Register Allocation
 
-Partially architecture independent. Explain how it works etc.
+**TODO: Not finished.**
+
+The register allocation phase is responsible for mapping the potentially infinite number of virtual registers
+to the actual registers of the target architecture. Because the number of real registers is limited,
+the register allocation phase might need to "spill" some of the virtual registers to memory; that is, it might
+store their content, and then load them back into a register when they are needed.
+
+The register allocation procedure is implemented in sub-phases:
+
+- `livenessAnalysis(f)` collects the liveness information for each virtual register. The algorithm is described
+  in [Chapter 9.2 of The SSA Book](https://pfalcon.github.io/ssabook/latest/book-full.pdf).
+
+- `alloc(f)` allocates registers for the given function. The algorithm is derived from
+  [the Go compiler's allocator](https://github.com/golang/go/blob/release-branch.go1.21/src/cmd/compile/internal/ssa/regalloc.go)
+
+  - In short, this is just a linear scan register allocation procedure, where each block inherits the
+    register allocation state from one of its predecessors. Each block inherits the selected state and
+    starts allocation from there.
+
+  - If there's a discrepancy in the end states between predecessors, adjustments are made to ensure consistency after
+    allocation is done (which we call "fixing merge state").
+
+  - The spill instructions (store into the dedicated slots) are inserted after all the allocations and fixing
+    merge states. That is because at the point, we all know where the reloads happen, and therefore we can
+    know the best place to spill the values. More precisely, the spill happens in the block that is
+    the lowest common ancestor of all the blocks that reloads the value.
+
+  All of these logics are almost the same as Go's compiler which has a dedicated description in the source file ^^.
+
+#### References
+
+- https://web.stanford.edu/class/archive/cs/cs143/cs143.1128/lectures/17/Slides17.pdf
+- https://en.wikipedia.org/wiki/Chaitin%27s_algorithm
+- https://llvm.org/ProjectsWithLLVM/2004-Fall-CS426-LS.pdf
+- https://pfalcon.github.io/ssabook/latest/book-full.pdf: Chapter 9. for liveness analysis.
+- https://github.com/golang/go/blob/release-branch.go1.21/src/cmd/compile/internal/ssa/regalloc.go
+
 
 ### Code
 
-...
+The algorithm (`regalloc/regalloc.go`) can work on any ISA by implementing the interfaces in `regalloc/api.go`.
 
 ### Debug Flags
 
-- `wazevoapi.RegAllocLoggingEnabled`
-- `wazevoapi.PrintRegisterAllocated`
+- `wazevoapi.RegAllocLoggingEnabled` logs detailed logging of the register allocation procedure.
+- `wazevoapi.PrintRegisterAllocated` prints the basic blocks with the register allocation result.
 
 ## Finalization and Encoding
 
-...
+**TODO: Not finished.**
+
+### PostRegAlloc:
+
+* setup prologue of the function
+* inserts epilogue of the function
+* machine-specific custom logic (e.g. post-regalloc lowering)
+
+### Encoding:
+
+* encodes the low-level instructions into bytes
+
+### Other
+
+- MMap code segment
+- resolve relocations
 
 ### Code
 
