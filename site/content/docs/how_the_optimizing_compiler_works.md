@@ -257,7 +257,7 @@ The relevant APIs can be found under sub-package `ssa` and `frontend`.
 
 ### Debug Flags
 
-To dump the SSA form to the console, you can set the flag `wazevoapi.PrintSSA`.
+`wazevoapi.PrintSSA` dumps the SSA form to the console.
 
 ## Front-End: Optimization
 
@@ -314,11 +314,25 @@ expected to implement more advanced optimizations.
 
 ### Code
 
-	ssaBuilder.RunPasses()
+Optimization passes are implemented by `ssa.Builder.RunPasses()`. An optimization
+pass is just a function that takes a ssa builder as a parameter.
+
+Passes iterate over the basic blocks, and, for each basic block, they iterate
+over the instructions. Each pass may mutate the basic block by modifying the instructions
+it contains, or it might change the entire shape of the control-flow graph (e.g. by removing
+blocks).
+
+Currently, there are dead-code elimination passes:
+
+- `passDeadCodeEliminationOpt` acting at instruction-level.
+- `passDeadBlockEliminationOpt` acting at the block-level.
+
+There are also simple constant folding passes such as `passNopInstElimination`, which
+folds and delete instructions that are essentially no-ops (e.g. shifting by a 0 amount).
 
 ### Debug Flags
 
-    wazevoapi.PrintOptimizedSSA
+`wazevoapi.PrintOptimizedSSA` dumps the SSA form to the console after optimization.
 
 
 
