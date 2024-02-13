@@ -136,7 +136,9 @@ The relevant APIs can be found under sub-package `ssa` and `frontend`.
 
 ### Debug Flags
 
-`wazevoapi.PrintSSA` dumps the SSA form to the console.
+- `wazevoapi.PrintSSA` dumps the SSA form to the console.
+- `wazevoapi.FrontEndLoggingEnabled` dumps progress of the translation between Wasm
+  opcodes and SSA instructions to the console.
 
 ## Front-End: Optimization
 
