@@ -3,7 +3,17 @@ title = "How the Optimizing Compiler Works: Front-End"
 layout = "single"
 +++
 
-## Front-End: Translation to SSA
+In this section we will discuss the phases in the front-end of the optimizing compiler:
+
+- [Translation to SSA](#translation-to-ssa)
+- [Optimization](#optimization)
+- [Block Layout](#block-layout)
+
+Every section includes an explanation of the phase; the subsection **Code**
+will include high-level pointers to functions and packages; the subsection **Debug Flags**
+indicates the flags that can be used to enable advanced logging of the phase.
+
+## Translation to SSA
 
 We mentioned earlier that wazero uses an internal representation called an "SSA"
 form or "Static Single-Assignment" form, but we never explained what that is.
@@ -126,6 +136,8 @@ this case: `v5 := Φ(v7, v2)`.
 ### Code
 
 The relevant APIs can be found under sub-package `ssa` and `frontend`.
+In the code, the terms *lower* or *lowering* are often used to indicate a mapping or a translation,
+because such transformations usually correspond to targeting a lower abstraction level.
 
 - Basic Blocks are represented by the type `ssa.Block` (`ssa/basic_block.go`).
 - The SSA form is constructed using an `ssa.Builder`. The `ssa.Builder` is instantiated
@@ -134,13 +146,42 @@ The relevant APIs can be found under sub-package `ssa` and `frontend`.
 - The mapping between Wasm opcodes and the IR happens in `frontend/lower.go`,
   more specifically in the method `frontend.Compiler.lowerCurrentOpcode()`.
 
+#### Instructions and Values
+
+An `ssa.Instruction` is a single instruction in the SSA form. Each instruction might
+consume zero or more `ssa.Value`s, and it usually produces a single `ssa.Value`; some
+instructions may not produce any value (for instance, a `Jump` instruction).
+An `ssa.Value` is an abstraction that represents a typed name binding, and it is used
+to represent the result of an instruction, or the input to an instruction.
+
+For instance:
+
+```
+blk1: () <-- (blk0)
+    v6:i32 = Iconst_32 0x0
+    v7:i32 = Isub v6, v2
+    Jump blk3, v7
+```
+
+`Iconst_32` takes no input value and produce value `v6`; `Isub` takes two input values (`v6`, `v2`)
+and produces value `v7`; `Jump` takes one input value (`v7`) and produces no value. All
+such values have the `i32` type. The wazero SSA's type system (`ssa.Type`) allows the following types:
+
+- `i32`: 32-bit integer
+- `i64`: 64-bit integer
+- `f32`: 32-bit floating point
+- `f64`: 64-bit floating point
+- `v128`: 128-bit SIMD vector
+
+Values and instructions are both allocated from pools to minimize memory allocations.
+
 ### Debug Flags
 
 - `wazevoapi.PrintSSA` dumps the SSA form to the console.
 - `wazevoapi.FrontEndLoggingEnabled` dumps progress of the translation between Wasm
   opcodes and SSA instructions to the console.
 
-## Front-End: Optimization
+## Optimization
 
 The SSA form makes it easier to perform a number of optimizations. For instance,
 we can perform constant propagation, dead code elimination, and common
@@ -190,9 +231,6 @@ optimizations are often unnecessary. The optimization passes implemented in
 wazero are also work-in-progress and, at the time of writing, further work is
 expected to implement more advanced optimizations.
 
-<!-- say more about block layout etc... -->
-
-
 ### Code
 
 Optimization passes are implemented by `ssa.Builder.RunPasses()`. An optimization
@@ -203,10 +241,15 @@ over the instructions. Each pass may mutate the basic block by modifying the ins
 it contains, or it might change the entire shape of the control-flow graph (e.g. by removing
 blocks).
 
-Currently, there are dead-code elimination passes:
+Currently, there are two dead-code elimination passes:
 
-- `passDeadCodeEliminationOpt` acting at instruction-level.
 - `passDeadBlockEliminationOpt` acting at the block-level.
+- `passDeadCodeEliminationOpt` acting at instruction-level.
+
+Notably, `passDeadCodeEliminationOpt` also assigns an `InstructionGroupID` to each
+instruction. This is used to determine whether a sequence of instructions can be
+replaced by a single machine instruction during the back-end phase. For more details,
+see also the relevant documentation in `ssa/instructions.go`
 
 There are also simple constant folding passes such as `passNopInstElimination`, which
 folds and delete instructions that are essentially no-ops (e.g. shifting by a 0 amount).
@@ -216,7 +259,7 @@ folds and delete instructions that are essentially no-ops (e.g. shifting by a 0 
 `wazevoapi.PrintOptimizedSSA` dumps the SSA form to the console after optimization.
 
 
-## Front-End: Block Layout
+## Block Layout
 
 As we have seen earlier, the SSA form instructions are contained within basic
 blocks, and the basic blocks are connected by edges of the control-flow graph.
