@@ -1,128 +1,7 @@
-What is a JIT compiler?
-=======================
-
-In general, when we talk about a Just-In-Time (JIT) compiler, we mean a
-compilation technique that spares cycles at build-time, trading it for run-time.
-In other words, when a language is JIT-compiled, we usually mean that
-compilation will happen during run-time. Furthermore, when we use the term
-JIT-compilation, we also often mean is that, because compilation happens _during
-run-time_, we can use information that we have collected during execution to
-direct the compilation process: these types of JIT-compilers are often referred
-to as **tracing-JITs**.
-
-Thus, if we wanted to be pedantic, **wazero** provides an **ahead-of-time**,
-**load-time** compiler. That is, a compiler that, indeed, performs compilation
-at run-time, but only when a WebAssembly module is loaded; it currently does not
-collect or leverage any information during the execution of the Wasm binary
-itself.
-
-It is important to make such a distinction, because a Just-In-Time compiler may
-not be an optimizing compiler, and an optimizing compiler may not be a tracing
-JIT. In fact, the compiler that wazero shipped before the introduction of the
-new compiler architecture performed code generation at load-time, but did not
-perform any optimization.
-
-# What is an Optimizing Compiler?
-
-Wazero supports an _optimizing_ compiler in the style of other optimizing
-compilers out there, such as LLVM's or V8's. Traditionally an optimizing
-compiler performs compilation in a number of steps.
-
-Compare this to the **old compiler**, where compilation happens in one step or
-two, depending on how you count:
-
-
-```goat
-            Input         +---------------+     +---------------+
-         Wasm Binary ---->| DecodeModule  |---->| CompileModule |----> wazero IR
-                          +---------------+     +---------------+
-```
-
-That is, the module is (1) validated then (2) translated to an Intermediate
-Representation (IR).  The wazero IR can then be executed directly (in the case
-of the interpreter) or it can be further processed and translated into native
-code by the compiler. This compiler performs a straightforward translation from
-the IR to native code, without any further passes. The wazero IR is not intended
-for further processing beyond immediate execution or straightforward
-translation.
-
-```goat
-                        +----   wazero IR    ----+
-                        |                        |
-                        v                        v
-                +--------------+         +--------------+
-                |   Compiler   |         | Interpreter  |- - -  executable
-               +--------------+         +--------------+
-                        |
-             +----------+---------+
-             |                    |
-             v                    v
-        +---------+          +---------+
-        |  ARM64  |          |  AMD64  |
-        | Backend |          | Backend |    - - - - - - - - -   executable
-        +---------+          +---------+
-```
-
-
-Validation and translation to an IR in a compiler are usually called the
-**front-end** part of a compiler, while code-generation occurs in what we call
-the **back-end** of a compiler. The front-end is the part of a compiler that is
-closer to the input, and it generally indicates machine-independent processing,
-such as parsing and static validation. The back-end is the part of a compiler
-that is closer to the output, and it generally includes machine-specific
-procedures, such as code-generation.
-
-In the **optimizing** compiler, we still decode and translate Wasm binaries to
-an intermediate representation in the front-end, but we use a textbook
-representation called an **SSA** or "Static Single-Assignment Form", that is
-intended for further transformation.
-
-The benefit of choosing an IR that is meant for transformation is that a lot of
-optimization passes can apply directly to the IR, and thus be
-machine-independent. Then the back-end can be relatively simpler, in that it
-will only have to deal with machine-specific concerns.
-
-The wazero optimizing compiler implements the following compilation passes:
-
-* Front-End:
-  - Translation to SSA
-  - Optimization
-
-* Back-End:
-  - Instruction Selection
-  - Registry Allocation
-  - Finalization and Encoding
-
-```goat
-              Input          +-------------------+      +-------------------+
-           Wasm Binary   --->|   DecodeModule    |----->|   CompileModule   |--+
-                             +-------------------+      +-------------------+  |
-                    +----------------------------------------------------------+
-                    |
-                    |  +---------------+            +---------------+
-                    +->|   Front-End   |----------->|   Back-End    |
-                       +---------------+            +---------------+
-                               |                            |
-                               v                            v
-                              SSA                 Instruction Selection
-                               |                            |
-                               v                            v
-                         Optimization              Registry Allocation
-                                                            |
-                                                            v
-                                                  Finalization/Encoding
-```
-
-Like the other engines, the implementation can be found under `engine`, specifically
-in the `wazevo` sub-package. The entry-point is found under `internal/engine/wazevo/engine.go`,
-where the implementation of the interface `wasm.Engine` is found.
-
-All the passes can be dumped to the console for debugging, by enabling, the build-time
-flags under `internal/engine/wazevo/wazevoapi/debug_options.go`. The flags are disabled
-by default and should only be enabled during debugging. These may also change in the future.
-
-In the following we will assume all paths to be relative to the `internal/engine/wazevo`,
-so we will omit the prefix.
++++
+title = "How the Optimizing Compiler Works: Front-End"
+layout = "single"
++++
 
 ## Front-End: Translation to SSA
 
@@ -335,10 +214,84 @@ folds and delete instructions that are essentially no-ops (e.g. shifting by a 0 
 `wazevoapi.PrintOptimizedSSA` dumps the SSA form to the console after optimization.
 
 
+## Front-End: Block Layout
 
-## Back-End
+As we have seen earlier, the SSA form instructions are contained within basic
+blocks, and the basic blocks are connected by edges of the control-flow graph.
+However, machine code is not laid out in a graph, but it is just a linear
+sequence of instructions.
 
-...
+Thus, the last step of the front-end is to lay out the basic blocks in a linear
+sequence. Because each basic block, by design, ends with a control-flow
+instruction, one of the goals of the block layout phase is to maximize the number of
+**fall-through opportunities**. A fall-through opportunity occurs when a block ends
+with a jump instruction whose target is exactly the next block in the
+sequence. In order to maximize the number of fall-through opportunities, the
+block layout phase might reorder the basic blocks in the control-flow graph,
+and transform the control-flow instructions. For instance, it might _invert_
+some branching conditions.
+
+The end goal is to effectively minimize the number of jumps and branches in
+the machine code that will be generated later.
+
+
+### Critical Edges
+
+Special attention must be taken when a basic block has multiple predecessors,
+i.e., when it has multiple incoming edges. In particular, an edge between two
+basic blocks is called a **critical edge** when, at the same time:
+- the predecessor has multiple successors **and**
+- the successor has multiple predecessors.
+
+For instance, in the example below the edge between `BB0` and `BB3`
+is a critical edge.
+
+```goat
+┌───────┐    ┌───────┐
+│  BB0  │━┓  │  BB1  │
+└───────┘ ┃  └───────┘
+    │     ┃      │
+    ▼     ┃      ▼
+┌───────┐ ┃  ┌───────┐
+│  BB2  │ ┗━▶│  BB3  │
+└───────┘    └───────┘
+```
+
+In these cases the critical edge is split by introducing a new basic block,
+called a **trampoline**, where the critical edge was.
+
+```goat
+┌───────┐            ┌───────┐
+│  BB0  │──────┐     │  BB1  │
+└───────┘      ▼     └───────┘
+    │    ┌──────────┐    │
+    │    │trampoline│    │
+    ▼    └──────────┘    ▼
+┌───────┐      │     ┌───────┐
+│  BB2  │      └────▶│  BB3  │
+└───────┘            └───────┘
+```
+
+For more details on critical edges read more at
+
+- https://en.wikipedia.org/wiki/Control-flow_graph
+- https://nickdesaulniers.github.io/blog/2023/01/27/critical-edge-splitting/
+
+
+### Code
+
+`ssa.Builder.LayoutBlocks()` implements the block layout phase.
+
+### Debug Flags
+
+- `wazevoapi.PrintBlockLaidOutSSA` dumps the SSA form to the console after block layout.
+- `wazevoapi.SSALoggingEnabled` logs the transformations that are applied during this phase,
+  such as inverting branching conditions or splitting critical edges.
+
+<hr>
+
+* Next Section: [Back-End](../backend/)
+* Previous Section: [How the Optimizing Compiler Works](../)
 
 [ssa-blocks]: https://en.wikipedia.org/wiki/Static_single-assignment_form#Block_arguments
 [llvm-mlir]: https://mlir.llvm.org/docs/Rationale/Rationale/#block-arguments-vs-phi-nodes
