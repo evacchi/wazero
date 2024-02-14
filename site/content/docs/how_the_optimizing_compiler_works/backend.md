@@ -208,8 +208,8 @@ Then, each block continues allocation from that initial state.
 
 #### Merge States
 
-Special care has to be taken when a block has multiple predecessors. We
-call this *fixing merge states*: for instance, consider the following:
+Special care has to be taken when a block has multiple predecessors. We call
+this *fixing merge states*: for instance, consider the following:
 
 ```goat
  .---.     .---.
@@ -224,28 +224,29 @@ call this *fixing merge states*: for instance, consider the following:
 ```
 
 if the live-out set of a given block `BB0` is different from the live-out set
-of a given block `BB1` and both are predecessors of a block `BB2`, then
-we need to adjust `BB0` and `BB1` to ensure consistency with `BB2`. In practice,
-we ensure that the registers that `BB2` expects to be live-in are live-out in
+of a given block `BB1` and both are predecessors of a block `BB2`, then we need
+to adjust `BB0` and `BB1` to ensure consistency with `BB2`. In practice, we
+ensure that the registers that `BB2` expects to be live-in are live-out in
 `BB0` and `BB1`.
 
 #### Spilling
 
-If the register allocator cannot find a free register for a given virtual (live)
-register, it will "spill" the value to memory, *i.e.,* stash it temporarily to memory.
-When that virtual register is recalled later, we will have to insert instructions to
-reload the value into a real register.
+If the register allocator cannot find a free register for a given virtual
+(live) register, it will "spill" the value to memory, *i.e.,* stash it
+temporarily to memory.  When that virtual register is recalled later, we will
+have to insert instructions to reload the value into a real register.
 
 While the procedure proceeds with allocation, the procedure also records all
-the virtual registers that transition to the "spilled" state, and inserts
-the reload instructions when those registers are recalled later.
+the virtual registers that transition to the "spilled" state, and inserts the
+reload instructions when those registers are recalled later.
 
-The spill instructions are actually inserted at the end, after all the allocations and
-the merge states have been fixed. At this point, all the other potential sources of
-instability have been resolved, and we know where all the reloads happen.
+The spill instructions are actually inserted at the end, after all the
+allocations and the merge states have been fixed. At this point, all the other
+potential sources of instability have been resolved, and we know where all the
+reloads happen.
 
-We insert the spills in the block that is the lowest common ancestor of all the blocks
-that reload the value.
+We insert the spills in the block that is the lowest common ancestor of all the
+blocks that reload the value.
 
 #### References
 
@@ -284,8 +285,8 @@ it does not require any spill.
 
 ### Code
 
-The algorithm (`regalloc/regalloc.go`) can work on any ISA by implementing the interfaces
-in `regalloc/api.go`.
+The algorithm (`regalloc/regalloc.go`) can work on any ISA by implementing the
+interfaces in `regalloc/api.go`.
 
 Essentially:
 
@@ -296,13 +297,13 @@ Essentially:
 - each arch-specific instruction exposes the set of registers it defines and
   uses  (`regalloc.Instr` interface)
 
-By defining these interfaces, the register allocation algorithm can assign
-real registers to virtual registers without dealing specifically with the
-target architecture.
+By defining these interfaces, the register allocation algorithm can assign real
+registers to virtual registers without dealing specifically with the target
+architecture.
 
-In practice, each interface is usually implemented by instantiating a common generic
-struct that comes already with an implementation of all or most of the required methods.
-For instance,`regalloc.Function`is implemented by
+In practice, each interface is usually implemented by instantiating a common
+generic struct that comes already with an implementation of all or most of the
+required methods.  For instance,`regalloc.Function`is implemented by
 `backend.RegAllocFunction[*arm64.instruction, *arm64.machine]`.
 
 ### Debug Flags
@@ -312,7 +313,14 @@ For instance,`regalloc.Function`is implemented by
 
 ## Finalization and Encoding
 
-**TODO: Not finished.**
+At the end of the register allocation phase, we have enough information to complete
+the generation of the machine code. What is still missing are the prologue and
+epilogue of the function, and the encoding of the instructions into bytes.
+
+As usual, the prologue is executed before the main body of the function, and
+the epilogue is executed at the end. The prologue is responsible for setting up
+the stack frame, and the epilogue is responsible for cleaning up the stack
+frame and returning control to the caller.
 
 ### PostRegAlloc:
 
