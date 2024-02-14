@@ -3,7 +3,8 @@ title = "How the Optimizing Compiler Works: Back-End"
 layout = "single"
 +++
 
-In this section we will discuss the phases in the back-end of the optimizing compiler:
+In this section we will discuss the phases in the back-end of the optimizing
+compiler:
 
 - [Instruction Selection](#instruction-selection)
 - [Register Allocation](#register-allocation)
@@ -150,19 +151,18 @@ when they are needed.
 
 The register allocation procedure is implemented in sub-phases:
 
-
 - `livenessAnalysis(f)` collects the "liveness" information for each virtual
   register. The algorithm is described in [Chapter 9.2 of The SSA
-  Book](https://pfalcon.github.io/ssabook/latest/book-full.pdf).
+Book][ssa-book].
 
 - `alloc(f)` allocates registers for the given function. The algorithm is
   derived from [the Go compiler's
-  allocator](https://github.com/golang/go/blob/release-branch.go1.21/src/cmd/compile/internal/ssa/regalloc.go)
+allocator][go-regalloc]
 
 ### Liveness Analysis
 
-Intuitively, a variable or name binding can be considered _live_
-at a certain point in a program, if its value will be used in the future.
+Intuitively, a variable or name binding can be considered _live_ at a certain
+point in a program, if its value will be used in the future.
 
 For instance:
 
@@ -175,45 +175,70 @@ For instance:
 ```
 
 Variable `x` and `y` are both live at line 4, because they are used in the
-expression `x + y` on line 3; variable `z` is live at line 4,
-because it is used in the return statement.
-However, variables `x` and `y` can be considered _not_ live at line 4
-because they are not used anywhere after line 3.
+expression `x + y` on line 3; variable `z` is live at line 4, because it is
+used in the return statement.  However, variables `x` and `y` can be considered
+_not_ live at line 4 because they are not used anywhere after line 3.
 
-Statically, _liveness_ can be approximated by following paths backwards on the control-flow
-graph, connecting the uses of a given variable to its definitions
+Statically, _liveness_ can be approximated by following paths backwards on the
+control-flow graph, connecting the uses of a given variable to its definitions
 (or its *unique* definition, assuming SSA form).
 
-In practice, while liveness is a property of each name binding at any point
-in the program, it is enough to keep track of liveness at the boundaries
-of basic blocks:
+In practice, while liveness is a property of each name binding at any point in
+the program, it is enough to keep track of liveness at the boundaries of basic
+blocks:
 
-- the _live-in_ set for a given basic block is the set of all bindings that
-  are live at the entry of that block.
+- the _live-in_ set for a given basic block is the set of all bindings that are
+  live at the entry of that block.
 - the _live-out_ set for a given basic block is the set of all bindings that
   are live at the exit of that block. A binding is live at the exit of a block
-  if it is live at the entry of a successor.
+if it is live at the entry of a successor.
 
 Because the CFG is a connected graph, it is enough to keep track of either
-live-in or live-out sets, and then propagate the liveness information
-backwards or forwards, respectively. In our case, we keep track of live-ins.
+live-in or live-out sets, and then propagate the liveness information backwards
+or forwards, respectively. In our case, we keep track of live-ins.
 
 ### Allocation
 
+We implemented a variant of the linear scan register allocation algorithm
+described in [the Go compiler's allocator][go-regalloc].
 
-  - In short, this is just a linear scan register allocation procedure, where each block inherits the
-    register allocation state from one of its predecessors. Each block inherits the selected state and
-    starts allocation from there.
+Each basic block is allocated registers in a linear scan order, and the
+allocation state is propagated from a given basic block to its successors.
+Then, each block continues allocation from that initial state.
 
-  - If there's a discrepancy in the end states between predecessors, adjustments are made to ensure consistency after
-    allocation is done (which we call "fixing merge state").
+#### Merge States
 
-  - The spill instructions (store into the dedicated slots) are inserted after all the allocations and fixing
-    merge states. That is because at the point, we all know where the reloads happen, and therefore we can
-    know the best place to spill the values. More precisely, the spill happens in the block that is
-    the lowest common ancestor of all the blocks that reloads the value.
+Special care has to be taken when a block has multiple predecessors. We
+call this *fixing merge states*: for instance, consider the following:
 
-  All of these logics are almost the same as Go's compiler which has a dedicated description in the source file ^^.
+```goat
+ .---.     .---.
+( BB0 )   ( BB1 )
+ `---'     `---'
+   |         |
+   +----+----+
+        v
+      .---.
+     ( BB2 )
+      `---'
+```
+
+if the live-out set of a given block `BB0` is different from the live-out set
+of a given block `BB1` and both are predecessors of a block `BB2`, then
+we need to adjust `BB0` and `BB1` to ensure consistency with `BB2`. In practice,
+we ensure that the registers that `BB2` expects to be live-in are live-out in
+`BB0` and `BB1`.
+
+#### Spilling
+
+If the register allocator cannot find a register for a given virtual register,
+it will "spill" it to memory, *i.e.,* stash the value temporarily to memory.
+
+The spill instructions (store into the dedicated slots) are inserted after all the allocations and fixing
+merge states. That is because at the point, we all know where the reloads happen, and therefore we can
+know the best place to spill the values. More precisely, the spill happens in the block that is
+the lowest common ancestor of all the blocks that reloads the value.
+
 
 #### References
 
@@ -306,3 +331,6 @@ target architecture.
 <hr>
 
 * Previous Section: [Front-End](../frontend/)
+
+[ssa-book]: https://pfalcon.github.io/ssabook/latest/book-full.pdf
+[go-regalloc]: https://github.com/golang/go/blob/release-branch.go1.21/src/cmd/compile/internal/ssa/regalloc.go
