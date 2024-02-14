@@ -213,14 +213,14 @@ call this *fixing merge states*: for instance, consider the following:
 
 ```goat
  .---.     .---.
-( BB0 )   ( BB1 )
- `---'     `---'
-   |         |
+| BB0 |   | BB1 |
+ '-+-'     '-+-'
    +----+----+
+        |
         v
       .---.
-     ( BB2 )
-      `---'
+     | BB1 |
+      '---'
 ```
 
 if the live-out set of a given block `BB0` is different from the live-out set
@@ -235,7 +235,7 @@ If the register allocator cannot find a register for a given virtual register,
 it will "spill" it to memory, *i.e.,* stash the value temporarily to memory.
 
 The spill instructions (store into the dedicated slots) are inserted after all the allocations and fixing
-merge states. That is because at the point, we all know where the reloads happen, and therefore we can
+merge states. That is because at the point, we know where all the reloads happen, and therefore we can
 know the best place to spill the values. More precisely, the spill happens in the block that is
 the lowest common ancestor of all the blocks that reloads the value.
 
