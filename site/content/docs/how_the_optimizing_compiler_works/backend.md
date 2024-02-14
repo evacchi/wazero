@@ -9,14 +9,17 @@ In this section we will discuss the phases in the back-end of the optimizing com
 - [Register Allocation](#register-allocation)
 - [Finalization and Encoding](#finalization-and-encoding)
 
-Each section will include a brief explanation of the phase, references to the code that implements the phase,
-and a description of the debug flags that can be used to inspect that phase. Please notice that,
-since the implementation of the back-end is architecture-specific, the code might be different for each architecture.
+Each section will include a brief explanation of the phase, references to the
+code that implements the phase, and a description of the debug flags that can
+be used to inspect that phase.  Please notice that, since the implementation of
+the back-end is architecture-specific, the code might be different for each
+architecture.
 
 ### Code
 
-The higher-level entry-point to the back-end is the `backend.Compiler.Compile(context.Context)` method.
-This method executes, in turn, the following methods in the same type:
+The higher-level entry-point to the back-end is the
+`backend.Compiler.Compile(context.Context)` method.  This method executes, in
+turn, the following methods in the same type:
 
 - `backend.Compiler.Lower()` (instruction selection)
 - `backend.Compiler.RegAlloc()` (register allocation)
@@ -24,37 +27,46 @@ This method executes, in turn, the following methods in the same type:
 
 ## Instruction Selection
 
-The instruction selection phase is responsible for mapping the higher-level SSA instructions
-to arch-specific instructions. Each SSA instruction is translated to one or more machine instructions.
+The instruction selection phase is responsible for mapping the higher-level SSA
+instructions to arch-specific instructions. Each SSA instruction is translated
+to one or more machine instructions.
 
-Each target architecture comes with a different number of registers, some of them are general purpose,
-others might be specific to certain instructions. In general, we can expect to have a set of registers
-for integer computations, another set for floating point computations, a set for vector (SIMD) computations,
-and some specific special-purpose registers (e.g. stack pointers, program counters, status flags, etc.)
+Each target architecture comes with a different number of registers, some of
+them are general purpose, others might be specific to certain instructions. In
+general, we can expect to have a set of registers for integer computations,
+another set for floating point computations, a set for vector (SIMD)
+computations, and some specific special-purpose registers (e.g. stack pointers,
+program counters, status flags, etc.)
 
-In addition, some registers might be reserved by the Go runtime or the Operating System for specific purposes,
-so they should be handled with special care.
+In addition, some registers might be reserved by the Go runtime or the
+Operating System for specific purposes, so they should be handled with special
+care.
 
-At this point in the compilation process we do not want to deal with all that. Instead, we assume
-that we have a potentially infinite number of *virtual registers* of each type at our disposal.
-The next phase, the register allocation phase, will map these virtual registers to the actual
-registers of the target architecture.
+At this point in the compilation process we do not want to deal with all that.
+Instead, we assume that we have a potentially infinite number of *virtual
+registers* of each type at our disposal. The next phase, the register
+allocation phase, will map these virtual registers to the actual registers of
+the target architecture.
 
 ### Operands and Addressing Modes
 
-As a rule of thumb, we want to map each `ssa.Value` to a virtual register, and then use that virtual register
-as one of the arguments of the machine instruction that we will generate. However, usually instructions
-are able to address more than just registers: an *operand* might be able to represent a memory address,
-or an immediate value (i.e. a constant value that is encoded as part of the instruction itself).
+As a rule of thumb, we want to map each `ssa.Value` to a virtual register, and
+then use that virtual register as one of the arguments of the machine
+instruction that we will generate. However, usually instructions are able to
+address more than just registers: an *operand* might be able to represent a
+memory address, or an immediate value (i.e. a constant value that is encoded as
+part of the instruction itself).
 
-For these reasons, instead of mapping each `ssa.Value` to a virtual register (`regalloc.VReg`),
-we map each `ssa.Value` to an architecture-specific `operand` type.
+For these reasons, instead of mapping each `ssa.Value` to a virtual register
+(`regalloc.VReg`), we map each `ssa.Value` to an architecture-specific
+`operand` type.
 
-During lowering of an `ssa.Instruction`, for each `ssa.Value` that is used as an argument of the instruction,
-in the simplest case, the `operand` might be mapped to a virtual register, in other cases, the
-`operand` might be mapped to a memory address, or an immediate value. Sometimes this makes it possible to
-replace several SSA instructions with a single machine instruction, by folding the addressing mode into the
-instruction itself.
+During lowering of an `ssa.Instruction`, for each `ssa.Value` that is used as
+an argument of the instruction, in the simplest case, the `operand` might be
+mapped to a virtual register, in other cases, the `operand` might be mapped to
+a memory address, or an immediate value. Sometimes this makes it possible to
+replace several SSA instructions with a single machine instruction, by folding
+the addressing mode into the instruction itself.
 
 For instance, consider the following SSA instructions:
 
@@ -64,9 +76,10 @@ For instance, consider the following SSA instructions:
     v7:i32 = Iadd v6, v4
 ```
 
-In the `amd64` architecture, the `add` instruction adds the second operand to the first operand,
-and assigns the result to the second operand. So assuming that `r4`, `v5`, `v6`, and `v7` are mapped
-respectively to the virtual registers `r4?`, `r5?`, `r6?`, and `r7?`, the lowering of the `Iadd`
+In the `amd64` architecture, the `add` instruction adds the second operand to
+the first operand, and assigns the result to the second operand. So assuming
+that `r4`, `v5`, `v6`, and `v7` are mapped respectively to the virtual
+registers `r4?`, `r5?`, `r6?`, and `r7?`, the lowering of the `Iadd`
 instruction on `amd64` might look like this:
 
 ```asm
@@ -75,40 +88,118 @@ instruction on `amd64` might look like this:
     mov %r4?, %r7?     ;; move the result from `r4?` to `r7?`
 ```
 
-Notice how the load from memory has been folded into an operand of the `add` instruction. This transformation
-is possible when the value produced by the instruction being folded is not referenced by other instructions
-and the instructions belong to the same `InstructionGroupID` (see [Front-End: Optimization](../frontend/#optimization)).
+Notice how the load from memory has been folded into an operand of the `add`
+instruction. This transformation is possible when the value produced by the
+instruction being folded is not referenced by other instructions and the
+instructions belong to the same `InstructionGroupID` (see [Front-End:
+Optimization](../frontend/#optimization)).
+
+### Example
+
+At the end of the instruction selection phase, the basic blocks of our `abs`
+function will look as follows (for `arm64`):
+
+```asm
+L1 (SSA Block: blk0):
+	mov x130?, x2
+	subs wzr, w130?, #0x0
+	b.ge L2
+L3 (SSA Block: blk1):
+	mov x136?, xzr
+	sub w134?, w136?, w130?
+	mov x135?, x134?
+	b L4
+L2 (SSA Block: blk2):
+	mov x135?, x130?
+L4 (SSA Block: blk3):
+	mov x0, x135?
+	ret
+```
+
+Notice the introduction of the new identifiers `L1`, `L3`, `L2`, and `L4`.
+These are labels that are used to mark the beginning of each basic block, and
+they are the target for branching instructions such as `b` and `b.ge`.
 
 ### Code
 
-`backend.Machine` is the interface to the backend. It has a methods to translate (lower) the IR to machine code.
-Again, as seen earlier in the front-end, the term *lowering* is used to indicate translation from a higher-level
-representation to a lower-level representation.
+`backend.Machine` is the interface to the backend. It has a methods to
+translate (lower) the IR to machine code.  Again, as seen earlier in the
+front-end, the term *lowering* is used to indicate translation from a
+higher-level representation to a lower-level representation.
 
-`backend.Machine.LowerInstr(*ssa.Instruction)` is the method that translates an SSA instruction to machine code.
-Machine-specific implementations of this method can be found in package `backend/isa/<arch>`
-where `<arch>` is either `amd64` or `arm64`.
+`backend.Machine.LowerInstr(*ssa.Instruction)` is the method that translates an
+SSA instruction to machine code.  Machine-specific implementations of this
+method can be found in package `backend/isa/<arch>` where `<arch>` is either
+`amd64` or `arm64`.
 
 ### Debug Flags
 
-`wazevoapi.PrintSSAToBackendIRLowering` prints the basic blocks with the lowered arch-specific instructions.
+`wazevoapi.PrintSSAToBackendIRLowering` prints the basic blocks with the
+lowered arch-specific instructions.
 
 ## Register Allocation
 
 **TODO: Not finished.**
 
-The register allocation phase is responsible for mapping the potentially infinite number of virtual registers
-to the actual registers of the target architecture. Because the number of real registers is limited,
-the register allocation phase might need to "spill" some of the virtual registers to memory; that is, it might
-store their content, and then load them back into a register when they are needed.
+The register allocation phase is responsible for mapping the potentially
+infinite number of virtual registers to the real registers of the target
+architecture. Because the number of real registers is limited, the register
+allocation phase might need to "spill" some of the virtual registers to memory;
+that is, it might store their content, and then load them back into a register
+when they are needed.
 
 The register allocation procedure is implemented in sub-phases:
 
-- `livenessAnalysis(f)` collects the liveness information for each virtual register. The algorithm is described
-  in [Chapter 9.2 of The SSA Book](https://pfalcon.github.io/ssabook/latest/book-full.pdf).
 
-- `alloc(f)` allocates registers for the given function. The algorithm is derived from
-  [the Go compiler's allocator](https://github.com/golang/go/blob/release-branch.go1.21/src/cmd/compile/internal/ssa/regalloc.go)
+- `livenessAnalysis(f)` collects the "liveness" information for each virtual
+  register. The algorithm is described in [Chapter 9.2 of The SSA
+  Book](https://pfalcon.github.io/ssabook/latest/book-full.pdf).
+
+- `alloc(f)` allocates registers for the given function. The algorithm is
+  derived from [the Go compiler's
+  allocator](https://github.com/golang/go/blob/release-branch.go1.21/src/cmd/compile/internal/ssa/regalloc.go)
+
+### Liveness Analysis
+
+Intuitively, a variable or name binding can be considered _live_
+at a certain point in a program, if its value will be used in the future.
+
+For instance:
+
+```
+1| int f(int x) {
+2|   int y = 2 + x;
+3|   int z = x + y;
+4|   return z;
+5| }
+```
+
+Variable `x` and `y` are both live at line 4, because they are used in the
+expression `x + y` on line 3; variable `z` is live at line 4,
+because it is used in the return statement.
+However, variables `x` and `y` can be considered _not_ live at line 4
+because they are not used anywhere after line 3.
+
+Statically, _liveness_ can be approximated by following paths backwards on the control-flow
+graph, connecting the uses of a given variable to its definitions
+(or its *unique* definition, assuming SSA form).
+
+In practice, while liveness is a property of each name binding at any point
+in the program, it is enough to keep track of liveness at the boundaries
+of basic blocks:
+
+- the _live-in_ set for a given basic block is the set of all bindings that
+  are live at the entry of that block.
+- the _live-out_ set for a given basic block is the set of all bindings that
+  are live at the exit of that block. A binding is live at the exit of a block
+  if it is live at the entry of a successor.
+
+Because the CFG is a connected graph, it is enough to keep track of either
+live-in or live-out sets, and then propagate the liveness information
+backwards or forwards, respectively. In our case, we keep track of live-ins.
+
+### Allocation
+
 
   - In short, this is just a linear scan register allocation procedure, where each block inherits the
     register allocation state from one of its predecessors. Each block inherits the selected state and
@@ -133,9 +224,49 @@ The register allocation procedure is implemented in sub-phases:
 - https://github.com/golang/go/blob/release-branch.go1.21/src/cmd/compile/internal/ssa/regalloc.go
 
 
+### Example
+
+At the end of the register allocation phase, the basic blocks of our `abs`
+function look as follows (for `arm64`):
+
+```asm
+L1 (SSA Block: blk0):
+	mov x2, x2
+	subs wzr, w2, #0x0
+	b.ge L2
+L3 (SSA Block: blk1):
+	mov x8, xzr
+	sub w8, w8, w2
+	mov x8, x8
+	b L4
+L2 (SSA Block: blk2):
+	mov x2, x2
+	mov x8, x2
+L4 (SSA Block: blk3):
+	mov x0, x8
+	ret
+```
+
+Notice how the virtual registers have been all replaced by real registers, i.e.
+no register identifier is suffixed with `?`.
+
 ### Code
 
-The algorithm (`regalloc/regalloc.go`) can work on any ISA by implementing the interfaces in `regalloc/api.go`.
+The algorithm (`regalloc/regalloc.go`) can work on any ISA by implementing the interfaces
+in `regalloc/api.go`.
+
+Essentially:
+
+- each architecture exposes iteration over basic blocks of a function
+  (`regalloc.Function` interface)
+- each arch-specific basic block exposes iteration over instructions
+  (`regalloc.Block` interface)
+- each arch-specific instruction exposes the set of registers it defines and
+  uses  (`regalloc.Instr` interface)
+
+By defining these interfaces, the register allocation algorithm can assign
+real registers to virtual registers without dealing specifically with the
+target architecture.
 
 ### Debug Flags
 

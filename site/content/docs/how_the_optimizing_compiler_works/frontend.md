@@ -145,6 +145,8 @@ because such transformations usually correspond to targeting a lower abstraction
   `frontend.Compiler.LowerToSSA()`.
 - The mapping between Wasm opcodes and the IR happens in `frontend/lower.go`,
   more specifically in the method `frontend.Compiler.lowerCurrentOpcode()`.
+- Because they are semantically equivalent, in the code, basic block parameters
+  are sometimes referred to as "Phi values".
 
 #### Instructions and Values
 
@@ -322,6 +324,29 @@ For more details on critical edges read more at
 - https://en.wikipedia.org/wiki/Control-flow_graph
 - https://nickdesaulniers.github.io/blog/2023/01/27/critical-edge-splitting/
 
+### Example
+
+At the end of the block layout phase, the laid out SSA for the `abs` function
+looks as follows:
+
+```
+blk0: (exec_ctx:i64, module_ctx:i64, v2:i32)
+	v3:i32 = Iconst_32 0x0
+	v4:i32 = Icmp lt_s, v2, v3
+	Brz v4, blk2
+	Jump fallthrough
+
+blk1: () <-- (blk0)
+	v6:i32 = Iconst_32 0x0
+	v7:i32 = Isub v6, v2
+	Jump blk3, v7
+
+blk2: () <-- (blk0)
+	Jump fallthrough, v2
+
+blk3: (v5:i32) <-- (blk1,blk2)
+	Jump blk_ret, v5
+```
 
 ### Code
 
