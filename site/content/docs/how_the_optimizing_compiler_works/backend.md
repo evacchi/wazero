@@ -231,14 +231,21 @@ we ensure that the registers that `BB2` expects to be live-in are live-out in
 
 #### Spilling
 
-If the register allocator cannot find a register for a given virtual register,
-it will "spill" it to memory, *i.e.,* stash the value temporarily to memory.
+If the register allocator cannot find a free register for a given virtual (live)
+register, it will "spill" the value to memory, *i.e.,* stash it temporarily to memory.
+When that virtual register is recalled later, we will have to insert instructions to
+reload the value into a real register.
 
-The spill instructions (store into the dedicated slots) are inserted after all the allocations and fixing
-merge states. That is because at the point, we know where all the reloads happen, and therefore we can
-know the best place to spill the values. More precisely, the spill happens in the block that is
-the lowest common ancestor of all the blocks that reloads the value.
+While the procedure proceeds with allocation, the procedure also records all
+the virtual registers that transition to the "spilled" state, and inserts
+the reload instructions when those registers are recalled later.
 
+The spill instructions are actually inserted at the end, after all the allocations and
+the merge states have been fixed. At this point, all the other potential sources of
+instability have been resolved, and we know where all the reloads happen.
+
+We insert the spills in the block that is the lowest common ancestor of all the blocks
+that reload the value.
 
 #### References
 
@@ -247,7 +254,6 @@ the lowest common ancestor of all the blocks that reloads the value.
 - https://llvm.org/ProjectsWithLLVM/2004-Fall-CS426-LS.pdf
 - https://pfalcon.github.io/ssabook/latest/book-full.pdf: Chapter 9. for liveness analysis.
 - https://github.com/golang/go/blob/release-branch.go1.21/src/cmd/compile/internal/ssa/regalloc.go
-
 
 ### Example
 
@@ -273,7 +279,8 @@ L4 (SSA Block: blk3):
 ```
 
 Notice how the virtual registers have been all replaced by real registers, i.e.
-no register identifier is suffixed with `?`.
+no register identifier is suffixed with `?`. This example is quite simple, and
+it does not require any spill.
 
 ### Code
 
@@ -292,6 +299,11 @@ Essentially:
 By defining these interfaces, the register allocation algorithm can assign
 real registers to virtual registers without dealing specifically with the
 target architecture.
+
+In practice, each interface is usually implemented by instantiating a common generic
+struct that comes already with an implementation of all or most of the required methods.
+For instance,`regalloc.Function`is implemented by
+`backend.RegAllocFunction[*arm64.instruction, *arm64.machine]`.
 
 ### Debug Flags
 
