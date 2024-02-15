@@ -218,7 +218,7 @@ Then, each block continues allocation from that initial state.
 Special care has to be taken when a block has multiple predecessors. We call
 this *fixing merge states*: for instance, consider the following:
 
-```goat { width=300 }
+```goat { width="30%" }
  .---.     .---.
 | BB0 |   | BB1 |
  '-+-'     '-+-'
@@ -343,24 +343,30 @@ which declares, among others
 ## Finalization and Encoding
 
 At the end of the register allocation phase, we have enough information to complete
-the generate machine code (_encoding_). What is still missing are the prologue and
-epilogue of the function.
+the generate machine code (_encoding_). What is still missing are the *trampoline*,
+the prologue and epilogue of the function.
 
-### Prologue
+### Trampoline
 
-As usual, the prologue is executed before the main body of the function, and
-the epilogue is executed at the end. The prologue is responsible for setting up
+The trampoline is the most significant part of the finalization phase, with respect
+to the Go runtime. The trampoline maps the Go calling convention of the current
+architecture to the code that we are generating.
+
+### Prologue and Epilogue
+
+As usual, the **prologue** is executed before the main body of the function, and
+the **epilogue** is executed at the end. The prologue is responsible for setting up
 the stack frame, and the epilogue is responsible for cleaning up the stack
 frame and returning control to the caller.
 
-Generally, this means
+Generally, this means, at the very least:
 - saving the return address
 - a base pointer to the stack; or, equivalently,
 the height of the stack at the beginning of the function
 
 For instance, on `amd64`, `RBP` is the base pointer, `RSP` is the stack pointer:
 
-```goat {width="600" height="250"}
+```goat {width="100%" height="250"}
                 (high address)                     (high address)
     RBP ----> +-----------------+                +-----------------+
               |      `...`      |                |      `...`      |
@@ -379,7 +385,7 @@ For instance, on `amd64`, `RBP` is the base pointer, `RSP` is the stack pointer:
 While, on `arm64`, there is only a stack pointer `SP`:
 
 
-```goat {width="600" height="300"}
+```goat {width="100%" height="300"}
             (high address)                    (high address)
   SP ---> +-----------------+               +------------------+ <----+
           |      `...`      |               |      `...`       |      |
@@ -396,9 +402,25 @@ While, on `arm64`, there is only a stack pointer `SP`:
              (low address)                     (low address)
 ```
 
+However, the prologue and epilogue might also be responsible for saving and
+restoring the state of registers that might be overwritten by the function
+("clobbered"); and, if spilling occurs, prologue and epilogue are also
+responsible for reserving and releasing the space for the spilled values.
+
+
+For clarity, we make a distinction between the space reserved for the
+clobbered registers and the space reserved for the spilled values:
+
+- Spill slots are used to temporarily store the values that needs spilling
+  as determined by the register allocator. This section must have a fix
+  height, but its contents will change over time, as registers are being
+  spilled and reloaded.
+- Clobbered registers are, similarly, determined by the register allocator,
+  but they are stashed in the prologue and then restored in the epilogue.
+
 The procedure happens at the end of the register allocation phase because
 at this point we have collected enough information to know how much space
-we need to reserve for clobbered registers and spilled values.
+we need to reserve.
 
 Regardless of the architecture, after allocating this space, the stack
 will look as follows:
@@ -427,14 +449,21 @@ will look as follows:
      (low address)
 ```
 
-For clarity, we make a distinction between the space reserved for the
-clobbered registers and the space reserved for the spilled values.
+The epilogue simply reverses the operation of the prologue.
 
-### PostRegAlloc:
+### Other Post-RegAlloc Logic
 
-* setup prologue of the function
-* inserts epilogue of the function
-* machine-specific custom logic (e.g. post-regalloc lowering)
+The `backend.Machine.PostRegAlloc` method is invoked after the register
+allocation procedure; while its main role is to define the prologue and epilogue
+of the function, it also serves as a hook to perform other, arch-specific
+duty, that has to happen after the register allocation phase.
+
+For instance, on `amd64`, the constraints for some instructions are hard
+to express in a meaningful way for the register allocation procedure (for instance,
+the `div` instruction implicitly use registers `rdx`, `rax`). Instead, they are lowered
+with ad-hoc logic as part of the implementation `backend.Machine.PostRegAlloc` method.
+
+
 
 ### Encoding:
 
