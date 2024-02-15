@@ -84,8 +84,11 @@ the registers that the generated code expects.
 
 Finally, it invokes the generated code for the function.
 
-The epilogue reverses the process, finally returning control to the caller
-of the `entrypoint()` function, and the Go runtime.
+The epilogue reverses part of the process, finally returning control to the caller
+of the `entrypoint()` function, and the Go runtime. The caller of `entrypoint()`
+is also responsible for completing the cleaning up procedure by invoking
+`afterGoFunctionCallEntrypoint()` (again, implemented in backend-specific ASM).
+which will restore the stack pointers and return control to the caller of the function.
 
 The arch-specific code can be found in
 `backend/isa/<arch>/abi_entry_preamble.go`.
@@ -114,9 +117,53 @@ the mechanism is essentially the same when invoking a host function or raising
 an error. However, when a function is invoked the `exitCode` also indicates
 the identifier of the host function to be invoked.
 
-// goCallStackView is a function to get a view of the stack before a Go call, which
-// is the view of the stack allocated in CompileGoFunctionTrampoline.
+The magic really happens in the `backend.Machine.CompileGoFunctionTrampoline()` method.
+This method is actually invoked when host modules are being instantiated.
+It generates a trampoline that is used to invoke such functions from the generated code.
 
+This trampoline implements essentially the same prologue as the `entrypoint()`,
+but it also reserves space for the arguments and results of the function to be
+invoked.
+
+A host function has the signature:
+
+```go
+func(ctx context.Context, stack []uint64)
+```
+
+the function arguments in the `stack` parameter are copied over to the
+reserved slots of the real stack. For instance, on `arm64` the stack layout
+would look as follows (on `amd64` it would be similar):
+
+```goat
+                  (high address)
+    SP ------> +-----------------+  <----+
+               |     .......     |       |
+               |      ret Y      |       |
+               |     .......     |       |
+               |      ret 0      |       |
+               |      arg X      |       |  size_of_arg_ret
+               |     .......     |       |
+               |      arg 1      |       |
+               |      arg 0      |  <----+ <-------- originalArg0Reg
+               | size_of_arg_ret |
+               |  ReturnAddress  |
+               +-----------------+ <----+
+               |      xxxx       |      |  ;; might be padded to make it 16-byte aligned.
+          +--->|  arg[N]/ret[M]  |      |
+ sliceSize|    |   ............  |      | goCallStackSize
+          |    |  arg[1]/ret[1]  |      |
+          +--->|  arg[0]/ret[0]  | <----+ <-------- arg0ret0AddrReg
+               |    sliceSize    |
+               |   frame_size    |
+               +-----------------+
+                  (low address)
+```
+
+Finally, the trampoline jumps into the execution of the host function
+using the `exitSequence` meta-instruction.
+
+Upon return, the process is reversed.
 
 ## Code
 
