@@ -442,6 +442,10 @@ will look as follows:
      (low address)
 ```
 
+Note: the prologue might also introduce a check of the stack bounds. If
+there is no sufficient space to allocate the stack frame, the function will
+exit the execution and will try to grow it from the Go runtime.
+
 The epilogue simply reverses the operation of the prologue.
 
 ### Other Post-RegAlloc Logic
@@ -456,7 +460,7 @@ to express in a meaningful way for the register allocation procedure (for instan
 the `div` instruction implicitly use registers `rdx`, `rax`). Instead, they are lowered
 with ad-hoc logic as part of the implementation `backend.Machine.PostRegAlloc` method.
 
-### Encoding:
+### Encoding
 
 The final stage of the backend encodes the machine instructions into bytes
 and writes them to the target buffer. Before proceeding with the encoding,
@@ -467,22 +471,24 @@ function.
 
 ### Code
 
-- The prologue is set up as part of the `backend.Machine.PostRegAlloc` method.
+- The prologue and epilogue are set up as part of the `backend.Machine.PostRegAlloc` method.
+- The encoding is done by the `backend.Machine.Encode` method.
 
 ### Debug Flags
 
 - `wazevoapi.PrintFinalizedMachineCode` prints the assembly code of the function
   after the finalization phase.
-- `wazevoapi.PrintMachineCodeHexPerFunction` prints a hex representation of the function
-- `wazevoapi.printMachineCodeHexPerFunctionUnmodified`
-- `wazevoapi.PrintMachineCodeHexPerFunctionDisassemblable`
+- `wazevoapi.printMachineCodeHexPerFunctionUnmodified` prints a hex representation of the function generated code as it is.
+- `wazevoapi.PrintMachineCodeHexPerFunctionDisassemblable` prints a hex representation of the function generated code that can be disassembled.
 
-## Appendix: Trampolines
-
-
+The reason for the distinction between the last two flags is that the generated
+code in some cases might not be disassemblable. `PrintMachineCodeHexPerFunctionDisassemblable`
+flag prints a hex encoding of the generated code that can be disassembled,
+but cannot be executed.
 
 <hr>
 
+* Next Section: [Appendix: Trampolines](../appendix/)
 * Previous Section: [Front-End](../frontend/)
 
 [ssa-book]: https://pfalcon.github.io/ssabook/latest/book-full.pdf
