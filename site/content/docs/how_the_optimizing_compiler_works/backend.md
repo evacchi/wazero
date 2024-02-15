@@ -497,8 +497,8 @@ the generated code that can be disassembled, but cannot be executed.
 
 <hr>
 
-* Next Section: [Appendix: Trampolines](../appendix/)
 * Previous Section: [Front-End](../frontend/)
+* Next Section: [Appendix: Trampolines](../appendix/)
 
 [ssa-book]: https://pfalcon.github.io/ssabook/latest/book-full.pdf
 [go-regalloc]: https://github.com/golang/go/blob/release-branch.go1.21/src/cmd/compile/internal/ssa/regalloc.go

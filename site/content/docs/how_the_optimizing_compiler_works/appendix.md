@@ -84,7 +84,8 @@ the registers that the generated code expects.
 
 Finally, it invokes the generated code for the function.
 
-The epilogue reverses the process.
+The epilogue reverses the process, finally returning control to the caller
+of the `entrypoint()` function, and the Go runtime.
 
 The arch-specific code can be found in
 `backend/isa/<arch>/abi_entry_preamble.go`.
@@ -101,6 +102,21 @@ In "[How do compiler functions work?][how-do-compiler-functions-work]", we
 already outlined how _leaving_ the generated code works with the help of a
 function. We will complete here the picture by briefly describing the code that
 is generated.
+
+When the generated code needs to return control to the Go runtime,
+it inserts a meta-instruction that is called `exitSequence` in both `amd64` and `arm64` backends.
+This meta-instruction sets the `exitCode` in the `wazevo.executionContext` struct,
+restore the stack pointers and then returns control to the caller of the
+`entrypoint()` function described above.
+
+As described in "[How do compiler functions work?][how-do-compiler-functions-work]",
+the mechanism is essentially the same when invoking a host function or raising
+an error. However, when a function is invoked the `exitCode` also indicates
+the identifier of the host function to be invoked.
+
+// goCallStackView is a function to get a view of the stack before a Go call, which
+// is the view of the stack allocated in CompileGoFunctionTrampoline.
+
 
 ## Code
 
