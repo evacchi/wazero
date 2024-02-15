@@ -446,7 +446,7 @@ Note: the prologue might also introduce a check of the stack bounds. If
 there is no sufficient space to allocate the stack frame, the function will
 exit the execution and will try to grow it from the Go runtime.
 
-The epilogue simply reverses the operation of the prologue.
+The epilogue simply reverses the operations of the prologue.
 
 ### Other Post-RegAlloc Logic
 
