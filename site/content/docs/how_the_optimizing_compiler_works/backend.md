@@ -329,36 +329,41 @@ required methods.  For instance,`regalloc.Function`is implemented by
 `backend.RegAllocFunction[*arm64.instruction, *arm64.machine]`.
 
 `backend/isa/<arch>/abi.go` (where `<arch>` is either `arm64` or `amd64`)
-contains the instantiation of the `regalloc.RegisterInfo` struct,
-which declares, among others
-- the set of registers that are available for allocation, excluding, for instance, those that might
-  be reserved by the runtime or the OS (`AllocatableRegisters`)
-- the registers that might be saved by the callee to the stack (`CalleeSavedRegisters`)
+contains the instantiation of the `regalloc.RegisterInfo` struct, which
+declares, among others
+- the set of registers that are available for allocation, excluding, for
+  instance, those that might be reserved by the runtime or the OS
+(`AllocatableRegisters`)
+- the registers that might be saved by the callee to the stack
+  (`CalleeSavedRegisters`)
 
 ### Debug Flags
 
-- `wazevoapi.RegAllocLoggingEnabled` logs detailed logging of the register allocation procedure.
-- `wazevoapi.PrintRegisterAllocated` prints the basic blocks with the register allocation result.
+- `wazevoapi.RegAllocLoggingEnabled` logs detailed logging of the register
+  allocation procedure.
+- `wazevoapi.PrintRegisterAllocated` prints the basic blocks with the register
+  allocation result.
 
 ## Finalization and Encoding
 
-At the end of the register allocation phase, we have enough information to finally
-generate machine code (_encoding_). We are only missing the prologue and
-epilogue of the function.
+At the end of the register allocation phase, we have enough information to
+finally generate machine code (_encoding_). We are only missing the prologue
+and epilogue of the function.
 
 ### Prologue and Epilogue
 
-As usual, the **prologue** is executed before the main body of the function, and
-the **epilogue** is executed at the end. The prologue is responsible for setting up
-the stack frame, and the epilogue is responsible for cleaning up the stack
-frame and returning control to the caller.
+As usual, the **prologue** is executed before the main body of the function,
+and the **epilogue** is executed at the end. The prologue is responsible for
+setting up the stack frame, and the epilogue is responsible for cleaning up the
+stack frame and returning control to the caller.
 
 Generally, this means, at the very least:
 - saving the return address
-- a base pointer to the stack; or, equivalently,
-the height of the stack at the beginning of the function
+- a base pointer to the stack; or, equivalently, the height of the stack at the
+  beginning of the function
 
-For instance, on `amd64`, `RBP` is the base pointer, `RSP` is the stack pointer:
+For instance, on `amd64`, `RBP` is the base pointer, `RSP` is the stack
+pointer:
 
 ```goat {width="100%" height="250"}
                 (high address)                     (high address)
@@ -401,22 +406,22 @@ restoring the state of registers that might be overwritten by the function
 ("clobbered"); and, if spilling occurs, prologue and epilogue are also
 responsible for reserving and releasing the space for the spilled values.
 
-For clarity, we make a distinction between the space reserved for the
-clobbered registers and the space reserved for the spilled values:
+For clarity, we make a distinction between the space reserved for the clobbered
+registers and the space reserved for the spilled values:
 
-- Spill slots are used to temporarily store the values that needs spilling
-  as determined by the register allocator. This section must have a fix
-  height, but its contents will change over time, as registers are being
-  spilled and reloaded.
-- Clobbered registers are, similarly, determined by the register allocator,
-  but they are stashed in the prologue and then restored in the epilogue.
+- Spill slots are used to temporarily store the values that needs spilling as
+  determined by the register allocator. This section must have a fix height,
+but its contents will change over time, as registers are being spilled and
+reloaded.
+- Clobbered registers are, similarly, determined by the register allocator, but
+  they are stashed in the prologue and then restored in the epilogue.
 
-The procedure happens at the end of the register allocation phase because
-at this point we have collected enough information to know how much space
-we need to reserve.
+The procedure happens at the end of the register allocation phase because at
+this point we have collected enough information to know how much space we need
+to reserve.
 
-Regardless of the architecture, after allocating this space, the stack
-will look as follows:
+Regardless of the architecture, after allocating this space, the stack will
+look as follows:
 
 ```goat {height="350"}
     (high address)
@@ -442,49 +447,53 @@ will look as follows:
      (low address)
 ```
 
-Note: the prologue might also introduce a check of the stack bounds. If
-there is no sufficient space to allocate the stack frame, the function will
-exit the execution and will try to grow it from the Go runtime.
+Note: the prologue might also introduce a check of the stack bounds. If there
+is no sufficient space to allocate the stack frame, the function will exit the
+execution and will try to grow it from the Go runtime.
 
 The epilogue simply reverses the operations of the prologue.
 
 ### Other Post-RegAlloc Logic
 
 The `backend.Machine.PostRegAlloc` method is invoked after the register
-allocation procedure; while its main role is to define the prologue and epilogue
-of the function, it also serves as a hook to perform other, arch-specific
-duty, that has to happen after the register allocation phase.
+allocation procedure; while its main role is to define the prologue and
+epilogue of the function, it also serves as a hook to perform other,
+arch-specific duty, that has to happen after the register allocation phase.
 
-For instance, on `amd64`, the constraints for some instructions are hard
-to express in a meaningful way for the register allocation procedure (for instance,
-the `div` instruction implicitly use registers `rdx`, `rax`). Instead, they are lowered
-with ad-hoc logic as part of the implementation `backend.Machine.PostRegAlloc` method.
+For instance, on `amd64`, the constraints for some instructions are hard to
+express in a meaningful way for the register allocation procedure (for
+instance, the `div` instruction implicitly use registers `rdx`, `rax`).
+Instead, they are lowered with ad-hoc logic as part of the implementation
+`backend.Machine.PostRegAlloc` method.
 
 ### Encoding
 
-The final stage of the backend encodes the machine instructions into bytes
-and writes them to the target buffer. Before proceeding with the encoding,
-relative addresses in branching instructions or addressing modes are resolved.
+The final stage of the backend encodes the machine instructions into bytes and
+writes them to the target buffer. Before proceeding with the encoding, relative
+addresses in branching instructions or addressing modes are resolved.
 
 The procedure encodes the instructions in the order they appear in the
 function.
 
 ### Code
 
-- The prologue and epilogue are set up as part of the `backend.Machine.PostRegAlloc` method.
+- The prologue and epilogue are set up as part of the
+  `backend.Machine.PostRegAlloc` method.
 - The encoding is done by the `backend.Machine.Encode` method.
 
 ### Debug Flags
 
-- `wazevoapi.PrintFinalizedMachineCode` prints the assembly code of the function
-  after the finalization phase.
-- `wazevoapi.printMachineCodeHexPerFunctionUnmodified` prints a hex representation of the function generated code as it is.
-- `wazevoapi.PrintMachineCodeHexPerFunctionDisassemblable` prints a hex representation of the function generated code that can be disassembled.
+- `wazevoapi.PrintFinalizedMachineCode` prints the assembly code of the
+  function after the finalization phase.
+- `wazevoapi.printMachineCodeHexPerFunctionUnmodified` prints a hex
+  representation of the function generated code as it is.
+- `wazevoapi.PrintMachineCodeHexPerFunctionDisassemblable` prints a hex
+  representation of the function generated code that can be disassembled.
 
 The reason for the distinction between the last two flags is that the generated
-code in some cases might not be disassemblable. `PrintMachineCodeHexPerFunctionDisassemblable`
-flag prints a hex encoding of the generated code that can be disassembled,
-but cannot be executed.
+code in some cases might not be disassemblable.
+`PrintMachineCodeHexPerFunctionDisassemblable` flag prints a hex encoding of
+the generated code that can be disassembled, but cannot be executed.
 
 <hr>
 
