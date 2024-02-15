@@ -342,10 +342,8 @@ which declares, among others
 
 ## Finalization and Encoding
 
-**TODO: not finished**
-
-At the end of the register allocation phase, we have enough information to complete
-the generate machine code (_encoding_). We are only missing the prologue and
+At the end of the register allocation phase, we have enough information to finally
+generate machine code (_encoding_). We are only missing the prologue and
 epilogue of the function.
 
 ### Prologue and Epilogue
@@ -402,7 +400,6 @@ However, the prologue and epilogue might also be responsible for saving and
 restoring the state of registers that might be overwritten by the function
 ("clobbered"); and, if spilling occurs, prologue and epilogue are also
 responsible for reserving and releasing the space for the spilled values.
-
 
 For clarity, we make a distinction between the space reserved for the
 clobbered registers and the space reserved for the spilled values:
@@ -465,14 +462,18 @@ The final stage of the backend encodes the machine instructions into bytes
 and writes them to the target buffer. Before proceeding with the encoding,
 relative addresses in branching instructions or addressing modes are resolved.
 
+The procedure encodes the instructions in the order they appear in the
+function.
+
 ### Code
 
 - The prologue is set up as part of the `backend.Machine.PostRegAlloc` method.
 
 ### Debug Flags
 
-- `wazevoapi.PrintFinalizedMachineCode`
-- `wazevoapi.PrintMachineCodeHexPerFunction`
+- `wazevoapi.PrintFinalizedMachineCode` prints the assembly code of the function
+  after the finalization phase.
+- `wazevoapi.PrintMachineCodeHexPerFunction` prints a hex representation of the function
 - `wazevoapi.printMachineCodeHexPerFunctionUnmodified`
 - `wazevoapi.PrintMachineCodeHexPerFunctionDisassemblable`
 
