@@ -84,11 +84,12 @@ the registers that the generated code expects.
 
 Finally, it invokes the generated code for the function.
 
-The epilogue reverses part of the process, finally returning control to the caller
-of the `entrypoint()` function, and the Go runtime. The caller of `entrypoint()`
-is also responsible for completing the cleaning up procedure by invoking
-`afterGoFunctionCallEntrypoint()` (again, implemented in backend-specific ASM).
-which will restore the stack pointers and return control to the caller of the function.
+The epilogue reverses part of the process, finally returning control to the
+caller of the `entrypoint()` function, and the Go runtime. The caller of
+`entrypoint()` is also responsible for completing the cleaning up procedure by
+invoking `afterGoFunctionCallEntrypoint()` (again, implemented in
+backend-specific ASM).  which will restore the stack pointers and return
+control to the caller of the function.
 
 The arch-specific code can be found in
 `backend/isa/<arch>/abi_entry_preamble.go`.
@@ -106,20 +107,22 @@ already outlined how _leaving_ the generated code works with the help of a
 function. We will complete here the picture by briefly describing the code that
 is generated.
 
-When the generated code needs to return control to the Go runtime,
-it inserts a meta-instruction that is called `exitSequence` in both `amd64` and `arm64` backends.
-This meta-instruction sets the `exitCode` in the `wazevo.executionContext` struct,
-restore the stack pointers and then returns control to the caller of the
-`entrypoint()` function described above.
+When the generated code needs to return control to the Go runtime, it inserts a
+meta-instruction that is called `exitSequence` in both `amd64` and `arm64`
+backends.  This meta-instruction sets the `exitCode` in the
+`wazevo.executionContext` struct, restore the stack pointers and then returns
+control to the caller of the `entrypoint()` function described above.
 
-As described in "[How do compiler functions work?][how-do-compiler-functions-work]",
-the mechanism is essentially the same when invoking a host function or raising
-an error. However, when a function is invoked the `exitCode` also indicates
-the identifier of the host function to be invoked.
+As described in "[How do compiler functions
+work?][how-do-compiler-functions-work]", the mechanism is essentially the same
+when invoking a host function or raising an error. However, when a function is
+invoked the `exitCode` also indicates the identifier of the host function to be
+invoked.
 
-The magic really happens in the `backend.Machine.CompileGoFunctionTrampoline()` method.
-This method is actually invoked when host modules are being instantiated.
-It generates a trampoline that is used to invoke such functions from the generated code.
+The magic really happens in the `backend.Machine.CompileGoFunctionTrampoline()`
+method.  This method is actually invoked when host modules are being
+instantiated.  It generates a trampoline that is used to invoke such functions
+from the generated code.
 
 This trampoline implements essentially the same prologue as the `entrypoint()`,
 but it also reserves space for the arguments and results of the function to be
@@ -127,13 +130,13 @@ invoked.
 
 A host function has the signature:
 
-```go
-func(ctx context.Context, stack []uint64)
+```
+go func(ctx context.Context, stack []uint64) 
 ```
 
-the function arguments in the `stack` parameter are copied over to the
-reserved slots of the real stack. For instance, on `arm64` the stack layout
-would look as follows (on `amd64` it would be similar):
+the function arguments in the `stack` parameter are copied over to the reserved
+slots of the real stack. For instance, on `arm64` the stack layout would look
+as follows (on `amd64` it would be similar):
 
 ```goat
                   (high address)
@@ -160,8 +163,8 @@ would look as follows (on `amd64` it would be similar):
                   (low address)
 ```
 
-Finally, the trampoline jumps into the execution of the host function
-using the `exitSequence` meta-instruction.
+Finally, the trampoline jumps into the execution of the host function using the
+`exitSequence` meta-instruction.
 
 Upon return, the process is reversed.
 
