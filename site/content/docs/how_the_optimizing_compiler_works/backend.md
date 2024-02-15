@@ -140,8 +140,6 @@ lowered arch-specific instructions.
 
 ## Register Allocation
 
-**TODO: Not finished.**
-
 The register allocation phase is responsible for mapping the potentially
 infinite number of virtual registers to the real registers of the target
 architecture. Because the number of real registers is limited, the register
@@ -149,7 +147,8 @@ allocation phase might need to "spill" some of the virtual registers to memory;
 that is, it might store their content, and then load them back into a register
 when they are needed.
 
-The register allocation procedure is implemented in sub-phases:
+For a given function `f` the register allocation procedure
+`regalloc.Allocator.DoAllocation(f)` is implemented in sub-phases:
 
 - `livenessAnalysis(f)` collects the "liveness" information for each virtual
   register. The algorithm is described in [Chapter 9.2 of The SSA
@@ -158,6 +157,14 @@ Book][ssa-book].
 - `alloc(f)` allocates registers for the given function. The algorithm is
   derived from [the Go compiler's
 allocator][go-regalloc]
+
+At the end of the allocation procedure, we also record the set of registers
+that are **clobbered** by the body of the function. A register is clobbered
+if its value is overwritten by the function, and it is not saved by the
+callee. This information is used in the finalization phase to determine which
+registers need to be spilled in the prologue. This is not strictly related
+to register allocation in a textbook meaning, but it is a necessary step
+for the finalization phase.
 
 ### Liveness Analysis
 
@@ -211,7 +218,7 @@ Then, each block continues allocation from that initial state.
 Special care has to be taken when a block has multiple predecessors. We call
 this *fixing merge states*: for instance, consider the following:
 
-```goat
+```goat { width=300 }
  .---.     .---.
 | BB0 |   | BB1 |
  '-+-'     '-+-'
@@ -248,13 +255,28 @@ reloads happen.
 We insert the spills in the block that is the lowest common ancestor of all the
 blocks that reload the value.
 
+#### Clobbered Registers
+
+At the end of the allocation procedure, the `determineCalleeSavedRealRegs(f)`
+method iterates over the set of the allocated registers and compares them
+to a set of architecture-specific set `CalleeSavedRegisters`. If a register
+has been allocated, and it is present in this set, the register is marked as
+"clobbered", i.e., we now know that the register allocator will overwrite
+that value. Thus, these values will have to be spilled in the prologue.
+
 #### References
+
+Register allocation is a complex problem, possibly the most complicated
+part of the backend. The following references were used to implement the
+algorithm:
 
 - https://web.stanford.edu/class/archive/cs/cs143/cs143.1128/lectures/17/Slides17.pdf
 - https://en.wikipedia.org/wiki/Chaitin%27s_algorithm
 - https://llvm.org/ProjectsWithLLVM/2004-Fall-CS426-LS.pdf
 - https://pfalcon.github.io/ssabook/latest/book-full.pdf: Chapter 9. for liveness analysis.
 - https://github.com/golang/go/blob/release-branch.go1.21/src/cmd/compile/internal/ssa/regalloc.go
+
+We suggest to refer to them to dive deeper in the topic.
 
 ### Example
 
@@ -306,6 +328,13 @@ generic struct that comes already with an implementation of all or most of the
 required methods.  For instance,`regalloc.Function`is implemented by
 `backend.RegAllocFunction[*arm64.instruction, *arm64.machine]`.
 
+`backend/isa/<arch>/abi.go` (where `<arch>` is either `arm64` or `amd64`)
+contains the instantiation of the `regalloc.RegisterInfo` struct,
+which declares, among others
+- the set of registers that are available for allocation, excluding, for instance, those that might
+  be reserved by the runtime or the OS (`AllocatableRegisters`)
+- the registers that might be saved by the callee to the stack (`CalleeSavedRegisters`)
+
 ### Debug Flags
 
 - `wazevoapi.RegAllocLoggingEnabled` logs detailed logging of the register allocation procedure.
@@ -314,13 +343,92 @@ required methods.  For instance,`regalloc.Function`is implemented by
 ## Finalization and Encoding
 
 At the end of the register allocation phase, we have enough information to complete
-the generation of the machine code. What is still missing are the prologue and
-epilogue of the function, and the encoding of the instructions into bytes.
+the generate machine code (_encoding_). What is still missing are the prologue and
+epilogue of the function.
+
+### Prologue
 
 As usual, the prologue is executed before the main body of the function, and
 the epilogue is executed at the end. The prologue is responsible for setting up
 the stack frame, and the epilogue is responsible for cleaning up the stack
 frame and returning control to the caller.
+
+Generally, this means
+- saving the return address
+- a base pointer to the stack; or, equivalently,
+the height of the stack at the beginning of the function
+
+For instance, on `amd64`, `RBP` is the base pointer, `RSP` is the stack pointer:
+
+```goat {width="600" height="250"}
+                (high address)                     (high address)
+    RBP ----> +-----------------+                +-----------------+
+              |      `...`      |                |      `...`      |
+              |      ret Y      |                |      ret Y      |
+              |      `...`      |                |      `...`      |
+              |      ret 0      |                |      ret 0      |
+              |      arg X      |                |      arg X      |
+              |      `...`      |     ====>      |      `...`      |
+              |      arg 1      |                |      arg 1      |
+              |      arg 0      |                |      arg 0      |
+              |   Return Addr   |                |   Return Addr   |
+    RSP ----> +-----------------+                |    Caller_RBP   |
+                 (low address)                   +-----------------+ <----- RSP, RBP
+```
+
+While, on `arm64`, there is only a stack pointer `SP`:
+
+
+```goat {width="600" height="300"}
+            (high address)                    (high address)
+  SP ---> +-----------------+               +------------------+ <----+
+          |      `...`      |               |      `...`       |      |
+          |      ret Y      |               |      ret Y       |      |
+          |      `...`      |               |      `...`       |      |
+          |      ret 0      |               |      ret 0       |      |
+          |      arg X      |               |      arg X       |      |  size_of_arg_ret.
+          |      `...`      |     ====>     |      `...`       |      |
+          |      arg 1      |               |      arg 1       |      |
+          |      arg 0      |               |      arg 0       | <----+
+          +-----------------+               |  size_of_arg_ret |
+                                            |  return address  |
+                                            +------------------+ <---- SP
+             (low address)                     (low address)
+```
+
+The procedure happens at the end of the register allocation phase because
+at this point we have collected enough information to know how much space
+we need to reserve for clobbered registers and spilled values.
+
+Regardless of the architecture, after allocating this space, the stack
+will look as follows:
+
+```goat {height="350"}
+    (high address)
+  +-----------------+
+  |      `...`      |
+  |      ret Y      |
+  |      `...`      |
+  |      ret 0      |
+  |      arg X      |
+  |      `...`      |
+  |      arg 1      |
+  |      arg 0      |
+  | (arch-specific) |
+  +-----------------+
+  |    clobbered M  |
+  |   ............  |
+  |    clobbered 1  |
+  |    clobbered 0  |
+  |   spill slot N  |
+  |   ............  |
+  |   spill slot 0  |
+  +-----------------+
+     (low address)
+```
+
+For clarity, we make a distinction between the space reserved for the
+clobbered registers and the space reserved for the spilled values.
 
 ### PostRegAlloc:
 
@@ -339,7 +447,7 @@ frame and returning control to the caller.
 
 ### Code
 
-...
+- The prologue is set up as part of the `backend.Machine.PostRegAlloc` method.
 
 ### Debug Flags
 

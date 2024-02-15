@@ -41,7 +41,7 @@ For instance, take the following implementation of the `abs` function:
 
 This is translated to the following block diagram:
 
-```goat
+```goat {width="100%" height="500"}
                +---------------------------------------------+
                |blk0: (exec_ctx:i64, module_ctx:i64, v2:i32) |
                |    v3:i32 = Iconst_32 0x0                   |
@@ -51,7 +51,7 @@ This is translated to the following block diagram:
                +---------------------------------------------+
                                       |
                                       |
-                      +---(v4 != 0)---+--(v4 == 0)----+
+                      +---`(v4 != 0)`-+-`(v4 == 0)`---+
                       |                               |
                       v                               v
         +---------------------------+   +---------------------------+
@@ -62,7 +62,7 @@ This is translated to the following block diagram:
         +---------------------------+   +---------------------------+
                       |                               |
                       |                               |
-                      +-{v5 := v7}----+---{v5 := v2}--+
+                      +-`{v5 := v7}`--+--`{v5 := v2}`-+
                                       |
                                       v
                       +------------------------------+
@@ -293,7 +293,7 @@ basic blocks is called a **critical edge** when, at the same time:
 For instance, in the example below the edge between `BB0` and `BB3`
 is a critical edge.
 
-```goat
+```goat { width="300" }
 ┌───────┐    ┌───────┐
 │  BB0  │━┓  │  BB1  │
 └───────┘ ┃  └───────┘
@@ -307,7 +307,7 @@ is a critical edge.
 In these cases the critical edge is split by introducing a new basic block,
 called a **trampoline**, where the critical edge was.
 
-```goat
+```goat  { width="300" }
 ┌───────┐            ┌───────┐
 │  BB0  │──────┐     │  BB1  │
 └───────┘      ▼     └───────┘
@@ -360,8 +360,8 @@ blk3: (v5:i32) <-- (blk1,blk2)
 
 <hr>
 
-* Next Section: [Back-End](../backend/)
 * Previous Section: [How the Optimizing Compiler Works](../)
+* Next Section: [Back-End](../backend/)
 
 [ssa-blocks]: https://en.wikipedia.org/wiki/Static_single-assignment_form#Block_arguments
 [llvm-mlir]: https://mlir.llvm.org/docs/Rationale/Rationale/#block-arguments-vs-phi-nodes
