@@ -45,7 +45,7 @@ func TestPoll_Windows(t *testing.T) {
 		msg, err := syscall.ByteSliceFromString("test\n")
 		require.NoError(t, err)
 		_, err = write(w, msg)
-		require.NoError(t, err)
+		require.EqualErrno(t, 0, err)
 
 		// Ensure the pipe has data.
 		n, err = peekNamedPipe(rh)
@@ -148,7 +148,7 @@ func TestPoll_Windows(t *testing.T) {
 		msg, err := syscall.ByteSliceFromString("test\n")
 		require.NoError(t, err)
 		_, err = write(w, msg)
-		require.NoError(t, err)
+		require.EqualErrno(t, 0, err)
 
 		// Verify that the write is reported.
 		n, err := _poll(fds, 0)
@@ -183,7 +183,7 @@ func TestPoll_Windows(t *testing.T) {
 		msg, err := syscall.ByteSliceFromString("test\n")
 		require.NoError(t, err)
 		_, err = write(w, msg)
-		require.NoError(t, err)
+		require.EqualErrno(t, 0, err)
 
 		// Ensure that the write occurs (panic after an arbitrary timeout).
 		select {
@@ -210,7 +210,7 @@ func TestPoll_Windows(t *testing.T) {
 		msg, err := syscall.ByteSliceFromString("test\n")
 		require.NoError(t, err)
 		_, err = write(w, msg)
-		require.NoError(t, err)
+		require.EqualErrno(t, 0, err)
 
 		// Ensure that the write occurs before the timer expires.
 		select {
