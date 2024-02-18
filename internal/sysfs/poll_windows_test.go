@@ -248,7 +248,7 @@ func TestPoll_Windows(t *testing.T) {
 		msg, err := syscall.ByteSliceFromString("test\n")
 		require.NoError(t, err)
 		_, err = write(w, msg)
-		require.NoError(t, err)
+		require.EqualErrno(t, 0, err)
 
 		res := <-ch
 		require.Zero(t, res.err)
