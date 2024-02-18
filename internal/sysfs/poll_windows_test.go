@@ -35,7 +35,6 @@ func TestPoll_Windows(t *testing.T) {
 		r, w, err := os.Pipe()
 		require.NoError(t, err)
 		rh := syscall.Handle(r.Fd())
-		wh := syscall.Handle(w.Fd())
 
 		// Ensure the pipe has no data.
 		n, err := peekNamedPipe(rh)
@@ -45,7 +44,7 @@ func TestPoll_Windows(t *testing.T) {
 		// Write to the channel.
 		msg, err := syscall.ByteSliceFromString("test\n")
 		require.NoError(t, err)
-		_, err = syscall.Write(wh, msg)
+		_, err = write(w, msg)
 		require.NoError(t, err)
 
 		// Ensure the pipe has data.
@@ -144,12 +143,11 @@ func TestPoll_Windows(t *testing.T) {
 		r, w, err := os.Pipe()
 		require.NoError(t, err)
 		fds := []pollFd{{fd: r.Fd(), events: _POLLIN}}
-		wh := syscall.Handle(w.Fd())
 
 		// Write to the channel immediately.
 		msg, err := syscall.ByteSliceFromString("test\n")
 		require.NoError(t, err)
-		_, err = syscall.Write(wh, msg)
+		_, err = write(w, msg)
 		require.NoError(t, err)
 
 		// Verify that the write is reported.
@@ -173,7 +171,6 @@ func TestPoll_Windows(t *testing.T) {
 	t.Run("poll should wait forever when duration is nil", func(t *testing.T) {
 		r, w, err := os.Pipe()
 		require.NoError(t, err)
-		wh := syscall.Handle(w.Fd())
 
 		ch := make(chan result, 1)
 		go pollToChannel(r.Fd(), -1, ch)
@@ -185,7 +182,7 @@ func TestPoll_Windows(t *testing.T) {
 		// Write a message to the pipe.
 		msg, err := syscall.ByteSliceFromString("test\n")
 		require.NoError(t, err)
-		_, err = syscall.Write(wh, msg)
+		_, err = write(w, msg)
 		require.NoError(t, err)
 
 		// Ensure that the write occurs (panic after an arbitrary timeout).
@@ -201,7 +198,6 @@ func TestPoll_Windows(t *testing.T) {
 	t.Run("poll should wait for the given duration", func(t *testing.T) {
 		r, w, err := os.Pipe()
 		require.NoError(t, err)
-		wh := syscall.Handle(w.Fd())
 
 		ch := make(chan result, 1)
 		go pollToChannel(r.Fd(), 500, ch)
@@ -213,7 +209,7 @@ func TestPoll_Windows(t *testing.T) {
 		// Write a message to the pipe.
 		msg, err := syscall.ByteSliceFromString("test\n")
 		require.NoError(t, err)
-		_, err = syscall.Write(wh, msg)
+		_, err = write(w, msg)
 		require.NoError(t, err)
 
 		// Ensure that the write occurs before the timer expires.
@@ -242,7 +238,6 @@ func TestPoll_Windows(t *testing.T) {
 	t.Run("poll should return when a write occurs before the given duration", func(t *testing.T) {
 		r, w, err := os.Pipe()
 		require.NoError(t, err)
-		wh := syscall.Handle(w.Fd())
 
 		ch := make(chan result, 1)
 		go pollToChannel(r.Fd(), 800, ch)
@@ -252,7 +247,7 @@ func TestPoll_Windows(t *testing.T) {
 
 		msg, err := syscall.ByteSliceFromString("test\n")
 		require.NoError(t, err)
-		_, err = syscall.Write(wh, msg)
+		_, err = write(w, msg)
 		require.NoError(t, err)
 
 		res := <-ch
