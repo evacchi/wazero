@@ -1003,3 +1003,15 @@ func Test2070(t *testing.T) {
 		require.NoError(t, err)
 	})
 }
+
+func Test20xx(t *testing.T) {
+	if !platform.CompilerSupported() {
+		return
+	}
+	run(t, func(t *testing.T, r wazero.Runtime) {
+		mod, err := r.Instantiate(ctx, getWasmBinary(t, "20xx"))
+		require.NoError(t, err)
+		_, err = mod.ExportedFunction("").Call(ctx, make([]uint64, 3)...)
+		require.NoError(t, err)
+	})
+}
