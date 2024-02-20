@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
 	"reflect"
 	"runtime"
 	"sort"
@@ -504,7 +505,17 @@ func releaseCompiledModule(cm *compiledModule) {
 		// munmap failure cannot recover, and happen asynchronously on the
 		// finalizer thread. While finalizer functions can return errors,
 		// they are ignored.
-		panic(fmt.Errorf("compiler: failed to munmap code segment: %w", err))
+		log.Printf("compiler: failed to munmap code segment: %v", err)
+	}
+}
+
+// releaseCompiledModule is a runtime.SetFinalizer function that munmaps the compiledModule.executable.
+func releaseSegment(segm asm.CodeSegment) {
+	if err := segm.Unmap(); err != nil {
+		// munmap failure cannot recover, and happen asynchronously on the
+		// finalizer thread. While finalizer functions can return errors,
+		// they are ignored.
+		log.Printf("compiler: failed to munmap code segment: %v", err)
 	}
 }
 

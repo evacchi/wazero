@@ -2,20 +2,24 @@ package compiler
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"encoding/binary"
 	"errors"
-	"io"
-	"math"
-	"testing"
-	"testing/iotest"
-
+	"github.com/tetratelabs/wazero/api"
 	"github.com/tetratelabs/wazero/internal/asm"
 	"github.com/tetratelabs/wazero/internal/filecache"
+	"github.com/tetratelabs/wazero/internal/sys"
+	"github.com/tetratelabs/wazero/internal/testing/hammer"
 	"github.com/tetratelabs/wazero/internal/testing/require"
 	"github.com/tetratelabs/wazero/internal/u32"
 	"github.com/tetratelabs/wazero/internal/u64"
 	"github.com/tetratelabs/wazero/internal/wasm"
+	"io"
+	"math"
+	"runtime"
+	"testing"
+	"testing/iotest"
 )
 
 var testVersion = ""
@@ -478,6 +482,68 @@ func TestEngine_addCompiledModuleToCache(t *testing.T) {
 		), actual)
 		require.NoError(t, content.Close())
 	})
+}
+
+func TestEngine_Call(t *testing.T) {
+	cache := filecache.New(t.TempDir())
+	e := NewEngine(testCtx, api.CoreFeaturesV2, cache).(*engine)
+	//ff := fakeFinalizer{}
+	//e.setFinalizer = ff.setFinalizer
+	e.setFinalizer = runtime.SetFinalizer
+
+	module := &wasm.Module{
+		TypeSection:     []wasm.FunctionType{{}},
+		FunctionSection: []wasm.Index{0},
+		CodeSection: []wasm.Code{
+			{Body: []byte{
+				wasm.OpcodeLoop, 0,
+				wasm.OpcodeBr, 0,
+				wasm.OpcodeEnd,
+				wasm.OpcodeEnd,
+			}},
+		},
+		ExportSection: []wasm.Export{
+			{Name: "1", Type: wasm.ExternTypeFunc, Index: 0},
+		},
+		Exports: map[string]*wasm.Export{
+			"1": {Name: "1", Type: wasm.ExternTypeFunc, Index: 0},
+		},
+		NameSection: &wasm.NameSection{
+			FunctionNames: wasm.NameMap{{Index: 0, Name: "1"}},
+			ModuleName:    "test",
+		},
+		ID: wasm.ModuleID{},
+	}
+
+	hammer.NewHammer(t, 100, 1000).Run(func(name string) {
+		t.Run(name, func(t *testing.T) {
+
+			//ctx, cancelFunc := context.WithTimeout(testCtx, 1*time.Millisecond)
+			ctx, cancelFunc := context.WithCancel(testCtx)
+
+			store := wasm.NewStore(api.CoreFeaturesV2, e)
+			sysctx := sys.DefaultContext(nil)
+			err := e.CompileModule(ctx, module, nil, true)
+			require.NoError(t, err)
+			modInst, err := store.Instantiate(ctx, module, "test", sysctx, []wasm.FunctionTypeID{0})
+			require.NoError(t, err)
+
+			cMod, ok := e.codes[module.ID]
+			require.True(t, ok)
+			require.Equal(t, len(module.FunctionSection), len(cMod.functions))
+
+			newModuleEngine, err := e.NewModuleEngine(module, modInst)
+			modInst.Engine = newModuleEngine
+			require.NoError(t, err)
+
+			go modInst.ExportedFunction("1").Call(ctx)
+			cMod = nil
+			modInst = nil
+			cancelFunc()
+
+		})
+	}, func() {})
+
 }
 
 func Test_readUint64(t *testing.T) {

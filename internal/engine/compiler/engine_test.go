@@ -104,6 +104,13 @@ func TestCompiler_Releasecode_Panic(t *testing.T) {
 	require.Contains(t, captured.Error(), "compiler: failed to munmap code segment")
 }
 
+func TestCompiler_ReleaseSegment_Panic(t *testing.T) {
+	captured := require.CapturePanic(func() {
+		releaseSegment(makeCodeSegment(1, 2))
+	})
+	require.Contains(t, captured.Error(), "compiler: failed to munmap code segment")
+}
+
 // Ensures that value stack and call-frame stack are allocated on heap which
 // allows us to safely access to their data region from native code.
 // See comments on initialStackSize and initialCallFrameStackSize.

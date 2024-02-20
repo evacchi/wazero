@@ -309,3 +309,52 @@ func testWithCloseOnContextDone(t *testing.T, config wazero.RuntimeConfig) {
 		require.NoError(t, err)
 	})
 }
+
+func testWithUnmap(t *testing.T, config wazero.RuntimeConfig) {
+	var (
+		zero    uint32 = 0
+		wasmBin        = binaryencoding.EncodeModule(&wasm.Module{
+			TypeSection:     []wasm.FunctionType{{}},
+			FunctionSection: []wasm.Index{0},
+			CodeSection: []wasm.Code{
+				{Body: []byte{
+					wasm.OpcodeLoop, 0,
+					wasm.OpcodeBr, 0,
+					wasm.OpcodeEnd,
+					wasm.OpcodeEnd,
+				}},
+			},
+			StartSection: &zero,
+		})
+	)
+
+	dir := t.TempDir()
+	ctx := context.Background()
+	{
+		cc, err := wazero.NewCompilationCacheWithDir(dir)
+		require.NoError(t, err)
+		rc := config.WithCompilationCache(cc).WithCloseOnContextDone(false)
+
+		r := wazero.NewRuntimeWithConfig(ctx, rc)
+		_, err = r.CompileModule(ctx, wasmBin)
+		require.NoError(t, err)
+		err = r.Close(ctx)
+		require.NoError(t, err)
+	}
+
+	cc, err := wazero.NewCompilationCacheWithDir(dir)
+	require.NoError(t, err)
+	rc := config.WithCompilationCache(cc).WithCloseOnContextDone(true)
+	r := wazero.NewRuntimeWithConfig(ctx, rc)
+
+	timeoutCtx, cancel := context.WithCancel(ctx)
+	mod, err := r.CompileModule(ctx, wasmBin)
+	require.NoError(t, err)
+	defer cancel()
+	go func() { _, err = r.InstantiateModule(timeoutCtx, mod, wazero.NewModuleConfig()) }()
+	//require.EqualError(t, err, "module closed with context deadline exceeded")
+	err = r.Close(ctx)
+
+	require.NoError(t, err)
+
+}

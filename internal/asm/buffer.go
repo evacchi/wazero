@@ -58,7 +58,7 @@ func (seg *CodeSegment) Map(size int) error {
 	return nil
 }
 
-// Close unmaps the underlying memory region held by the code segment, clearing
+// Unmap unmaps the underlying memory region held by the code segment, clearing
 // its state back to an empty code segment.
 //
 // The value is still usable after unmapping its memory, a new memory area can
