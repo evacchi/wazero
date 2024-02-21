@@ -3,6 +3,7 @@
 package platform
 
 import (
+	"log"
 	"syscall"
 	"unsafe"
 )
@@ -27,14 +28,21 @@ func mmapMemory(size int) ([]byte, error) {
 }
 
 func munmapCodeSegment(code []byte) error {
-	return syscall.Munmap(code)
+	log.Printf("About to unmap: %v \n", unsafe.SliceData(code))
+	err := syscall.Munmap(code)
+	if err != nil {
+		log.Printf("Unmapped with error=%v\n", err)
+	}
+	return err
 }
 
 // mmapCodeSegmentAMD64 gives all read-write-exec permission to the mmap region
 // to enter the function. Otherwise, segmentation fault exception is raised.
 func mmapCodeSegmentAMD64(size int) ([]byte, error) {
 	// The region must be RWX: RW for writing native codes, X for executing the region.
-	return mmapCodeSegment(size, mmapProtAMD64)
+	x, err := mmapCodeSegment(size, mmapProtAMD64)
+	log.Printf("Mmapped code segment: len=%v, ptr=%x\n", size, unsafe.SliceData(x))
+	return x, err
 }
 
 // mmapCodeSegmentARM64 cannot give all read-write-exec permission to the mmap region.

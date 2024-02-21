@@ -480,6 +480,60 @@ func TestEngine_addCompiledModuleToCache(t *testing.T) {
 	})
 }
 
+// func TestEngine_Call(t *testing.T) {
+// 	cache := filecache.New(t.TempDir())
+// 	e := NewEngine(testCtx, api.CoreFeaturesV2, cache).(*engine)
+// 	//ff := fakeFinalizer{}
+// 	//e.setFinalizer = ff.setFinalizer
+// 	e.setFinalizer = runtime.SetFinalizer
+
+// 	module := &wasm.Module{
+// 		TypeSection:     []wasm.FunctionType{{}},
+// 		FunctionSection: []wasm.Index{0},
+// 		CodeSection: []wasm.Code{
+// 			{Body: []byte{
+// 				wasm.OpcodeLoop, 0,
+// 				wasm.OpcodeBr, 0,
+// 				wasm.OpcodeEnd,
+// 				wasm.OpcodeEnd,
+// 			}},
+// 		},
+// 		ExportSection: []wasm.Export{
+// 			{Name: "1", Type: wasm.ExternTypeFunc, Index: 0},
+// 		},
+// 		Exports: map[string]*wasm.Export{
+// 			"1": {Name: "1", Type: wasm.ExternTypeFunc, Index: 0},
+// 		},
+// 		NameSection: &wasm.NameSection{
+// 			FunctionNames: wasm.NameMap{{Index: 0, Name: "1"}},
+// 			ModuleName:    "test",
+// 		},
+// 		ID: wasm.ModuleID{},
+// 	}
+
+// 	hammer.NewHammer(t, 10, 100).Run(func(name string) {
+// 		t.Run(name, func(t *testing.T) {
+
+// 			ctx, cancelFunc := context.WithTimeout(testCtx, 100*time.Millisecond)
+// 			t.Cleanup(cancelFunc)
+
+// 			store := wasm.NewStore(api.CoreFeaturesV2, e)
+// 			sysctx := sys.DefaultContext(nil)
+// 			err := e.CompileModule(ctx, module, nil, true)
+// 			require.NoError(t, err)
+// 			modInst, err := store.Instantiate(ctx, module, "test", sysctx, []wasm.FunctionTypeID{0})
+// 			require.NoError(t, err)
+
+// 			newModuleEngine, err := e.NewModuleEngine(module, modInst)
+// 			modInst.Engine = newModuleEngine
+// 			require.NoError(t, err)
+
+// 			modInst.ExportedFunction("1").Call(ctx)
+
+// 		})
+// 	}, func() {})
+// }
+
 func Test_readUint64(t *testing.T) {
 	tests := []struct {
 		name  string

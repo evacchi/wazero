@@ -5,7 +5,9 @@
 package platform
 
 import (
+	"log"
 	"runtime"
+	"unsafe"
 )
 
 // archRequirementsVerified is set by platform-specific init to true if the platform is supported
@@ -55,6 +57,8 @@ func MmapMemory(size int) ([]byte, error) {
 //
 // See https://man7.org/linux/man-pages/man2/mremap.2.html
 func RemapCodeSegment(code []byte, size int) ([]byte, error) {
+	log.Printf("Remapping code segment: len=%v, ptr=%x\n", size, unsafe.SliceData(code))
+
 	if size < len(code) {
 		panic("BUG: RemapCodeSegment with size less than code")
 	}
@@ -62,7 +66,10 @@ func RemapCodeSegment(code []byte, size int) ([]byte, error) {
 		return MmapCodeSegment(size)
 	}
 	if runtime.GOARCH == "amd64" {
-		return remapCodeSegmentAMD64(code, size)
+		segm, err := remapCodeSegmentAMD64(code, size)
+		log.Printf("Remapped code segment error: %v\n", err)
+		log.Printf("Remapped code segment: len=%v, ptr=%x", size, unsafe.SliceData(segm))
+		return segm, err
 	} else {
 		return remapCodeSegmentARM64(code, size)
 	}

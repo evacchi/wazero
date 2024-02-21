@@ -7,6 +7,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
+	"log"
 	"runtime"
 	"unsafe"
 
@@ -215,6 +216,8 @@ func deserializeCompiledModule(wazeroVersion string, reader io.ReadCloser) (cm *
 
 	if executableLen > 0 {
 		executable, err := platform.MmapCodeSegment(int(executableLen))
+		log.Printf("Mmapped code segment: len=%v, ptr=%x\n", executableLen, unsafe.SliceData(executable))
+
 		if err != nil {
 			err = fmt.Errorf("compilationcache: error mmapping executable (len=%d): %v", executableLen, err)
 			return nil, false, err
