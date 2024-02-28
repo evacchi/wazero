@@ -500,6 +500,7 @@ func (s nativeCallStatusCode) String() (ret string) {
 
 // releaseCompiledModule is a runtime.SetFinalizer function that munmaps the compiledModule.executable.
 func releaseCompiledModule(cm *compiledModule) {
+	// log.Printf("!! %x", cm.executable.Addr())
 	if err := cm.executable.Unmap(); err != nil {
 		// munmap failure cannot recover, and happen asynchronously on the
 		// finalizer thread. While finalizer functions can return errors,
@@ -1055,6 +1056,8 @@ func (ce *callEngine) execWasmFunction(ctx context.Context, m *wasm.ModuleInstan
 	codeAddr := ce.initialFn.codeInitialAddress
 	modAddr := ce.initialFn.moduleInstance
 
+	//log.Printf("-> %x", ce.module.executable.Addr())
+
 entry:
 	{
 		// Call into the native code.
@@ -1138,6 +1141,7 @@ entry:
 			status.causePanic()
 		}
 	}
+	//log.Printf("<- %x", ce.module.executable.Addr())
 }
 
 // callStackCeiling is the maximum WebAssembly call frame stack height. This allows wazero to raise
