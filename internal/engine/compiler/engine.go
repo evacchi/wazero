@@ -499,7 +499,7 @@ func (s nativeCallStatusCode) String() (ret string) {
 }
 
 // releaseCompiledModule is a runtime.SetFinalizer function that munmaps the compiledModule.executable.
-func releaseCompiledModule(cm *compiledModule) {
+func releaseCompiledModule(cm *compiledCode) {
 	if err := cm.executable.Unmap(); err != nil {
 		// munmap failure cannot recover, and happen asynchronously on the
 		// finalizer thread. While finalizer functions can return errors,
@@ -555,7 +555,7 @@ func (e *engine) CompileModule(_ context.Context, module *wasm.Module, listeners
 	}
 
 	// As this uses mmap, we need to munmap on the compiled machine code when it's GCed.
-	e.setFinalizer(cm, releaseCompiledModule)
+	e.setFinalizer(cm.compiledCode, releaseCompiledModule)
 	ln := len(listeners)
 	cmp := newCompiler()
 	asmNodes := new(asmNodes)
