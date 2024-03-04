@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
 	"reflect"
 	"runtime"
 	"sort"
@@ -500,6 +501,7 @@ func (s nativeCallStatusCode) String() (ret string) {
 
 // releaseCompiledModule is a runtime.SetFinalizer function that munmaps the compiledModule.executable.
 func releaseCompiledModule(cm *compiledCode) {
+	log.Printf("compiler: releasing compiled module %#x", cm.executable.Addr())
 	if err := cm.executable.Unmap(); err != nil {
 		// munmap failure cannot recover, and happen asynchronously on the
 		// finalizer thread. While finalizer functions can return errors,
@@ -675,7 +677,10 @@ func (e *moduleEngine) ResolveImportedMemory(wasm.ModuleEngine) {}
 
 // FunctionInstanceReference implements the same method as documented on wasm.ModuleEngine.
 func (e *moduleEngine) FunctionInstanceReference(funcIndex wasm.Index) wasm.Reference {
-	return uintptr(unsafe.Pointer(&e.functions[funcIndex]))
+	fptr := &e.functions[funcIndex]
+	u := uintptr(unsafe.Pointer(fptr))
+	log.Printf("function instance reference %#x", u)
+	return u
 }
 
 // DoneInstantiation implements wasm.ModuleEngine.
