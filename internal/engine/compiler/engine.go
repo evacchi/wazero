@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log"
 	"reflect"
 	"runtime"
 	"sort"
@@ -501,7 +500,7 @@ func (s nativeCallStatusCode) String() (ret string) {
 
 // releaseCompiledModule is a runtime.SetFinalizer function that munmaps the compiledModule.executable.
 func releaseCompiledModule(cm *compiledCode) {
-	log.Printf("compiler: releasing compiled module %#x", cm.executable.Addr())
+	// log.Printf("compiler: releasing compiled module %#x", cm.executable.Addr())
 	if err := cm.executable.Unmap(); err != nil {
 		// munmap failure cannot recover, and happen asynchronously on the
 		// finalizer thread. While finalizer functions can return errors,
@@ -678,8 +677,8 @@ func (e *moduleEngine) ResolveImportedMemory(wasm.ModuleEngine) {}
 // FunctionInstanceReference implements the same method as documented on wasm.ModuleEngine.
 func (e *moduleEngine) FunctionInstanceReference(funcIndex wasm.Index) wasm.Reference {
 	fptr := &e.functions[funcIndex]
-	u := uintptr(unsafe.Pointer(fptr))
-	log.Printf("function instance reference %#x", u)
+	u := unsafe.Pointer(fptr)
+	// log.Printf("function instance reference %#x", u)
 	return u
 }
 
@@ -705,28 +704,28 @@ func (e *moduleEngine) LookupFunction(t *wasm.TableInstance, typeId wasm.Functio
 		panic(wasmruntime.ErrRuntimeInvalidTableAccess)
 	}
 	rawPtr := t.References[tableOffset]
-	if rawPtr == 0 {
+	if rawPtr == nil {
 		panic(wasmruntime.ErrRuntimeInvalidTableAccess)
 	}
 
-	tf := functionFromUintptr(rawPtr)
+	tf := (*function)(rawPtr)
 	if tf.typeID != typeId {
 		panic(wasmruntime.ErrRuntimeIndirectCallTypeMismatch)
 	}
 	return tf.moduleInstance, tf.parent.index
 }
 
-// functionFromUintptr resurrects the original *function from the given uintptr
-// which comes from either funcref table or OpcodeRefFunc instruction.
-func functionFromUintptr(ptr uintptr) *function {
-	// Wraps ptrs as the double pointer in order to avoid the unsafe access as detected by race detector.
-	//
-	// For example, if we have (*function)(unsafe.Pointer(ptr)) instead, then the race detector's "checkptr"
-	// subroutine wanrs as "checkptr: pointer arithmetic result points to invalid allocation"
-	// https://github.com/golang/go/blob/1ce7fcf139417d618c2730010ede2afb41664211/src/runtime/checkptr.go#L69
-	var wrapped *uintptr = &ptr
-	return *(**function)(unsafe.Pointer(wrapped))
-}
+//// functionFromUintptr resurrects the original *function from the given uintptr
+//// which comes from either funcref table or OpcodeRefFunc instruction.
+//func functionFromUintptr(ptr uintptr) *function {
+//	// Wraps ptrs as the double pointer in order to avoid the unsafe access as detected by race detector.
+//	//
+//	// For example, if we have (*function)(unsafe.Pointer(ptr)) instead, then the race detector's "checkptr"
+//	// subroutine wanrs as "checkptr: pointer arithmetic result points to invalid allocation"
+//	// https://github.com/golang/go/blob/1ce7fcf139417d618c2730010ede2afb41664211/src/runtime/checkptr.go#L69
+//	var wrapped *uintptr = &ptr
+//	return *(**function)(unsafe.Pointer(wrapped))
+//}
 
 // Definition implements the same method as documented on wasm.ModuleEngine.
 func (ce *callEngine) Definition() api.FunctionDefinition {
@@ -1198,7 +1197,7 @@ func (ce *callEngine) builtinFunctionTableGrow(tables []*wasm.TableInstance) {
 	table := tables[tableIndex] // verified not to be out of range by the func validation at compilation phase.
 	num := ce.popValue()
 	ref := ce.popValue()
-	res := table.Grow(uint32(num), uintptr(ref))
+	res := table.Grow(uint32(num), unsafe.Pointer(uintptr(ref)))
 	ce.pushValue(uint64(res))
 }
 

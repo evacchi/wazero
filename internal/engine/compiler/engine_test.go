@@ -240,7 +240,7 @@ func TestCallEngine_builtinFunctionTableGrow(t *testing.T) {
 	ce.builtinFunctionTableGrow([]*wasm.TableInstance{table})
 
 	require.Equal(t, 1, len(table.References))
-	require.Equal(t, uintptr(0xff), table.References[0])
+	require.Equal(t, unsafe.Pointer(uintptr(0xff)), table.References[0])
 }
 
 func ptrAsUint64(f *function) uint64 {

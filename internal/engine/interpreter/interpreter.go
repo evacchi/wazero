@@ -497,7 +497,7 @@ func (e *moduleEngine) DoneInstantiation() {}
 
 // FunctionInstanceReference implements the same method as documented on wasm.ModuleEngine.
 func (e *moduleEngine) FunctionInstanceReference(funcIndex wasm.Index) wasm.Reference {
-	return uintptr(unsafe.Pointer(&e.functions[funcIndex]))
+	return unsafe.Pointer(&e.functions[funcIndex])
 }
 
 // NewFunction implements the same method as documented on wasm.ModuleEngine.
@@ -514,11 +514,11 @@ func (e *moduleEngine) LookupFunction(t *wasm.TableInstance, typeId wasm.Functio
 		panic(wasmruntime.ErrRuntimeInvalidTableAccess)
 	}
 	rawPtr := t.References[tableOffset]
-	if rawPtr == 0 {
+	if rawPtr == nil {
 		panic(wasmruntime.ErrRuntimeInvalidTableAccess)
 	}
 
-	tf := functionFromUintptr(rawPtr)
+	tf := (*function)(rawPtr)
 	if tf.typeID != typeId {
 		panic(wasmruntime.ErrRuntimeIndirectCallTypeMismatch)
 	}
@@ -762,11 +762,11 @@ func (ce *callEngine) callNativeFunc(ctx context.Context, m *wasm.ModuleInstance
 				panic(wasmruntime.ErrRuntimeInvalidTableAccess)
 			}
 			rawPtr := table.References[offset]
-			if rawPtr == 0 {
+			if rawPtr == nil {
 				panic(wasmruntime.ErrRuntimeInvalidTableAccess)
 			}
 
-			tf := functionFromUintptr(rawPtr)
+			tf := (*function)(rawPtr)
 			if tf.typeID != typeIDs[op.U1] {
 				panic(wasmruntime.ErrRuntimeIndirectCallTypeMismatch)
 			}
@@ -1769,7 +1769,7 @@ func (ce *callEngine) callNativeFunc(ctx context.Context, m *wasm.ModuleInstance
 				panic(wasmruntime.ErrRuntimeInvalidTableAccess)
 			}
 
-			ce.pushValue(uint64(table.References[offset]))
+			ce.pushValue(uint64(uintptr(table.References[offset])))
 			frame.pc++
 		case wazeroir.OperationKindTableSet:
 			table := tables[op.U1]
@@ -1780,7 +1780,7 @@ func (ce *callEngine) callNativeFunc(ctx context.Context, m *wasm.ModuleInstance
 				panic(wasmruntime.ErrRuntimeInvalidTableAccess)
 			}
 
-			table.References[offset] = uintptr(ref) // externrefs are opaque uint64.
+			table.References[offset] = unsafe.Pointer(uintptr(ref)) // externrefs are opaque uint64.
 			frame.pc++
 		case wazeroir.OperationKindTableSize:
 			table := tables[op.U1]
@@ -1789,13 +1789,13 @@ func (ce *callEngine) callNativeFunc(ctx context.Context, m *wasm.ModuleInstance
 		case wazeroir.OperationKindTableGrow:
 			table := tables[op.U1]
 			num, ref := ce.popValue(), ce.popValue()
-			ret := table.Grow(uint32(num), uintptr(ref))
+			ret := table.Grow(uint32(num), unsafe.Pointer(uintptr(ref)))
 			ce.pushValue(uint64(ret))
 			frame.pc++
 		case wazeroir.OperationKindTableFill:
 			table := tables[op.U1]
 			num := ce.popValue()
-			ref := uintptr(ce.popValue())
+			ref := unsafe.Pointer(uintptr(ce.popValue()))
 			offset := ce.popValue()
 			if num+offset > uint64(len(table.References)) {
 				panic(wasmruntime.ErrRuntimeInvalidTableAccess)

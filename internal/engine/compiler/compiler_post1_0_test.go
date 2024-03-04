@@ -476,7 +476,7 @@ func TestCompiler_compileMemoryInit(t *testing.T) {
 }
 
 func TestCompiler_compileElemDrop(t *testing.T) {
-	origins := []wasm.ElementInstance{{1}, {2}, {3}, {4}, {5}}
+	origins := []wasm.ElementInstance{{wasm.Reference(uintptr(1))}, {wasm.Reference(uintptr(2))}, {wasm.Reference(uintptr(3))}, {wasm.Reference(uintptr(4))}, {wasm.Reference(uintptr(5))}}
 
 	for i := 0; i < len(origins); i++ {
 		t.Run(strconv.Itoa(i), func(t *testing.T) {
@@ -595,7 +595,7 @@ func TestCompiler_compileTableCopy(t *testing.T) {
 			table := make([]wasm.Reference, tableSize)
 			env.addTable(&wasm.TableInstance{References: table})
 			for i := 0; i < tableSize; i++ {
-				table[i] = uintptr(i)
+				table[i] = wasm.Reference(uintptr(i))
 			}
 
 			// Run code.
@@ -604,7 +604,7 @@ func TestCompiler_compileTableCopy(t *testing.T) {
 			if !tc.requireOutOfBoundsError {
 				exp := make([]wasm.Reference, tableSize)
 				for i := 0; i < tableSize; i++ {
-					exp[i] = uintptr(i)
+					exp[i] = wasm.Reference(uintptr(i))
 				}
 				copy(exp[tc.destOffset:],
 					exp[tc.sourceOffset:tc.sourceOffset+tc.size])
@@ -621,7 +621,7 @@ func TestCompiler_compileTableCopy(t *testing.T) {
 
 func TestCompiler_compileTableInit(t *testing.T) {
 	elementInstances := []wasm.ElementInstance{
-		{}, {1, 2, 3, 4, 5},
+		{}, {unsafe.Pointer(uintptr(1)), unsafe.Pointer(uintptr(2)), unsafe.Pointer(uintptr(3)), unsafe.Pointer(uintptr(4)), unsafe.Pointer(uintptr(5))},
 	}
 
 	const tableSize = 100
@@ -680,7 +680,7 @@ func TestCompiler_compileTableInit(t *testing.T) {
 			table := make([]wasm.Reference, tableSize)
 			env.addTable(&wasm.TableInstance{References: table})
 			for i := 0; i < tableSize; i++ {
-				table[i] = uintptr(i)
+				table[i] = wasm.Reference(uintptr(i))
 			}
 
 			code := asm.CodeSegment{}
@@ -699,7 +699,7 @@ func TestCompiler_compileTableInit(t *testing.T) {
 				require.Equal(t, nativeCallStatusCodeReturned, env.compilerStatus())
 				exp := make([]wasm.Reference, tableSize)
 				for i := 0; i < tableSize; i++ {
-					exp[i] = uintptr(i)
+					exp[i] = wasm.Reference(uintptr(i))
 				}
 				if inst := elementInstances[tc.elemIndex]; inst != nil {
 					copy(exp[tc.destOffset:], inst[tc.sourceOffset:tc.sourceOffset+tc.copySize])
@@ -720,8 +720,8 @@ func TestCompiler_compileTableSet(t *testing.T) {
 	funcref := &function{moduleInstance: &wasm.ModuleInstance{}}
 	funcrefOpaque := uintptr(unsafe.Pointer(funcref))
 
-	externTable := &wasm.TableInstance{Type: wasm.RefTypeExternref, References: []wasm.Reference{0, 0, externrefOpaque, 0, 0}}
-	funcrefTable := &wasm.TableInstance{Type: wasm.RefTypeFuncref, References: []wasm.Reference{0, 0, 0, 0, funcrefOpaque}}
+	externTable := &wasm.TableInstance{Type: wasm.RefTypeExternref, References: []wasm.Reference{wasm.Reference(uintptr(0)), wasm.Reference(uintptr(0)), wasm.Reference(uintptr(externrefOpaque)), wasm.Reference(uintptr(0)), wasm.Reference(uintptr(0))}}
+	funcrefTable := &wasm.TableInstance{Type: wasm.RefTypeFuncref, References: []wasm.Reference{wasm.Reference(uintptr(0)), wasm.Reference(uintptr(0)), wasm.Reference(uintptr(0)), wasm.Reference(uintptr(0)), wasm.Reference(uintptr(funcrefOpaque))}}
 	tables := []*wasm.TableInstance{externTable, funcrefTable}
 
 	tests := []struct {
@@ -840,19 +840,19 @@ func TestCompiler_compileTableSet(t *testing.T) {
 }
 
 //go:nocheckptr ignore "pointer arithmetic result points to invalid allocation"
-func dogFromPtr(ptr uintptr) *dog {
-	if ptr == 0 {
+func dogFromPtr(ptr unsafe.Pointer) *dog {
+	if ptr == nil {
 		return nil
 	}
-	return (*dog)(unsafe.Pointer(ptr))
+	return (*dog)(ptr)
 }
 
 //go:nocheckptr ignore "pointer arithmetic result points to invalid allocation"
-func functionFromPtr(ptr uintptr) *function {
-	if ptr == 0 {
+func functionFromPtr(ptr unsafe.Pointer) *function {
+	if ptr == nil {
 		return nil
 	}
-	return (*function)(unsafe.Pointer(ptr))
+	return (*function)(ptr)
 }
 
 func TestCompiler_compileTableGet(t *testing.T) {
@@ -861,8 +861,8 @@ func TestCompiler_compileTableGet(t *testing.T) {
 	funcref := &function{moduleInstance: &wasm.ModuleInstance{}}
 	funcrefOpaque := uintptr(unsafe.Pointer(funcref))
 	tables := []*wasm.TableInstance{
-		{Type: wasm.RefTypeExternref, References: []wasm.Reference{0, 0, externrefOpaque, 0, 0}},
-		{Type: wasm.RefTypeFuncref, References: []wasm.Reference{0, 0, 0, 0, funcrefOpaque}},
+		{Type: wasm.RefTypeExternref, References: []wasm.Reference{wasm.Reference(uintptr(0)), wasm.Reference(uintptr(0)), wasm.Reference(uintptr(externrefOpaque)), wasm.Reference(uintptr(0)), wasm.Reference(uintptr(0))}},
+		{Type: wasm.RefTypeFuncref, References: []wasm.Reference{wasm.Reference(uintptr(0)), wasm.Reference(uintptr(0)), wasm.Reference(uintptr(0)), wasm.Reference(uintptr(0)), wasm.Reference(uintptr(funcrefOpaque))}},
 	}
 
 	tests := []struct {
