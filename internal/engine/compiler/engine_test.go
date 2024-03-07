@@ -26,14 +26,14 @@ func requireSupportedOSArch(t *testing.T) {
 	}
 }
 
-type fakeFinalizer map[*compiledModule]func(module *compiledModule)
+type fakeFinalizer map[*compiledCode]func(module *compiledCode)
 
 func (f fakeFinalizer) setFinalizer(obj interface{}, finalizer interface{}) {
-	cf := obj.(*compiledModule)
+	cf := obj.(*compiledCode)
 	if _, ok := f[cf]; ok { // easier than adding a field for testing.T
 		panic(fmt.Sprintf("BUG: %v already had its finalizer set", cf))
 	}
-	f[cf] = finalizer.(func(*compiledModule))
+	f[cf] = finalizer.(func(*compiledCode))
 }
 
 func TestCompiler_CompileModule(t *testing.T) {
@@ -95,11 +95,10 @@ func TestCompiler_CompileModule(t *testing.T) {
 
 func TestCompiler_Releasecode_Panic(t *testing.T) {
 	captured := require.CapturePanic(func() {
-		releaseCompiledModule(&compiledModule{
-			compiledCode: &compiledCode{
-				executable: makeCodeSegment(1, 2),
-			},
-		})
+		releaseCompiledModule(&compiledCode{
+			executable: makeCodeSegment(1, 2),
+		},
+		)
 	})
 	require.Contains(t, captured.Error(), "compiler: failed to munmap code segment")
 }
@@ -241,7 +240,7 @@ func TestCallEngine_builtinFunctionTableGrow(t *testing.T) {
 	ce.builtinFunctionTableGrow([]*wasm.TableInstance{table})
 
 	require.Equal(t, 1, len(table.References))
-	require.Equal(t, uintptr(0xff), table.References[0])
+	require.Equal(t, unsafe.Pointer(uintptr(0xff)), table.References[0])
 }
 
 func ptrAsUint64(f *function) uint64 {

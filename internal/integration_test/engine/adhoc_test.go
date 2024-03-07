@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"runtime"
 	"strconv"
 	"strings"
 	"testing"
@@ -72,6 +73,7 @@ var tests = map[string]testCase{
 	"many params many results / main / listener":                       {f: testManyParamsResultsMainListener},
 	"many params many results / call_many_consts_and_pick_last_vector": {f: testManyParamsResultsCallManyConstsAndPickLastVector},
 	"many params many results / call_many_consts_and_pick_last_vector / listener": {f: testManyParamsResultsCallManyConstsAndPickLastVectorListener},
+	"linking a closed module should not segfault":                                 {f: testLinking},
 }
 
 func TestEngineCompiler(t *testing.T) {
@@ -132,6 +134,10 @@ var (
 	infiniteLoopWasm []byte
 	//go:embed testdata/huge_call_stack_unwind.wasm
 	hugeCallStackUnwind []byte
+	//go:embed testdata/linking1.wasm
+	linking1 []byte
+	//go:embed testdata/linking2.wasm
+	linking2 []byte
 )
 
 func testEnsureTerminationOnClose(t *testing.T, r wazero.Runtime) {
@@ -2182,4 +2188,35 @@ wasm stack trace:
 	.$0()
 	.$0()
 	... maybe followed by omitted frames`, err.Error())
+}
+
+// testLinking links two modules where the first exports a table and the second module imports it,
+// overwriting one of the table entries with one of its functions.
+// The first module exposes a function that invokes the functionref in the table.
+// If the functionref belongs to failed or closed module, then the call should not fail.
+func testLinking(t *testing.T, r wazero.Runtime) {
+	if !platform.CompilerSupported() {
+		t.Skip()
+	}
+	ctx := context.Background()
+	// Instantiate the first module.
+	mod, err := r.InstantiateWithConfig(ctx, linking1, wazero.NewModuleConfig().WithName("Ms"))
+	defer mod.Close(ctx)
+	require.NoError(t, err)
+	// The second module builds successfully.
+	m, err := r.CompileModule(ctx, linking2)
+	require.NoError(t, err)
+	// The second module instantiates and sets the table[0] field to point to its own $f function.
+	_, err = r.InstantiateModule(ctx, m, wazero.NewModuleConfig())
+	// However it traps upon instantiation.
+	require.Error(t, err)
+	m.Close(ctx)
+	// Force a GC cycle. This should not cause the memory segment to become invalid.
+	// If the segment is invalid, the next function call will SIGSEGV.
+	runtime.GC()
+	time.Sleep(200 * time.Millisecond)
+	// The result is expected to be 0xdead, i.e., the result of linking2.$f.
+	res, err := mod.ExportedFunction("get table[0]").Call(ctx)
+	require.NoError(t, err)
+	require.Equal(t, uint64(0xdead), res[0])
 }

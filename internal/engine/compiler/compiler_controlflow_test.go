@@ -659,7 +659,7 @@ func TestCompiler_compileCallIndirect(t *testing.T) {
 		env.addTable(&wasm.TableInstance{References: table})
 
 		cf := &function{typeID: 50}
-		table[0] = uintptr(unsafe.Pointer(cf))
+		table[0] = unsafe.Pointer(cf)
 
 		// Place the offset value.
 		err = compiler.compileConstI32(targetOffset)
@@ -737,7 +737,7 @@ func TestCompiler_compileCallIndirect(t *testing.T) {
 				moduleInstance:     env.moduleInstance,
 				typeID:             targetTypeID,
 			}
-			table[i] = uintptr(unsafe.Pointer(&me.functions[i]))
+			table[i] = unsafe.Pointer(&me.functions[i])
 		}
 
 		// Test to ensure that we can call all the functions stored in the table.
@@ -827,7 +827,7 @@ func TestCompiler_callIndirect_largeTypeIndex(t *testing.T) {
 			moduleInstance:     env.moduleInstance,
 		}
 		me.functions = append(me.functions, f)
-		table[0] = uintptr(unsafe.Pointer(&f))
+		table[0] = unsafe.Pointer(&f)
 	}
 
 	compiler := env.requireNewCompiler(t, &wasm.FunctionType{}, newCompiler, &wazeroir.CompilationResult{

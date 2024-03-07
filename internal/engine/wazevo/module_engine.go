@@ -294,7 +294,7 @@ func (m *moduleEngine) DoneInstantiation() {
 func (m *moduleEngine) FunctionInstanceReference(funcIndex wasm.Index) wasm.Reference {
 	if funcIndex < m.module.Source.ImportFunctionCount {
 		begin, _, _ := m.parent.offsets.ImportedFunctionOffset(funcIndex)
-		return uintptr(unsafe.Pointer(&m.opaque[begin]))
+		return unsafe.Pointer(&m.opaque[begin])
 	}
 	localIndex := funcIndex - m.module.Source.ImportFunctionCount
 	p := m.parent
@@ -308,7 +308,7 @@ func (m *moduleEngine) FunctionInstanceReference(funcIndex wasm.Index) wasm.Refe
 		indexInModule:          funcIndex,
 	}
 	m.localFunctionInstances = append(m.localFunctionInstances, lf)
-	return uintptr(unsafe.Pointer(lf))
+	return unsafe.Pointer(lf)
 }
 
 // LookupFunction implements wasm.ModuleEngine.
@@ -317,11 +317,11 @@ func (m *moduleEngine) LookupFunction(t *wasm.TableInstance, typeId wasm.Functio
 		panic(wasmruntime.ErrRuntimeInvalidTableAccess)
 	}
 	rawPtr := t.References[tableOffset]
-	if rawPtr == 0 {
+	if rawPtr == nil {
 		panic(wasmruntime.ErrRuntimeInvalidTableAccess)
 	}
 
-	tf := wazevoapi.PtrFromUintptr[functionInstance](rawPtr)
+	tf := (*functionInstance)(rawPtr)
 	if tf.typeID != typeId {
 		panic(wasmruntime.ErrRuntimeIndirectCallTypeMismatch)
 	}
