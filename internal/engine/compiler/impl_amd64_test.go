@@ -50,7 +50,7 @@ func TestAmd64Compiler_indirectCallWithTargetOnCallingConvReg(t *testing.T) {
 			typeID:             0,
 		}
 		me.functions = append(me.functions, f)
-		table[0] = uintptr(unsafe.Pointer(&f))
+		table[0] = unsafe.Pointer(&f)
 	}
 
 	compiler := env.requireNewCompiler(t, &wasm.FunctionType{}, newCompiler, &wazeroir.CompilationResult{

@@ -476,7 +476,7 @@ func TestCompiler_compileMemoryInit(t *testing.T) {
 }
 
 func TestCompiler_compileElemDrop(t *testing.T) {
-	origins := []wasm.ElementInstance{{1}, {2}, {3}, {4}, {5}}
+	origins := []wasm.ElementInstance{{asReference(1)}, {asReference(2)}, {asReference(3)}, {asReference(4)}, {asReference(5)}}
 
 	for i := 0; i < len(origins); i++ {
 		t.Run(strconv.Itoa(i), func(t *testing.T) {
@@ -595,7 +595,7 @@ func TestCompiler_compileTableCopy(t *testing.T) {
 			table := make([]wasm.Reference, tableSize)
 			env.addTable(&wasm.TableInstance{References: table})
 			for i := 0; i < tableSize; i++ {
-				table[i] = uintptr(i)
+				table[i] = asReference(uint(i))
 			}
 
 			// Run code.
@@ -604,7 +604,7 @@ func TestCompiler_compileTableCopy(t *testing.T) {
 			if !tc.requireOutOfBoundsError {
 				exp := make([]wasm.Reference, tableSize)
 				for i := 0; i < tableSize; i++ {
-					exp[i] = uintptr(i)
+					exp[i] = asReference(uint(i))
 				}
 				copy(exp[tc.destOffset:],
 					exp[tc.sourceOffset:tc.sourceOffset+tc.size])
@@ -621,7 +621,7 @@ func TestCompiler_compileTableCopy(t *testing.T) {
 
 func TestCompiler_compileTableInit(t *testing.T) {
 	elementInstances := []wasm.ElementInstance{
-		{}, {1, 2, 3, 4, 5},
+		{}, {asReference(1), asReference(2), asReference(3), asReference(4), asReference(5)},
 	}
 
 	const tableSize = 100
@@ -680,7 +680,7 @@ func TestCompiler_compileTableInit(t *testing.T) {
 			table := make([]wasm.Reference, tableSize)
 			env.addTable(&wasm.TableInstance{References: table})
 			for i := 0; i < tableSize; i++ {
-				table[i] = uintptr(i)
+				table[i] = asReference(uint(i))
 			}
 
 			code := asm.CodeSegment{}
@@ -699,7 +699,7 @@ func TestCompiler_compileTableInit(t *testing.T) {
 				require.Equal(t, nativeCallStatusCodeReturned, env.compilerStatus())
 				exp := make([]wasm.Reference, tableSize)
 				for i := 0; i < tableSize; i++ {
-					exp[i] = uintptr(i)
+					exp[i] = asReference(uint(i))
 				}
 				if inst := elementInstances[tc.elemIndex]; inst != nil {
 					copy(exp[tc.destOffset:], inst[tc.sourceOffset:tc.sourceOffset+tc.copySize])
@@ -716,19 +716,19 @@ type dog struct{ name string }
 
 func TestCompiler_compileTableSet(t *testing.T) {
 	externDog := &dog{name: "sushi"}
-	externrefOpaque := uintptr(unsafe.Pointer(externDog))
+	externrefOpaque := unsafe.Pointer(externDog)
 	funcref := &function{moduleInstance: &wasm.ModuleInstance{}}
-	funcrefOpaque := uintptr(unsafe.Pointer(funcref))
+	funcrefOpaque := unsafe.Pointer(funcref)
 
-	externTable := &wasm.TableInstance{Type: wasm.RefTypeExternref, References: []wasm.Reference{0, 0, externrefOpaque, 0, 0}}
-	funcrefTable := &wasm.TableInstance{Type: wasm.RefTypeFuncref, References: []wasm.Reference{0, 0, 0, 0, funcrefOpaque}}
+	externTable := &wasm.TableInstance{Type: wasm.RefTypeExternref, References: []wasm.Reference{nil, nil, externrefOpaque, nil, nil}}
+	funcrefTable := &wasm.TableInstance{Type: wasm.RefTypeFuncref, References: []wasm.Reference{nil, nil, nil, nil, funcrefOpaque}}
 	tables := []*wasm.TableInstance{externTable, funcrefTable}
 
 	tests := []struct {
 		name       string
 		tableIndex uint32
 		offset     uint32
-		in         uintptr
+		in         unsafe.Pointer
 		expExtern  bool
 		expError   bool
 	}{
@@ -743,14 +743,14 @@ func TestCompiler_compileTableSet(t *testing.T) {
 			name:       "externref - nil",
 			tableIndex: 0,
 			offset:     1,
-			in:         0,
+			in:         nil,
 			expExtern:  true,
 		},
 		{
 			name:       "externref - out of bounds",
 			tableIndex: 0,
 			offset:     10,
-			in:         0,
+			in:         nil,
 			expError:   true,
 		},
 		{
@@ -764,14 +764,14 @@ func TestCompiler_compileTableSet(t *testing.T) {
 			name:       "funcref - nil",
 			tableIndex: 1,
 			offset:     3,
-			in:         0,
+			in:         nil,
 			expExtern:  false,
 		},
 		{
 			name:       "funcref - out of bounds",
 			tableIndex: 1,
 			offset:     100000,
-			in:         0,
+			in:         nil,
 			expError:   true,
 		},
 	}
@@ -795,7 +795,7 @@ func TestCompiler_compileTableSet(t *testing.T) {
 			err = compiler.compileConstI32(operationPtr(wazeroir.NewOperationConstI32(tc.offset)))
 			require.NoError(t, err)
 
-			err = compiler.compileConstI64(operationPtr(wazeroir.NewOperationConstI64(uint64(tc.in))))
+			err = compiler.compileConstI64(operationPtr(wazeroir.NewOperationConstI64(uint64(uintptr(tc.in)))))
 			require.NoError(t, err)
 
 			err = compiler.compileTableSet(operationPtr(wazeroir.NewOperationTableSet(tc.tableIndex)))
@@ -822,14 +822,14 @@ func TestCompiler_compileTableSet(t *testing.T) {
 				if tc.expExtern {
 					actual := dogFromPtr(externTable.References[tc.offset])
 					exp := externDog
-					if tc.in == 0 {
+					if tc.in == nil {
 						exp = nil
 					}
 					require.Equal(t, exp, actual)
 				} else {
 					actual := functionFromPtr(funcrefTable.References[tc.offset])
 					exp := funcref
-					if tc.in == 0 {
+					if tc.in == nil {
 						exp = nil
 					}
 					require.Equal(t, exp, actual)
@@ -840,36 +840,36 @@ func TestCompiler_compileTableSet(t *testing.T) {
 }
 
 //go:nocheckptr ignore "pointer arithmetic result points to invalid allocation"
-func dogFromPtr(ptr uintptr) *dog {
-	if ptr == 0 {
+func dogFromPtr(ptr unsafe.Pointer) *dog {
+	if ptr == nil {
 		return nil
 	}
-	return (*dog)(unsafe.Pointer(ptr))
+	return (*dog)(ptr)
 }
 
 //go:nocheckptr ignore "pointer arithmetic result points to invalid allocation"
-func functionFromPtr(ptr uintptr) *function {
-	if ptr == 0 {
+func functionFromPtr(ptr unsafe.Pointer) *function {
+	if ptr == nil {
 		return nil
 	}
-	return (*function)(unsafe.Pointer(ptr))
+	return (*function)(ptr)
 }
 
 func TestCompiler_compileTableGet(t *testing.T) {
 	externDog := &dog{name: "sushi"}
-	externrefOpaque := uintptr(unsafe.Pointer(externDog))
+	externrefOpaque := unsafe.Pointer(externDog)
 	funcref := &function{moduleInstance: &wasm.ModuleInstance{}}
-	funcrefOpaque := uintptr(unsafe.Pointer(funcref))
+	funcrefOpaque := unsafe.Pointer(funcref)
 	tables := []*wasm.TableInstance{
-		{Type: wasm.RefTypeExternref, References: []wasm.Reference{0, 0, externrefOpaque, 0, 0}},
-		{Type: wasm.RefTypeFuncref, References: []wasm.Reference{0, 0, 0, 0, funcrefOpaque}},
+		{Type: wasm.RefTypeExternref, References: []wasm.Reference{nil, nil, externrefOpaque, nil, nil}},
+		{Type: wasm.RefTypeFuncref, References: []wasm.Reference{nil, nil, nil, nil, funcrefOpaque}},
 	}
 
 	tests := []struct {
 		name       string
 		tableIndex uint32
 		offset     uint32
-		exp        uintptr
+		exp        unsafe.Pointer
 		expError   bool
 	}{
 		{
@@ -882,7 +882,7 @@ func TestCompiler_compileTableGet(t *testing.T) {
 			name:       "externref - nil",
 			tableIndex: 0,
 			offset:     4,
-			exp:        0,
+			exp:        nil,
 		},
 		{
 			name:       "externref - out of bounds",
@@ -900,7 +900,7 @@ func TestCompiler_compileTableGet(t *testing.T) {
 			name:       "funcref - nil",
 			tableIndex: 1,
 			offset:     1,
-			exp:        0,
+			exp:        nil,
 		},
 		{
 			name:       "funcref - out of bounds",
@@ -949,7 +949,7 @@ func TestCompiler_compileTableGet(t *testing.T) {
 			} else {
 				require.Equal(t, nativeCallStatusCodeReturned, env.compilerStatus())
 				require.Equal(t, uint64(1), env.stackPointer())
-				require.Equal(t, uint64(tc.exp), env.stackTopAsUint64())
+				require.Equal(t, uint64(uintptr(tc.exp)), env.stackTopAsUint64())
 			}
 		})
 	}
@@ -996,4 +996,8 @@ func TestCompiler_compileRefFunc(t *testing.T) {
 			require.Equal(t, uintptr(unsafe.Pointer(&me.functions[i])), uintptr(env.stackTopAsUint64()))
 		})
 	}
+}
+
+func asReference(u uint) wasm.Reference {
+	return unsafe.Pointer(uintptr(u))
 }
