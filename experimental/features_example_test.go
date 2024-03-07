@@ -6,9 +6,10 @@ import (
 	"fmt"
 	"log"
 	"runtime"
+	"sync"
 	"sync/atomic"
 
-	wazero "github.com/tetratelabs/wazero"
+	"github.com/tetratelabs/wazero"
 	"github.com/tetratelabs/wazero/api"
 	"github.com/tetratelabs/wazero/experimental"
 	"github.com/tetratelabs/wazero/imports/wasi_snapshot_preview1"
@@ -33,7 +34,9 @@ func ExampleCoreFeaturesThreads() {
 	ctx := context.Background()
 
 	// Threads support must be enabled explicitly in addition to standard V2 features.
-	cfg := wazero.NewRuntimeConfig().WithCoreFeatures(api.CoreFeaturesV2 | experimental.CoreFeaturesThreads)
+
+	// TODO: currently, only the interpreter is supported for snapshotting.
+	cfg := wazero.NewRuntimeConfigInterpreter().WithCoreFeatures(api.CoreFeaturesV2 | experimental.CoreFeaturesThreads)
 
 	r := wazero.NewRuntimeWithConfig(ctx, cfg)
 	defer r.Close(ctx)
@@ -102,12 +105,17 @@ type childModule struct {
 
 var prevTID uint32
 
+var childModuleMu sync.Mutex
+
 // wasi sdk maintains a stack per thread within memory, so we must allocate one separately per child
 // module, corresponding to a host thread, or the stack accesses would collide. wasi sdk does not
 // currently plan to implement this so we must implement it ourselves. We allocate memory for a stack,
 // initialize a pthread struct at the beginning of the stack, and set globals to reference it.
 // https://github.com/WebAssembly/wasi-threads/issues/45
 func createChildModule(rt wazero.Runtime, root api.Module, wasmCompiled wazero.CompiledModule) *childModule {
+	childModuleMu.Lock()
+	defer childModuleMu.Unlock()
+
 	ctx := context.Background()
 
 	// Not executing function so the current stack pointer is end of stack
@@ -145,8 +153,8 @@ func createChildModule(rt wazero.Runtime, root api.Module, wasmCompiled wazero.C
 	// This is relying on libc implementation details. The structure has been stable for a long time
 	// though it is possible it could change if compiling with a different version of wasi sdk.
 	tid := atomic.AddUint32(&prevTID, 1)
-	root.Memory().WriteUint32Le(ptr, ptr)
-	root.Memory().WriteUint32Le(ptr+20, tid)
+	child.Memory().WriteUint32Le(ptr, ptr)
+	child.Memory().WriteUint32Le(ptr+20, tid)
 	child.ExportedGlobal("__stack_pointer").(api.MutableGlobal).Set(uint64(ptr) + size)
 
 	ret := &childModule{
