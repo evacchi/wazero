@@ -17,10 +17,15 @@ func (m *machine) ResolveRelocations(refToBinaryOffset map[ssa.FuncRef]int, bina
 		brInstr := binary[instrOffset : instrOffset+4]
 		diff := int64(calleeFnOffset) - (instrOffset)
 		// Check if the diff is within the range of the branch instruction.
-		if true || diff < -(1<<25)*4 || diff > ((1<<25)-1)*4 {
+		if diff < -(1<<25)*4 || diff > ((1<<25)-1)*4 {
+			// If the diff is out of range, we need to use a trampoline.
 			diff = int64(r.TrampolineOffset) - instrOffset
+			// The trampoline invokes the function using the BLR instruction,
+			// so we need to compute the absolute address of the callee function.
 			absoluteCalleeFnAddress := uint(base) + uint(calleeFnOffset)
-			m.encodeTrampoline(absoluteCalleeFnAddress, binary, r.TrampolineOffset, -diff+8)
+			// The trampoline should return to the next instruction after the branch instruction.
+			returnOffset := -diff + 8
+			encodeTrampoline(absoluteCalleeFnAddress, binary, r.TrampolineOffset, returnOffset)
 		}
 		// https://developer.arm.com/documentation/ddi0596/2020-12/Base-Instructions/BL--Branch-with-Link-
 		imm26 := diff / 4
@@ -35,30 +40,26 @@ func (m *machine) ResolveRelocations(refToBinaryOffset map[ssa.FuncRef]int, bina
 	}
 }
 
-func (m *machine) encodeTrampoline(addr uint, binary []byte, instrOffset int, jumpBack int64) {
+func encodeTrampoline(addr uint, binary []byte, instrOffset int, returnOffset int64) {
+	// The tmpReg is safe to overwrite.
 	tmpReg := regNumberInEncoding[tmp]
 
 	const movzOp = uint32(0b10)
 	const movkOp = uint32(0b11)
-
 	instrs := []uint32{
 		encodeMoveWideImmediate(movzOp, tmpReg, uint64(uint16(addr)), 0, 1),
 		encodeMoveWideImmediate(movkOp, tmpReg, uint64(uint16(addr>>16)), 1, 1),
 		encodeMoveWideImmediate(movkOp, tmpReg, uint64(uint16(addr>>32)), 2, 1),
 		encodeMoveWideImmediate(movkOp, tmpReg, uint64(uint16(addr>>48)), 3, 1),
 		encodeUnconditionalBranchReg(tmpReg, true),
-		encodeMov64(tmpReg, tmpReg, false, false),
-		encodeUnconditionalBranch(false, jumpBack-7*4),
+		encodeUnconditionalBranch(false, returnOffset-6*4),
 	}
 
 	for i, inst := range instrs {
-		writeInst(binary[instrOffset+i*4:instrOffset+(i+1)*4], inst)
+		instrBytes := binary[instrOffset+i*4 : instrOffset+(i+1)*4]
+		instrBytes[0] = byte(inst)
+		instrBytes[1] = byte(inst >> 8)
+		instrBytes[2] = byte(inst >> 16)
+		instrBytes[3] = byte(inst >> 24)
 	}
-}
-
-func writeInst(binary []byte, inst uint32) {
-	binary[0] = byte(inst)
-	binary[1] = byte(inst >> 8)
-	binary[2] = byte(inst >> 16)
-	binary[3] = byte(inst >> 24)
 }
