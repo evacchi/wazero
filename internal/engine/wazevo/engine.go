@@ -265,7 +265,9 @@ func (e *engine) compileModule(ctx context.Context, module *wasm.Module, listene
 		// so we adjust it to the start of the executable.
 		for _, r := range rels {
 			r.Offset += int64(totalSize)
+			r.TrampolineOffset = totalSize + len(body)
 			e.rels = append(e.rels, r)
+			body = append(body, make([]byte, 4*7)...)
 		}
 
 		bodies[i] = body

@@ -115,6 +115,8 @@ type RelocationInfo struct {
 	Offset int64
 	// Target is the target function of the call instruction.
 	FuncRef ssa.FuncRef
+	// ...
+	TrampolineOffset int
 }
 
 // compiler implements Compiler.

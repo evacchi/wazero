@@ -16,31 +16,48 @@ func (m *machine) ResolveRelocations(refToBinaryOffset map[ssa.FuncRef]int, bina
 		instrOffset := r.Offset
 		calleeFnOffset := refToBinaryOffset[r.FuncRef]
 		brInstr := binary[instrOffset : instrOffset+4]
-		diff := int64(calleeFnOffset) - (instrOffset)
+		//diff := int64(calleeFnOffset) - (instrOffset)
 		// Check if the diff is within the range of the branch instruction.
-		if diff < -(1<<25)*4 || diff > ((1<<25)-1)*4 {
-			//panic(fmt.Sprintf("TODO: too large binary where branch target is out of the supported range +/-128MB: %#x", diff))
-			m.encodeTrampoline(base, calleeFnOffset, binary, instrOffset)
-			continue
-		}
-		// https://developer.arm.com/documentation/ddi0596/2020-12/Base-Instructions/BL--Branch-with-Link-
-		imm26 := diff / 4
-		brInstr[0] = byte(imm26)
-		brInstr[1] = byte(imm26 >> 8)
-		brInstr[2] = byte(imm26 >> 16)
-		if diff < 0 {
-			brInstr[3] = (byte(imm26 >> 24 & 0b000000_01)) | 0b100101_10 // Set sign bit.
-		} else {
-			brInstr[3] = (byte(imm26 >> 24 & 0b000000_01)) | 0b100101_00 // No sign bit.
-		}
+		//if diff < -(1<<25)*4 || diff > ((1<<25)-1)*4 {
+		//panic(fmt.Sprintf("TODO: too large binary where branch target is out of the supported range +/-128MB: %#x", diff))
+
+		//trampolineOffset := calleeFnOffset + r.TrampolineOffset
+		//fmt.Printf("base: %#x, calleeFnOffset: %#x, trampoline: %#x\n", base, calleeFnOffset, r.TrampolineOffset)
+		//diff = int64(trampolineOffset) - int64(instrOffset)
+
+		imm26 := int64(r.TrampolineOffset) - instrOffset
+		//brInstr[0] = byte(imm26)
+		//brInstr[1] = byte(imm26 >> 8)
+		//brInstr[2] = byte(imm26 >> 16)
+		//if diff < 0 {
+		//	brInstr[3] = (byte(imm26 >> 24 & 0b000000_01)) | 0b100101_10 // Set sign bit.
+		//} else {
+		//	brInstr[3] = (byte(imm26 >> 24 & 0b000000_01)) | 0b100101_00 // No sign bit.
+		//}
+
+		writeInst(brInstr, encodeUnconditionalBranch(false, int64(imm26)))
+
+		m.encodeTrampoline(base, calleeFnOffset, binary, r.TrampolineOffset, int64(r.TrampolineOffset)-instrOffset)
+
+		//continue
+		//}
+		//// https://developer.arm.com/documentation/ddi0596/2020-12/Base-Instructions/BL--Branch-with-Link-
+		//imm26 := diff / 4
+		//brInstr[0] = byte(imm26)
+		//brInstr[1] = byte(imm26 >> 8)
+		//brInstr[2] = byte(imm26 >> 16)
+		//if diff < 0 {
+		//	brInstr[3] = (byte(imm26 >> 24 & 0b000000_01)) | 0b100101_10 // Set sign bit.
+		//} else {
+		//	brInstr[3] = (byte(imm26 >> 24 & 0b000000_01)) | 0b100101_00 // No sign bit.
+		//}
 
 		// movz
 
-		//fmt.Printf("base: %#x, calleeFnOffset: %#x\n", base, calleeFnOffset)
 	}
 }
 
-func (m *machine) encodeTrampoline(base uintptr, calleeFnOffset int, binary []byte, instrOffset int64) {
+func (m *machine) encodeTrampoline(base uintptr, calleeFnOffset int, binary []byte, instrOffset int, jumpBack int64) {
 	tmpReg := regNumberInEncoding[tmp]
 
 	const movzOp = uint32(0b10)
@@ -65,8 +82,24 @@ func (m *machine) encodeTrampoline(base uintptr, calleeFnOffset int, binary []by
 	writeInst(movInst, w)
 
 	movInst = binary[instrOffset+16 : instrOffset+20]
+	//w = encodeUnconditionalBranchReg(tmpReg, true)
+	//writeInst(movInst, w)
+	//writeInst(movInst, 0b11010100001<<21|0xf000<<5)
+	writeInst(movInst, encodeMov64(tmpReg, tmpReg, false, false))
+
+	movInst = binary[instrOffset+20 : instrOffset+24]
 	w = encodeUnconditionalBranchReg(tmpReg, true)
 	writeInst(movInst, w)
+
+	//writeInst(movInst, w)
+
+	movInst = binary[instrOffset+24 : instrOffset+28]
+	w = encodeUnconditionalBranch(false, -jumpBack-7*4+8)
+	//w = encodeRet()
+	writeInst(movInst, w)
+
+	//writeInst(movInst, 0)
+
 }
 
 func writeInst(binary []byte, inst uint32) {
