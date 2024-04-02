@@ -2404,6 +2404,8 @@ func (i *instruction) size() int64 {
 		return 4 + 4 + 16
 	case brTableSequence:
 		return 4*4 + int64(i.u2)*4
+	case call:
+		return 4 + 4 + 4 + 4 + 4
 	default:
 		return 4
 	}
