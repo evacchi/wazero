@@ -20,8 +20,8 @@ func (m *machine) ResolveRelocations(refToBinaryOffset map[ssa.FuncRef]int, bina
 		if diff < -(1<<25)*4 || diff > ((1<<25)-1)*4 {
 			// If the diff is out of range, we need to use a trampoline.
 			diff = int64(r.TrampolineOffset) - instrOffset
-			// The trampoline invokes the function using the BLR instruction,
-			// so we need to compute the absolute address of the callee function.
+			// The trampoline invokes the function using the BLR instruction
+			// using the absolute address of the callee function.
 			absoluteCalleeFnAddress := uint(base) + uint(calleeFnOffset)
 			// The trampoline should return to the next instruction after the branch instruction.
 			returnOffset := -diff + 8
@@ -40,12 +40,23 @@ func (m *machine) ResolveRelocations(refToBinaryOffset map[ssa.FuncRef]int, bina
 	}
 }
 
+func (m *machine) UpdateRelocationInfo(r *backend.RelocationInfo, totalSize int, body []byte) []byte {
+	// FIXME: this should add padding conditionally based on refToBinaryOffset[r.FuncRef].
+	// But when we invoke this method the refToBinaryOffset is not set for all funcRefs.
+	r.Offset += int64(totalSize)
+	r.TrampolineOffset = totalSize + len(body)
+	body = append(body, make([]byte, 4*6)...)
+	return body
+}
+
 func encodeTrampoline(addr uint, binary []byte, instrOffset int, returnOffset int64) {
 	// The tmpReg is safe to overwrite.
 	tmpReg := regNumberInEncoding[tmp]
 
 	const movzOp = uint32(0b10)
 	const movkOp = uint32(0b11)
+	// Note: for our purposes the 64-bit width of the reg should be enough.
+	//       however, larger values could be written to and loaded from a constant pool (see encodeBrTableSequence).
 	instrs := []uint32{
 		encodeMoveWideImmediate(movzOp, tmpReg, uint64(uint16(addr)), 0, 1),
 		encodeMoveWideImmediate(movkOp, tmpReg, uint64(uint16(addr>>16)), 1, 1),

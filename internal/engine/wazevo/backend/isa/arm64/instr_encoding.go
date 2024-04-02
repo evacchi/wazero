@@ -36,12 +36,7 @@ func (i *instruction) encode(m *machine) {
 	case call:
 		// We still don't know the exact address of the function to call, so we emit a placeholder.
 		c.AddRelocationInfo(i.callFuncRef())
-		tmpReg := regNumberInEncoding[tmp]
-		c.Emit4Bytes(encodeUnconditionalBranch(true, 0))        // 0 = placeholder
-		c.Emit4Bytes(encodeMov64(tmpReg, tmpReg, false, false)) // 0 = placeholder
-		c.Emit4Bytes(encodeMov64(tmpReg, tmpReg, false, false)) // 0 = placeholder
-		c.Emit4Bytes(encodeMov64(tmpReg, tmpReg, false, false)) // 0 = placeholder
-		c.Emit4Bytes(encodeMov64(tmpReg, tmpReg, false, false)) // 0 = placeholder
+		c.Emit4Bytes(encodeUnconditionalBranch(true, 0)) // 0 = placeholder
 	case callInd:
 		c.Emit4Bytes(encodeUnconditionalBranchReg(regNumberInEncoding[i.rn.realReg()], true))
 	case store8, store16, store32, store64, fpuStore32, fpuStore64, fpuStore128:
