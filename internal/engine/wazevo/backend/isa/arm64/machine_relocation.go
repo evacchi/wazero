@@ -17,7 +17,7 @@ func (m *machine) ResolveRelocations(refToBinaryOffset map[ssa.FuncRef]int, bina
 		calleeFnOffset := refToBinaryOffset[r.FuncRef]
 		brInstr := binary[instrOffset : instrOffset+4]
 		diff := int64(calleeFnOffset) - (instrOffset)
-		//// Check if the diff is within the range of the branch instruction.
+		// Check if the diff is within the range of the branch instruction.
 		if r.TrampolineOffset > 0 {
 			// If the diff is out of range, we need to use a trampoline.
 			diff = int64(r.TrampolineOffset) - instrOffset

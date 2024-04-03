@@ -279,7 +279,7 @@ func (e *engine) compileModule(ctx context.Context, module *wasm.Module, listene
 	}
 
 	// Resolve relocations for local function calls.
-	vetRelocations(e.refToBinaryOffset, bodies, importedFns, relInfos)
+	relInfos = vetRelocations(e.refToBinaryOffset, bodies, importedFns, relInfos)
 
 	// Recompute all the offsets.
 	totalSize = 0
@@ -290,19 +290,22 @@ func (e *engine) compileModule(ctx context.Context, module *wasm.Module, listene
 		cm.functionOffsets[i] = totalSize
 		fref := frontend.FunctionIndexToFuncRef(fidx)
 		e.refToBinaryOffset[fref] = totalSize
-		trampolines := len(relInfos[i]) * 5 * 4
 		segmentSize := len(bodies[i])
-		bodies[i] = append(b, make([]byte, trampolines)...)
+		trampolines := 0
 		for j := range relInfos[i] {
 			r := relInfos[i][j]
+			r.Offset = r.Offset - int64(oldOffset) + int64(totalSize)
 			if r.TrampolineOffset != 0 {
-				r.Offset = r.Offset - int64(oldOffset) + int64(totalSize)
-				r.TrampolineOffset = totalSize + segmentSize + j*5*4
-				e.rels = append(e.rels, r)
+				r.TrampolineOffset = totalSize + segmentSize + trampolines
+				trampolines += 5 * 4
 			}
+			e.rels = append(e.rels, r)
 		}
+		bodies[i] = append(b, make([]byte, trampolines)...)
 		totalSize += segmentSize + trampolines
 	}
+
+	println(totalSize)
 
 	// Allocate executable memory and then copy the generated machine code.
 	executable, err := platform.MmapCodeSegment(totalSize)
@@ -342,10 +345,10 @@ func (e *engine) compileModule(ctx context.Context, module *wasm.Module, listene
 	return cm, nil
 }
 
-func vetRelocations(refToBinaryOffset map[ssa.FuncRef]int, bodies [][]byte, importedFns int, relocations [][]backend.RelocationInfo) {
+func vetRelocations(refToBinaryOffset map[ssa.FuncRef]int, bodies [][]byte, importedFns int, relocations [][]backend.RelocationInfo) [][]backend.RelocationInfo {
 	for fidx := range relocations {
 		for ridx := range relocations[fidx] {
-			r := &relocations[fidx][ridx]
+			r := relocations[fidx][ridx]
 			//offset := refToBinaryOffset[r.Caller]
 			//body := bodies[int(r.Caller)-importedFns]
 			instrOffset := r.Offset
@@ -354,7 +357,7 @@ func vetRelocations(refToBinaryOffset map[ssa.FuncRef]int, bodies [][]byte, impo
 			//brInstr := body[bodyOffset : bodyOffset+4]
 			diff := int64(calleeFnOffset) - (instrOffset)
 			// Check if the diff is within the range of the branch instruction.
-			if true || diff < -(1<<25)*4 || diff > ((1<<25)-1)*4 {
+			if diff < -(1<<25)*4 || diff > ((1<<25)-1)*4 {
 				// If the diff is out of range, we need to use a trampoline.
 				//diff = int64(r.TrampolineOffset) - instrOffset
 				r.TrampolineOffset = 1
@@ -369,6 +372,7 @@ func vetRelocations(refToBinaryOffset map[ssa.FuncRef]int, bodies [][]byte, impo
 				// Otherwise clear the trampoline offset, indicating we won't need it.
 				r.TrampolineOffset = 0
 			}
+			relocations[fidx][ridx] = r
 			// https://developer.arm.com/documentation/ddi0596/2020-12/Base-Instructions/BL--Branch-with-Link-
 			//imm26 := diff / 4
 			//brInstr[0] = byte(imm26)
@@ -381,6 +385,7 @@ func vetRelocations(refToBinaryOffset map[ssa.FuncRef]int, bodies [][]byte, impo
 			//}
 		}
 	}
+	return relocations
 }
 
 func (e *engine) compileLocalWasmFunction(
