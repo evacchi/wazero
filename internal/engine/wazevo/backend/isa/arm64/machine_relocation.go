@@ -13,22 +13,25 @@ import (
 func (m *machine) ResolveRelocations(refToBinaryOffset map[ssa.FuncRef]int, binary []byte, relocations []backend.RelocationInfo) {
 	base := uintptr(unsafe.Pointer(&binary[0]))
 	for _, r := range relocations {
+		if r.TrampolineOffset == 0 {
+			continue
+		}
 		instrOffset := r.Offset
 		calleeFnOffset := refToBinaryOffset[r.FuncRef]
 		brInstr := binary[instrOffset : instrOffset+4]
-		diff := int64(calleeFnOffset) - (instrOffset)
-		// Check if the diff is within the range of the branch instruction.
-		if diff < -(1<<25)*4 || diff > ((1<<25)-1)*4 {
-			// If the diff is out of range, we need to use a trampoline.
-			diff = int64(r.TrampolineOffset) - instrOffset
-			// The trampoline invokes the function using the BR instruction
-			// using the absolute address of the callee function.
-			// The BR instruction will not pollute LR, leaving set to the
-			// PC at this location. Thus, upon return, the callee will
-			// transparently return to the actual caller, skipping the trampoline.
-			absoluteCalleeFnAddress := uint(base) + uint(calleeFnOffset)
-			encodeTrampoline(absoluteCalleeFnAddress, binary, r.TrampolineOffset)
-		}
+		//diff := int64(calleeFnOffset) - (instrOffset)
+		//// Check if the diff is within the range of the branch instruction.
+		//if diff < -(1<<25)*4 || diff > ((1<<25)-1)*4 {
+		// If the diff is out of range, we need to use a trampoline.
+		diff := int64(r.TrampolineOffset) - instrOffset
+		// The trampoline invokes the function using the BR instruction
+		// using the absolute address of the callee function.
+		// The BR instruction will not pollute LR, leaving set to the
+		// PC at this location. Thus, upon return, the callee will
+		// transparently return to the actual caller, skipping the trampoline.
+		absoluteCalleeFnAddress := uint(base) + uint(calleeFnOffset)
+		encodeTrampoline(absoluteCalleeFnAddress, binary, r.TrampolineOffset)
+		//}
 		// https://developer.arm.com/documentation/ddi0596/2020-12/Base-Instructions/BL--Branch-with-Link-
 		imm26 := diff / 4
 		brInstr[0] = byte(imm26)
