@@ -276,13 +276,8 @@ func (e *engine) compileModule(ctx context.Context, module *wasm.Module, listene
 		}
 	}
 
-	for i := range e.rels {
-		// Resolve relocations for local function calls.
-		r := e.rels[i]
-		offset := e.refToBinaryOffset[r.Caller]
-		body := bodies[int(r.Caller)-importedFns]
-		_resolveRelocations(offset, e.refToBinaryOffset, body, r)
-	}
+	// Resolve relocations for local function calls.
+	_resolveRelocations(e.refToBinaryOffset, bodies, importedFns, e.rels)
 
 	// Allocate executable memory and then copy the generated machine code.
 	executable, err := platform.MmapCodeSegment(totalSize)
@@ -322,37 +317,41 @@ func (e *engine) compileModule(ctx context.Context, module *wasm.Module, listene
 	return cm, nil
 }
 
-func _resolveRelocations(offset int, refToBinaryOffset map[ssa.FuncRef]int, body []byte, r backend.RelocationInfo) {
+func _resolveRelocations(refToBinaryOffset map[ssa.FuncRef]int, bodies [][]byte, importedFns int, relocations []backend.RelocationInfo) {
 	//base := uintptr(unsafe.Pointer(&binary[0]))
-	instrOffset := r.Offset
-	calleeFnOffset := refToBinaryOffset[r.FuncRef]
-	bodyOffset := int(instrOffset) - offset
-	brInstr := body[bodyOffset : bodyOffset+4]
-	diff := int64(calleeFnOffset) - (instrOffset)
-	// Check if the diff is within the range of the branch instruction.
-	if true || diff < -(1<<25)*4 || diff > ((1<<25)-1)*4 {
-		// If the diff is out of range, we need to use a trampoline.
-		diff = int64(r.TrampolineOffset) - instrOffset
-		// The trampoline invokes the function using the BR instruction
-		// using the absolute address of the callee function.
-		// The BR instruction will not pollute LR, leaving set to the
-		// PC at this location. Thus, upon return, the callee will
-		// transparently return to the actual caller, skipping the trampoline.
-		//absoluteCalleeFnAddress := uint(base) + uint(calleeFnOffset)
-		//encodeTrampoline(absoluteCalleeFnAddress, binary, r.TrampolineOffset)
-	} else {
-		// Otherwise clear the trampoline offset, indicating we won't need it.
-		r.TrampolineOffset = 0
-	}
-	// https://developer.arm.com/documentation/ddi0596/2020-12/Base-Instructions/BL--Branch-with-Link-
-	imm26 := diff / 4
-	brInstr[0] = byte(imm26)
-	brInstr[1] = byte(imm26 >> 8)
-	brInstr[2] = byte(imm26 >> 16)
-	if diff < 0 {
-		brInstr[3] = (byte(imm26 >> 24 & 0b000000_01)) | 0b100101_10 // Set sign bit.
-	} else {
-		brInstr[3] = (byte(imm26 >> 24 & 0b000000_01)) | 0b100101_00 // No sign bit.
+	for _, r := range relocations {
+		offset := refToBinaryOffset[r.Caller]
+		body := bodies[int(r.Caller)-importedFns]
+		instrOffset := r.Offset
+		calleeFnOffset := refToBinaryOffset[r.FuncRef]
+		bodyOffset := int(instrOffset) - offset
+		brInstr := body[bodyOffset : bodyOffset+4]
+		diff := int64(calleeFnOffset) - (instrOffset)
+		// Check if the diff is within the range of the branch instruction.
+		if true || diff < -(1<<25)*4 || diff > ((1<<25)-1)*4 {
+			// If the diff is out of range, we need to use a trampoline.
+			diff = int64(r.TrampolineOffset) - instrOffset
+			// The trampoline invokes the function using the BR instruction
+			// using the absolute address of the callee function.
+			// The BR instruction will not pollute LR, leaving set to the
+			// PC at this location. Thus, upon return, the callee will
+			// transparently return to the actual caller, skipping the trampoline.
+			//absoluteCalleeFnAddress := uint(base) + uint(calleeFnOffset)
+			//encodeTrampoline(absoluteCalleeFnAddress, binary, r.TrampolineOffset)
+		} else {
+			// Otherwise clear the trampoline offset, indicating we won't need it.
+			r.TrampolineOffset = 0
+		}
+		// https://developer.arm.com/documentation/ddi0596/2020-12/Base-Instructions/BL--Branch-with-Link-
+		imm26 := diff / 4
+		brInstr[0] = byte(imm26)
+		brInstr[1] = byte(imm26 >> 8)
+		brInstr[2] = byte(imm26 >> 16)
+		if diff < 0 {
+			brInstr[3] = (byte(imm26 >> 24 & 0b000000_01)) | 0b100101_10 // Set sign bit.
+		} else {
+			brInstr[3] = (byte(imm26 >> 24 & 0b000000_01)) | 0b100101_00 // No sign bit.
+		}
 	}
 }
 
