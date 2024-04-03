@@ -220,6 +220,7 @@ func (e *engine) compileModule(ctx context.Context, module *wasm.Module, listene
 	totalSize := 0 // Total binary size of the executable.
 	cm.functionOffsets = make([]int, localFns)
 	bodies := make([][]byte, localFns)
+	relInfos := make([][]backend.RelocationInfo, localFns)
 	for i := range module.CodeSection {
 		if wazevoapi.DeterministicCompilationVerifierEnabled {
 			i = wazevoapi.DeterministicCompilationVerifierGetRandomizedLocalFunctionIndex(ctx, i)
@@ -264,20 +265,42 @@ func (e *engine) compileModule(ctx context.Context, module *wasm.Module, listene
 		// At this point, relocation offsets are relative to the start of the function body,
 		// so we adjust it to the start of the executable.
 		for _, r := range rels {
-			r, body = e.machine.UpdateRelocationInfo(r, totalSize, body)
+			//r, body = e.machine.UpdateRelocationInfo(r, totalSize, body)
+			r.Offset += int64(totalSize)
 			r.Caller = fref
-			e.rels = append(e.rels, r)
+			relInfos[i] = append(relInfos[i], r)
 		}
 
 		bodies[i] = body
-		totalSize += len(body)
+		totalSize += len(body) + len(rels)*4*5
 		if wazevoapi.PrintMachineCodeHexPerFunction {
 			fmt.Printf("[[[machine code for %s]]]\n%s\n\n", wazevoapi.GetCurrentFunctionName(ctx), hex.EncodeToString(body))
 		}
 	}
 
 	// Resolve relocations for local function calls.
-	_resolveRelocations(e.refToBinaryOffset, bodies, importedFns, e.rels)
+	//_resolveRelocations(e.refToBinaryOffset, bodies, importedFns, relInfos)
+
+	// Recompute all the offsets.
+	totalSize = 0
+	for i, b := range bodies {
+		fidx := wasm.Index(i + importedFns)
+		totalSize = (totalSize + 15) &^ 15
+		oldOffset := cm.functionOffsets[i]
+		cm.functionOffsets[i] = totalSize
+		fref := frontend.FunctionIndexToFuncRef(fidx)
+		e.refToBinaryOffset[fref] = totalSize
+		trampolines := len(relInfos[i]) * 5 * 4
+		segmentSize := len(bodies[i])
+		bodies[i] = append(b, make([]byte, trampolines)...)
+		for j := range relInfos[i] {
+			r := relInfos[i][j]
+			r.Offset = r.Offset - int64(oldOffset) + int64(totalSize)
+			r.TrampolineOffset = totalSize + segmentSize + j*5*4
+			e.rels = append(e.rels, r)
+		}
+		totalSize += segmentSize + trampolines
+	}
 
 	// Allocate executable memory and then copy the generated machine code.
 	executable, err := platform.MmapCodeSegment(totalSize)
@@ -317,40 +340,41 @@ func (e *engine) compileModule(ctx context.Context, module *wasm.Module, listene
 	return cm, nil
 }
 
-func _resolveRelocations(refToBinaryOffset map[ssa.FuncRef]int, bodies [][]byte, importedFns int, relocations []backend.RelocationInfo) {
-	//base := uintptr(unsafe.Pointer(&binary[0]))
-	for _, r := range relocations {
-		offset := refToBinaryOffset[r.Caller]
-		body := bodies[int(r.Caller)-importedFns]
-		instrOffset := r.Offset
-		calleeFnOffset := refToBinaryOffset[r.FuncRef]
-		bodyOffset := int(instrOffset) - offset
-		brInstr := body[bodyOffset : bodyOffset+4]
-		diff := int64(calleeFnOffset) - (instrOffset)
-		// Check if the diff is within the range of the branch instruction.
-		if true || diff < -(1<<25)*4 || diff > ((1<<25)-1)*4 {
-			// If the diff is out of range, we need to use a trampoline.
-			diff = int64(r.TrampolineOffset) - instrOffset
-			// The trampoline invokes the function using the BR instruction
-			// using the absolute address of the callee function.
-			// The BR instruction will not pollute LR, leaving set to the
-			// PC at this location. Thus, upon return, the callee will
-			// transparently return to the actual caller, skipping the trampoline.
-			//absoluteCalleeFnAddress := uint(base) + uint(calleeFnOffset)
-			//encodeTrampoline(absoluteCalleeFnAddress, binary, r.TrampolineOffset)
-		} else {
-			// Otherwise clear the trampoline offset, indicating we won't need it.
-			r.TrampolineOffset = 0
-		}
-		// https://developer.arm.com/documentation/ddi0596/2020-12/Base-Instructions/BL--Branch-with-Link-
-		imm26 := diff / 4
-		brInstr[0] = byte(imm26)
-		brInstr[1] = byte(imm26 >> 8)
-		brInstr[2] = byte(imm26 >> 16)
-		if diff < 0 {
-			brInstr[3] = (byte(imm26 >> 24 & 0b000000_01)) | 0b100101_10 // Set sign bit.
-		} else {
-			brInstr[3] = (byte(imm26 >> 24 & 0b000000_01)) | 0b100101_00 // No sign bit.
+func _resolveRelocations(refToBinaryOffset map[ssa.FuncRef]int, bodies [][]byte, importedFns int, relocations [][]backend.RelocationInfo) {
+	for _, rels := range relocations {
+		for _, r := range rels {
+			//offset := refToBinaryOffset[r.Caller]
+			//body := bodies[int(r.Caller)-importedFns]
+			instrOffset := r.Offset
+			calleeFnOffset := refToBinaryOffset[r.FuncRef]
+			//bodyOffset := int(instrOffset) - offset
+			//brInstr := body[bodyOffset : bodyOffset+4]
+			diff := int64(calleeFnOffset) - (instrOffset)
+			// Check if the diff is within the range of the branch instruction.
+			if true || diff < -(1<<25)*4 || diff > ((1<<25)-1)*4 {
+				// If the diff is out of range, we need to use a trampoline.
+				diff = int64(r.TrampolineOffset) - instrOffset
+				// The trampoline invokes the function using the BR instruction
+				// using the absolute address of the callee function.
+				// The BR instruction will not pollute LR, leaving set to the
+				// PC at this location. Thus, upon return, the callee will
+				// transparently return to the actual caller, skipping the trampoline.
+				//absoluteCalleeFnAddress := uint(base) + uint(calleeFnOffset)
+				//encodeTrampoline(absoluteCalleeFnAddress, binary, r.TrampolineOffset)
+			} else {
+				// Otherwise clear the trampoline offset, indicating we won't need it.
+				r.TrampolineOffset = 0
+			}
+			// https://developer.arm.com/documentation/ddi0596/2020-12/Base-Instructions/BL--Branch-with-Link-
+			//imm26 := diff / 4
+			//brInstr[0] = byte(imm26)
+			//brInstr[1] = byte(imm26 >> 8)
+			//brInstr[2] = byte(imm26 >> 16)
+			//if diff < 0 {
+			//	brInstr[3] = (byte(imm26 >> 24 & 0b000000_01)) | 0b100101_10 // Set sign bit.
+			//} else {
+			//	brInstr[3] = (byte(imm26 >> 24 & 0b000000_01)) | 0b100101_00 // No sign bit.
+			//}
 		}
 	}
 }
