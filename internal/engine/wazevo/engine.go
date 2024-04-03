@@ -279,7 +279,7 @@ func (e *engine) compileModule(ctx context.Context, module *wasm.Module, listene
 	}
 
 	// Resolve relocations for local function calls.
-	//_resolveRelocations(e.refToBinaryOffset, bodies, importedFns, relInfos)
+	vetRelocations(e.refToBinaryOffset, bodies, importedFns, relInfos)
 
 	// Recompute all the offsets.
 	totalSize = 0
@@ -295,9 +295,11 @@ func (e *engine) compileModule(ctx context.Context, module *wasm.Module, listene
 		bodies[i] = append(b, make([]byte, trampolines)...)
 		for j := range relInfos[i] {
 			r := relInfos[i][j]
-			r.Offset = r.Offset - int64(oldOffset) + int64(totalSize)
-			r.TrampolineOffset = totalSize + segmentSize + j*5*4
-			e.rels = append(e.rels, r)
+			if r.TrampolineOffset != 0 {
+				r.Offset = r.Offset - int64(oldOffset) + int64(totalSize)
+				r.TrampolineOffset = totalSize + segmentSize + j*5*4
+				e.rels = append(e.rels, r)
+			}
 		}
 		totalSize += segmentSize + trampolines
 	}
@@ -340,9 +342,10 @@ func (e *engine) compileModule(ctx context.Context, module *wasm.Module, listene
 	return cm, nil
 }
 
-func _resolveRelocations(refToBinaryOffset map[ssa.FuncRef]int, bodies [][]byte, importedFns int, relocations [][]backend.RelocationInfo) {
-	for _, rels := range relocations {
-		for _, r := range rels {
+func vetRelocations(refToBinaryOffset map[ssa.FuncRef]int, bodies [][]byte, importedFns int, relocations [][]backend.RelocationInfo) {
+	for fidx := range relocations {
+		for ridx := range relocations[fidx] {
+			r := &relocations[fidx][ridx]
 			//offset := refToBinaryOffset[r.Caller]
 			//body := bodies[int(r.Caller)-importedFns]
 			instrOffset := r.Offset
@@ -353,7 +356,8 @@ func _resolveRelocations(refToBinaryOffset map[ssa.FuncRef]int, bodies [][]byte,
 			// Check if the diff is within the range of the branch instruction.
 			if true || diff < -(1<<25)*4 || diff > ((1<<25)-1)*4 {
 				// If the diff is out of range, we need to use a trampoline.
-				diff = int64(r.TrampolineOffset) - instrOffset
+				//diff = int64(r.TrampolineOffset) - instrOffset
+				r.TrampolineOffset = 1
 				// The trampoline invokes the function using the BR instruction
 				// using the absolute address of the callee function.
 				// The BR instruction will not pollute LR, leaving set to the
