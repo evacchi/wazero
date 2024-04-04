@@ -271,12 +271,12 @@ func (e *engine) compileModule(ctx context.Context, module *wasm.Module, listene
 	}
 
 	// Resolve relocations for local function calls.
-	for fidx := range relInfos {
-		for ridx := range relInfos[fidx] {
-			r := relInfos[fidx][ridx]
-			relInfos[fidx][ridx] = vetRelocations(r, e.refToBinaryOffset)
-		}
-	}
+	//for fidx := range relInfos {
+	//	for ridx := range relInfos[fidx] {
+	//		r := relInfos[fidx][ridx]
+	//		relInfos[fidx][ridx] = vetRelocations(r, e.refToBinaryOffset)
+	//	}
+	//}
 
 	// Recompute all the offsets.
 	totalSize = 0
@@ -305,7 +305,10 @@ func (e *engine) compileModule(ctx context.Context, module *wasm.Module, listene
 		for j := range relInfos[i] {
 			r := relInfos[i][j]
 			r.Offset = r.Offset - int64(oldOffset) + int64(totalSize)
-			if r.TrampolineOffset != 0 {
+			instrOffset := r.Offset
+			calleeFnOffset := e.refToBinaryOffset[r.FuncRef]
+			diff := int64(calleeFnOffset) - (instrOffset)
+			if diff < -(1<<25)*4 || diff > ((1<<25)-1)*4 {
 				r.TrampolineOffset = totalSize + segmentSize + trampolines
 				trampolines += 5 * 4
 			}
@@ -353,21 +356,6 @@ func (e *engine) compileModule(ctx context.Context, module *wasm.Module, listene
 	cm.sharedFunctions = e.sharedFunctions
 	e.setFinalizer(cm.executables, executablesFinalizer)
 	return cm, nil
-}
-
-func vetRelocations(r backend.RelocationInfo, refToBinaryOffset map[ssa.FuncRef]int) backend.RelocationInfo {
-	instrOffset := r.Offset
-	calleeFnOffset := refToBinaryOffset[r.FuncRef]
-	diff := int64(calleeFnOffset) - (instrOffset)
-	// Check if the diff is within the range of the branch instruction.
-	if diff < -(1<<25)*4 || diff > ((1<<25)-1)*4 {
-		// If the diff is out of range, we need to use a trampoline.
-		r.TrampolineOffset = 1
-	} else {
-		// Otherwise clear the trampoline offset, indicating we won't need it.
-		r.TrampolineOffset = 0
-	}
-	return r
 }
 
 func (e *engine) compileLocalWasmFunction(
