@@ -221,6 +221,7 @@ func (e *engine) compileModule(ctx context.Context, module *wasm.Module, listene
 	cm.functionOffsets = make([]int, localFns)
 	bodies := make([][]byte, localFns)
 	relInfos := make([][]backend.RelocationInfo, localFns)
+	sourceOffsets := make([][]backend.SourceOffsetInfo, localFns)
 	for i := range module.CodeSection {
 		if wazevoapi.DeterministicCompilationVerifierEnabled {
 			i = wazevoapi.DeterministicCompilationVerifierGetRandomizedLocalFunctionIndex(ctx, i)
@@ -248,15 +249,7 @@ func (e *engine) compileModule(ctx context.Context, module *wasm.Module, listene
 		cm.functionOffsets[i] = totalSize
 
 		if needSourceInfo {
-			// At the beginning of the function, we add the offset of the function body so that
-			// we can resolve the source location of the call site of before listener call.
-			cm.sourceMap.executableOffsets = append(cm.sourceMap.executableOffsets, uintptr(totalSize))
-			cm.sourceMap.wasmBinaryOffsets = append(cm.sourceMap.wasmBinaryOffsets, module.CodeSection[i].BodyOffsetInCodeSection)
-
-			for _, info := range be.SourceOffsetInfo() {
-				cm.sourceMap.executableOffsets = append(cm.sourceMap.executableOffsets, uintptr(totalSize)+uintptr(info.ExecutableOffset))
-				cm.sourceMap.wasmBinaryOffsets = append(cm.sourceMap.wasmBinaryOffsets, uint64(info.SourceOffset))
-			}
+			sourceOffsets[i] = append(sourceOffsets[i], be.SourceOffsetInfo()...)
 		}
 
 		fref := frontend.FunctionIndexToFuncRef(fidx)
@@ -265,9 +258,8 @@ func (e *engine) compileModule(ctx context.Context, module *wasm.Module, listene
 		// At this point, relocation offsets are relative to the start of the function body,
 		// so we adjust it to the start of the executable.
 		for _, r := range rels {
-			//r, body = e.machine.UpdateRelocationInfo(r, totalSize, body)
+			// r, body = e.machine.UpdateRelocationInfo(r, totalSize, body)
 			r.Offset += int64(totalSize)
-			r.Caller = fref
 			relInfos[i] = append(relInfos[i], r)
 		}
 
@@ -279,7 +271,12 @@ func (e *engine) compileModule(ctx context.Context, module *wasm.Module, listene
 	}
 
 	// Resolve relocations for local function calls.
-	relInfos = vetRelocations(e.refToBinaryOffset, bodies, importedFns, relInfos)
+	for fidx := range relInfos {
+		for ridx := range relInfos[fidx] {
+			r := relInfos[fidx][ridx]
+			relInfos[fidx][ridx] = vetRelocations(r, e.refToBinaryOffset)
+		}
+	}
 
 	// Recompute all the offsets.
 	totalSize = 0
@@ -290,6 +287,19 @@ func (e *engine) compileModule(ctx context.Context, module *wasm.Module, listene
 		cm.functionOffsets[i] = totalSize
 		fref := frontend.FunctionIndexToFuncRef(fidx)
 		e.refToBinaryOffset[fref] = totalSize
+
+		if needSourceInfo {
+			// At the beginning of the function, we add the offset of the function body so that
+			// we can resolve the source location of the call site of before listener call.
+			cm.sourceMap.executableOffsets = append(cm.sourceMap.executableOffsets, uintptr(totalSize))
+			cm.sourceMap.wasmBinaryOffsets = append(cm.sourceMap.wasmBinaryOffsets, module.CodeSection[i].BodyOffsetInCodeSection)
+
+			for _, info := range sourceOffsets[i] {
+				cm.sourceMap.executableOffsets = append(cm.sourceMap.executableOffsets, uintptr(totalSize)+uintptr(info.ExecutableOffset))
+				cm.sourceMap.wasmBinaryOffsets = append(cm.sourceMap.wasmBinaryOffsets, uint64(info.SourceOffset))
+			}
+		}
+
 		segmentSize := len(bodies[i])
 		trampolines := 0
 		for j := range relInfos[i] {
@@ -305,7 +315,7 @@ func (e *engine) compileModule(ctx context.Context, module *wasm.Module, listene
 		totalSize += segmentSize + trampolines
 	}
 
-	println(totalSize)
+	// println(totalSize)
 
 	// Allocate executable memory and then copy the generated machine code.
 	executable, err := platform.MmapCodeSegment(totalSize)
@@ -345,47 +355,19 @@ func (e *engine) compileModule(ctx context.Context, module *wasm.Module, listene
 	return cm, nil
 }
 
-func vetRelocations(refToBinaryOffset map[ssa.FuncRef]int, bodies [][]byte, importedFns int, relocations [][]backend.RelocationInfo) [][]backend.RelocationInfo {
-	for fidx := range relocations {
-		for ridx := range relocations[fidx] {
-			r := relocations[fidx][ridx]
-			//offset := refToBinaryOffset[r.Caller]
-			//body := bodies[int(r.Caller)-importedFns]
-			instrOffset := r.Offset
-			calleeFnOffset := refToBinaryOffset[r.FuncRef]
-			//bodyOffset := int(instrOffset) - offset
-			//brInstr := body[bodyOffset : bodyOffset+4]
-			diff := int64(calleeFnOffset) - (instrOffset)
-			// Check if the diff is within the range of the branch instruction.
-			if diff < -(1<<25)*4 || diff > ((1<<25)-1)*4 {
-				// If the diff is out of range, we need to use a trampoline.
-				//diff = int64(r.TrampolineOffset) - instrOffset
-				r.TrampolineOffset = 1
-				// The trampoline invokes the function using the BR instruction
-				// using the absolute address of the callee function.
-				// The BR instruction will not pollute LR, leaving set to the
-				// PC at this location. Thus, upon return, the callee will
-				// transparently return to the actual caller, skipping the trampoline.
-				//absoluteCalleeFnAddress := uint(base) + uint(calleeFnOffset)
-				//encodeTrampoline(absoluteCalleeFnAddress, binary, r.TrampolineOffset)
-			} else {
-				// Otherwise clear the trampoline offset, indicating we won't need it.
-				r.TrampolineOffset = 0
-			}
-			relocations[fidx][ridx] = r
-			// https://developer.arm.com/documentation/ddi0596/2020-12/Base-Instructions/BL--Branch-with-Link-
-			//imm26 := diff / 4
-			//brInstr[0] = byte(imm26)
-			//brInstr[1] = byte(imm26 >> 8)
-			//brInstr[2] = byte(imm26 >> 16)
-			//if diff < 0 {
-			//	brInstr[3] = (byte(imm26 >> 24 & 0b000000_01)) | 0b100101_10 // Set sign bit.
-			//} else {
-			//	brInstr[3] = (byte(imm26 >> 24 & 0b000000_01)) | 0b100101_00 // No sign bit.
-			//}
-		}
+func vetRelocations(r backend.RelocationInfo, refToBinaryOffset map[ssa.FuncRef]int) backend.RelocationInfo {
+	instrOffset := r.Offset
+	calleeFnOffset := refToBinaryOffset[r.FuncRef]
+	diff := int64(calleeFnOffset) - (instrOffset)
+	// Check if the diff is within the range of the branch instruction.
+	if diff < -(1<<25)*4 || diff > ((1<<25)-1)*4 {
+		// If the diff is out of range, we need to use a trampoline.
+		r.TrampolineOffset = 1
+	} else {
+		// Otherwise clear the trampoline offset, indicating we won't need it.
+		r.TrampolineOffset = 0
 	}
-	return relocations
+	return r
 }
 
 func (e *engine) compileLocalWasmFunction(

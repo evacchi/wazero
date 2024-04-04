@@ -46,8 +46,8 @@ func (m *machine) UpdateRelocationInfo(r backend.RelocationInfo, totalSize int, 
 	// FIXME: this should add padding conditionally based on refToBinaryOffset[r.FuncRef].
 	// But when we invoke this method the refToBinaryOffset is not set for all funcRefs.
 	r.Offset += int64(totalSize)
-	//r.TrampolineOffset = totalSize + len(body)
-	//body = append(body, make([]byte, 4*5)...) // 5 instructions for the trampoline.
+	// r.TrampolineOffset = totalSize + len(body)
+	// body = append(body, make([]byte, 4*5)...) // 5 instructions for the trampoline.
 	return r, body
 }
 
