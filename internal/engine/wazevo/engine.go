@@ -220,7 +220,6 @@ func (e *engine) compileModule(ctx context.Context, module *wasm.Module, listene
 	totalSize := 0 // Total binary size of the executable.
 	cm.functionOffsets = make([]int, localFns)
 	bodies := make([][]byte, localFns)
-	relInfos := make([][]backend.RelocationInfo, localFns)
 	sourceOffsets := make([][]backend.SourceOffsetInfo, localFns)
 	for i := range module.CodeSection {
 		if wazevoapi.DeterministicCompilationVerifierEnabled {
@@ -259,8 +258,9 @@ func (e *engine) compileModule(ctx context.Context, module *wasm.Module, listene
 		// so we adjust it to the start of the executable.
 		for _, r := range rels {
 			// r, body = e.machine.UpdateRelocationInfo(r, totalSize, body)
+			r.Caller = fref
 			r.Offset += int64(totalSize)
-			relInfos[i] = append(relInfos[i], r)
+			e.rels = append(e.rels, r)
 		}
 
 		bodies[i] = body
@@ -270,16 +270,8 @@ func (e *engine) compileModule(ctx context.Context, module *wasm.Module, listene
 		}
 	}
 
-	// Resolve relocations for local function calls.
-	//for fidx := range relInfos {
-	//	for ridx := range relInfos[fidx] {
-	//		r := relInfos[fidx][ridx]
-	//		relInfos[fidx][ridx] = vetRelocations(r, e.refToBinaryOffset)
-	//	}
-	//}
-
-	// Recompute all the offsets.
 	totalSize = 0
+	j := 0
 	for i, b := range bodies {
 		fidx := wasm.Index(i + importedFns)
 		totalSize = (totalSize + 15) &^ 15
@@ -287,6 +279,19 @@ func (e *engine) compileModule(ctx context.Context, module *wasm.Module, listene
 		cm.functionOffsets[i] = totalSize
 		fref := frontend.FunctionIndexToFuncRef(fidx)
 		e.refToBinaryOffset[fref] = totalSize
+		segmentSize := len(bodies[i])
+		trampolines := 0
+		for ; j < len(e.rels) && fref == e.rels[j].Caller; j++ {
+			r := &e.rels[j]
+			r.Offset = r.Offset - int64(oldOffset) + int64(totalSize)
+			instrOffset := r.Offset
+			calleeFnOffset := e.refToBinaryOffset[r.FuncRef]
+			diff := int64(calleeFnOffset) - (instrOffset)
+			if diff < -(1<<25)*4 || diff > ((1<<25)-1)*4 {
+				r.TrampolineOffset = totalSize + segmentSize + trampolines
+				trampolines += 5 * 4
+			}
+		}
 
 		if needSourceInfo {
 			// At the beginning of the function, we add the offset of the function body so that
@@ -300,20 +305,6 @@ func (e *engine) compileModule(ctx context.Context, module *wasm.Module, listene
 			}
 		}
 
-		segmentSize := len(bodies[i])
-		trampolines := 0
-		for j := range relInfos[i] {
-			r := relInfos[i][j]
-			r.Offset = r.Offset - int64(oldOffset) + int64(totalSize)
-			instrOffset := r.Offset
-			calleeFnOffset := e.refToBinaryOffset[r.FuncRef]
-			diff := int64(calleeFnOffset) - (instrOffset)
-			if diff < -(1<<25)*4 || diff > ((1<<25)-1)*4 {
-				r.TrampolineOffset = totalSize + segmentSize + trampolines
-				trampolines += 5 * 4
-			}
-			e.rels = append(e.rels, r)
-		}
 		bodies[i] = append(b, make([]byte, trampolines)...)
 		totalSize += segmentSize + trampolines
 	}
