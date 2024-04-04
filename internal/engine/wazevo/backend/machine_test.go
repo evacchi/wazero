@@ -61,6 +61,11 @@ func (m mockMachine) UpdateRelocationInfo(refToBinaryOffset map[ssa.FuncRef]int,
 	return r, 0
 }
 
+// RelocationTrampolineSize implements Machine.RelocationTrampolineSize.
+func (m mockMachine) RelocationTrampolineSize(rels []RelocationInfo) int {
+	return 0
+}
+
 // PostRegAlloc implements Machine.SetupPrologue.
 func (m mockMachine) PostRegAlloc() {}
 

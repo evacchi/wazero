@@ -2072,6 +2072,12 @@ func (m *machine) ResolveRelocations(refToBinaryOffset map[ssa.FuncRef]int, bina
 	}
 }
 
+// RelocationTrampolineSize implements backend.Machine.
+func (m *machine) RelocationTrampolineSize(relocations []backend.RelocationInfo) int {
+	return 0
+}
+
+// UpdateRelocationInfo implements backend.Machine.
 func (m *machine) UpdateRelocationInfo(refToBinaryOffset map[ssa.FuncRef]int, trampolineOffset int, r backend.RelocationInfo) (backend.RelocationInfo, int) {
 	return r, 0
 }

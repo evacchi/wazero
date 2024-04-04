@@ -42,6 +42,12 @@ func (m *machine) ResolveRelocations(refToBinaryOffset map[ssa.FuncRef]int, bina
 	}
 }
 
+const relocationTrampolineSize = 5 * 4
+
+func (m *machine) RelocationTrampolineSize(rels []backend.RelocationInfo) int {
+	return relocationTrampolineSize * len(rels)
+}
+
 func (m *machine) UpdateRelocationInfo(refToBinaryOffset map[ssa.FuncRef]int, trampolineOffset int, r backend.RelocationInfo) (backend.RelocationInfo, int) {
 	instrOffset := r.Offset
 	calleeFnOffset := refToBinaryOffset[r.FuncRef]
@@ -49,7 +55,7 @@ func (m *machine) UpdateRelocationInfo(refToBinaryOffset map[ssa.FuncRef]int, tr
 	trampolineSize := 0
 	if diff < -(1<<25)*4 || diff > ((1<<25)-1)*4 {
 		r.TrampolineOffset = trampolineOffset
-		trampolineSize = 5 * 4
+		trampolineSize = relocationTrampolineSize
 	}
 	return r, trampolineSize
 }

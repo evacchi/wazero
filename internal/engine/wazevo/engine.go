@@ -263,7 +263,7 @@ func (e *engine) compileModule(ctx context.Context, module *wasm.Module, listene
 		}
 
 		bodies[i] = body
-		totalSize += len(body) + len(rels)*4*5
+		totalSize += len(body) + e.machine.RelocationTrampolineSize(rels)
 		if wazevoapi.PrintMachineCodeHexPerFunction {
 			fmt.Printf("[[[machine code for %s]]]\n%s\n\n", wazevoapi.GetCurrentFunctionName(ctx), hex.EncodeToString(body))
 		}
