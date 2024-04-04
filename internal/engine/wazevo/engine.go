@@ -257,7 +257,6 @@ func (e *engine) compileModule(ctx context.Context, module *wasm.Module, listene
 		// At this point, relocation offsets are relative to the start of the function body,
 		// so we adjust it to the start of the executable.
 		for _, r := range rels {
-			// r, body = e.machine.UpdateRelocationInfo(r, totalSize, body)
 			r.Caller = fref
 			r.Offset += int64(totalSize)
 			e.rels = append(e.rels, r)
@@ -270,46 +269,49 @@ func (e *engine) compileModule(ctx context.Context, module *wasm.Module, listene
 		}
 	}
 
-	totalSize = 0
-	j := 0
-	for i, b := range bodies {
-		fidx := wasm.Index(i + importedFns)
-		totalSize = (totalSize + 15) &^ 15
-		oldOffset := cm.functionOffsets[i]
-		cm.functionOffsets[i] = totalSize
-		fref := frontend.FunctionIndexToFuncRef(fidx)
-		e.refToBinaryOffset[fref] = totalSize
-		segmentSize := len(bodies[i])
-		trampolines := 0
-		for ; j < len(e.rels) && fref == e.rels[j].Caller; j++ {
-			r := &e.rels[j]
-			r.Offset = r.Offset - int64(oldOffset) + int64(totalSize)
-			instrOffset := r.Offset
-			calleeFnOffset := e.refToBinaryOffset[r.FuncRef]
-			diff := int64(calleeFnOffset) - (instrOffset)
-			if diff < -(1<<25)*4 || diff > ((1<<25)-1)*4 {
-				r.TrampolineOffset = totalSize + segmentSize + trampolines
-				trampolines += 5 * 4
+	// Now that we have collected all the relocations, we can compute the offsets for trampolines (if any).
+	if len(e.rels) > 0 {
+		totalSize = 0
+		relIdx := 0
+		for i := range bodies {
+			// Align 16-bytes boundary.
+			totalSize = (totalSize + 15) &^ 15
+			// As we scan the bodies, the size of the previous functions may have changed, so we compute
+			// by how much to update the new instruction offset in the RelocationInfo.
+			offsetDelta := int64(totalSize - cm.functionOffsets[i])
+
+			// Update the function offsets to the new value.
+			cm.functionOffsets[i] = totalSize
+			fidx := wasm.Index(i + importedFns)
+			fref := frontend.FunctionIndexToFuncRef(fidx)
+			e.refToBinaryOffset[fref] = totalSize
+
+			bodySize := len(bodies[i])
+			trampolines := 0
+			for ; relIdx < len(e.rels) && fref == e.rels[relIdx].Caller; relIdx++ {
+				r := e.rels[relIdx]
+				r.Offset += offsetDelta
+				trampolineOffset := totalSize + bodySize + trampolines
+				r, l := e.machine.UpdateRelocationInfo(e.refToBinaryOffset, trampolineOffset, r)
+				e.rels[relIdx] = r
+				trampolines += l
 			}
-		}
 
-		if needSourceInfo {
-			// At the beginning of the function, we add the offset of the function body so that
-			// we can resolve the source location of the call site of before listener call.
-			cm.sourceMap.executableOffsets = append(cm.sourceMap.executableOffsets, uintptr(totalSize))
-			cm.sourceMap.wasmBinaryOffsets = append(cm.sourceMap.wasmBinaryOffsets, module.CodeSection[i].BodyOffsetInCodeSection)
+			if needSourceInfo {
+				// At the beginning of the function, we add the offset of the function body so that
+				// we can resolve the source location of the call site of before listener call.
+				cm.sourceMap.executableOffsets = append(cm.sourceMap.executableOffsets, uintptr(totalSize))
+				cm.sourceMap.wasmBinaryOffsets = append(cm.sourceMap.wasmBinaryOffsets, module.CodeSection[i].BodyOffsetInCodeSection)
 
-			for _, info := range sourceOffsets[i] {
-				cm.sourceMap.executableOffsets = append(cm.sourceMap.executableOffsets, uintptr(totalSize)+uintptr(info.ExecutableOffset))
-				cm.sourceMap.wasmBinaryOffsets = append(cm.sourceMap.wasmBinaryOffsets, uint64(info.SourceOffset))
+				for _, info := range sourceOffsets[i] {
+					cm.sourceMap.executableOffsets = append(cm.sourceMap.executableOffsets, uintptr(totalSize)+uintptr(info.ExecutableOffset))
+					cm.sourceMap.wasmBinaryOffsets = append(cm.sourceMap.wasmBinaryOffsets, uint64(info.SourceOffset))
+				}
 			}
-		}
 
-		bodies[i] = append(b, make([]byte, trampolines)...)
-		totalSize += segmentSize + trampolines
+			totalSize += bodySize + trampolines
+		}
 	}
-
-	// println(totalSize)
 
 	// Allocate executable memory and then copy the generated machine code.
 	executable, err := platform.MmapCodeSegment(totalSize)
