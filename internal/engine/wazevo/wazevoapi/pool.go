@@ -1,5 +1,6 @@
 package wazevoapi
 
+// random test
 const poolPageSize = 128
 
 // Pool is a pool of T that can be allocated and reset.
