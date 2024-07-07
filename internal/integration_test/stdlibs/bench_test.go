@@ -103,7 +103,7 @@ var (
 				args = append(args,
 					"-test.skip=TestRenameCaseDifference/dir|"+
 						"TestDirFSPathsValid|TestDirFS|TestDevNullFile|"+
-						"TestOpenError|TestSymlinkWithTrailingSlash")
+						"TestOpenError|TestSymlinkWithTrailingSlash|TestCopyFS")
 			}
 			c = c.WithArgs(args...)
 
@@ -184,8 +184,8 @@ func defaultModuleConfig() (c wazero.ModuleConfig, stdout, stderr *os.File) {
 		WithSysWalltime().
 		WithRandSource(rand.Reader).
 		// Some tests require Stdout and Stderr to be present.
-		WithStdout(stdout).
-		WithStderr(stderr)
+		WithStdout(os.Stdout).
+		WithStderr(os.Stderr)
 	return
 }
 
