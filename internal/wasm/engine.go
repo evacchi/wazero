@@ -46,7 +46,7 @@ type ModuleEngine interface {
 	// 	- `index` is the function Index of this imported function.
 	// 	- `indexInImportedModule` is the function Index of the imported function in the imported module.
 	//	- `importedModuleEngine` is the ModuleEngine for the imported ModuleInstance.
-	ResolveImportedFunction(index, indexInImportedModule Index, importedModuleEngine ModuleEngine)
+	ResolveImportedFunction(index, typeIndex, indexInImportedModule Index, importedModuleEngine ModuleEngine)
 
 	// ResolveImportedMemory is called when this module imports a memory from another module.
 	ResolveImportedMemory(importedModuleEngine ModuleEngine)

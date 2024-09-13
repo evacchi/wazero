@@ -239,8 +239,13 @@ func (i *instruction) encode(m *machine) {
 		if wazevoapi.PrintMachineCodeHexPerFunctionDisassemblable {
 			c.Emit4Bytes(dummyInstruction)
 		} else {
-			c.Emit4Bytes(0)
+			// c.Emit4Bytes(0)
+			c.Emit4Bytes(0b11010100001<<21 | uint32(i.u1)<<5)
+
 		}
+	case brk:
+		// https://developer.arm.com/documentation/ddi0596/2020-12/Base-Instructions/BRK--Breakpoint-instruction-?lang=en
+		c.Emit4Bytes(0b11010100001<<21 | uint32(i.u1)<<5)
 	case adr:
 		c.Emit4Bytes(encodeAdr(regNumberInEncoding[i.rd.RealReg()], uint32(i.u1)))
 	case cSel:

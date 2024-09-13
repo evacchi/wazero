@@ -26,10 +26,10 @@ const (
 // These consts must be disabled by default. Enable them only when debugging.
 
 const (
-	PrintSSA                                 = false
+	PrintSSA                                 = true
 	PrintOptimizedSSA                        = false
-	PrintSSAToBackendIRLowering              = false
-	PrintRegisterAllocated                   = false
+	PrintSSAToBackendIRLowering              = true
+	PrintRegisterAllocated                   = true
 	PrintFinalizedMachineCode                = false
 	PrintMachineCodeHexPerFunction           = printMachineCodeHexPerFunctionUnmodified || PrintMachineCodeHexPerFunctionDisassemblable //nolint
 	printMachineCodeHexPerFunctionUnmodified = false
@@ -41,7 +41,7 @@ const (
 
 // printTarget is the function index to print the machine code. This is used for debugging to print the machine code
 // of a specific function.
-const printTarget = -1
+const printTarget = 11042 - 64
 
 // PrintEnabledIndex returns true if the current function index is the print target.
 func PrintEnabledIndex(ctx context.Context) bool {

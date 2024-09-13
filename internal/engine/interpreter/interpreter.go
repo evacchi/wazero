@@ -487,7 +487,7 @@ func (e *engine) setLabelAddress(op *uint64, label label, labelAddressResolution
 }
 
 // ResolveImportedFunction implements wasm.ModuleEngine.
-func (e *moduleEngine) ResolveImportedFunction(index, indexInImportedModule wasm.Index, importedModuleEngine wasm.ModuleEngine) {
+func (e *moduleEngine) ResolveImportedFunction(index, typeID, indexInImportedModule wasm.Index, importedModuleEngine wasm.ModuleEngine) {
 	imported := importedModuleEngine.(*moduleEngine)
 	e.functions[index] = imported.functions[indexInImportedModule]
 }
@@ -770,6 +770,10 @@ func (ce *callEngine) callNativeFunc(ctx context.Context, m *wasm.ModuleInstance
 			}
 
 			tf := functionFromUintptr(rawPtr)
+			if f.definition().Index() == (11042) {
+				println(f.definition().DebugName(), tf.typeID)
+				println(tf.definition().DebugName())
+			}
 			if tf.typeID != typeIDs[op.U1] {
 				panic(wasmruntime.ErrRuntimeIndirectCallTypeMismatch)
 			}
