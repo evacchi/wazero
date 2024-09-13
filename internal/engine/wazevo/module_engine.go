@@ -237,7 +237,7 @@ func (m *moduleEngine) putLocalMemory() {
 }
 
 // ResolveImportedFunction implements wasm.ModuleEngine.
-func (m *moduleEngine) ResolveImportedFunction(index, typeID, indexInImportedModule wasm.Index, importedModuleEngine wasm.ModuleEngine) {
+func (m *moduleEngine) ResolveImportedFunction(index, indexInImportedModule wasm.Index, typeID wasm.FunctionTypeID, importedModuleEngine wasm.ModuleEngine) {
 	executableOffset, moduleCtxOffset, typeIDOffset := m.parent.offsets.ImportedFunctionOffset(index)
 	importedME := importedModuleEngine.(*moduleEngine)
 
@@ -245,16 +245,18 @@ func (m *moduleEngine) ResolveImportedFunction(index, typeID, indexInImportedMod
 		indexInImportedModule -= wasm.Index(len(importedME.importedFunctions))
 	} else {
 		imported := &importedME.importedFunctions[indexInImportedModule]
-		m.ResolveImportedFunction(index, typeID, imported.indexInModule, imported.me)
+		m.ResolveImportedFunction(index, imported.indexInModule, typeID, imported.me)
 		return // Recursively resolve the imported function.
 	}
 
 	offset := importedME.parent.functionOffsets[indexInImportedModule]
+	otherTypeID := getTypeIDOf(indexInImportedModule, importedME.module)
 
 	executable := &importedME.parent.executable[offset]
 	// Write functionInstance.
 	binary.LittleEndian.PutUint64(m.opaque[executableOffset:], uint64(uintptr(unsafe.Pointer(executable))))
 	binary.LittleEndian.PutUint64(m.opaque[moduleCtxOffset:], uint64(uintptr(unsafe.Pointer(importedME.opaquePtr))))
+	println("T:", typeID, otherTypeID, 1)
 	binary.LittleEndian.PutUint64(m.opaque[typeIDOffset:], uint64(typeID))
 
 	// Write importedFunction so that it can be used by NewFunction.

@@ -487,7 +487,7 @@ func (e *engine) setLabelAddress(op *uint64, label label, labelAddressResolution
 }
 
 // ResolveImportedFunction implements wasm.ModuleEngine.
-func (e *moduleEngine) ResolveImportedFunction(index, typeID, indexInImportedModule wasm.Index, importedModuleEngine wasm.ModuleEngine) {
+func (e *moduleEngine) ResolveImportedFunction(index, indexInImportedModule wasm.Index, typeID wasm.FunctionTypeID, importedModuleEngine wasm.ModuleEngine) {
 	imported := importedModuleEngine.(*moduleEngine)
 	e.functions[index] = imported.functions[indexInImportedModule]
 }

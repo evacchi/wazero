@@ -185,10 +185,10 @@ func TestModuleEngine_ResolveImportedFunction(t *testing.T) {
 		},
 	}
 
-	m.ResolveImportedFunction(0, 0, im1)
-	m.ResolveImportedFunction(1, 0, im2)
-	m.ResolveImportedFunction(2, 2, im1)
-	m.ResolveImportedFunction(3, 1, im1)
+	m.ResolveImportedFunction(0, 0, 0, im1) // fixme
+	m.ResolveImportedFunction(1, 0, 0, im2) // fixme
+	m.ResolveImportedFunction(2, 2, 0, im1) // fixme
+	m.ResolveImportedFunction(3, 1, 0, im1) // fixme
 
 	for i, tc := range []struct {
 		index      int
