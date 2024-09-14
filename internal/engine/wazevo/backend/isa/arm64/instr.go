@@ -111,7 +111,6 @@ var defKinds = [numInstructionKinds]defKind{
 	fpuStore64:           defKindNone,
 	fpuStore128:          defKindNone,
 	udf:                  defKindNone,
-	brk:                  defKindNone,
 	cSel:                 defKindRD,
 	fpuCSel:              defKindRD,
 	movToVec:             defKindRD,
@@ -200,7 +199,6 @@ const (
 
 var useKinds = [numInstructionKinds]useKind{
 	udf:                  useKindNone,
-	brk:                  useKindNone,
 	aluRRR:               useKindRNRM,
 	aluRRRR:              useKindRNRMRA,
 	aluRRImm12:           useKindRN,
@@ -1505,8 +1503,6 @@ func (i *instruction) String() (str string) {
 		str = "dmb"
 	case udf:
 		str = "udf"
-	case brk:
-		str = fmt.Sprintf("brk %#x", i.u1)
 
 	case emitSourceOffsetInfo:
 		str = fmt.Sprintf("source_offset_info %d", ssa.SourceOffset(i.u1))
@@ -1734,8 +1730,6 @@ const (
 	dmb
 	// UDF is the undefined instruction. For debugging only.
 	udf
-	// BRK is the breakpoint instruction. For debugging only.
-	brk
 	// loadConstBlockArg represents a load of a constant block argument.
 	loadConstBlockArg
 
@@ -1771,12 +1765,6 @@ func (i *instruction) sourceOffsetInfo() ssa.SourceOffset {
 
 func (i *instruction) asUDF() *instruction {
 	i.kind = udf
-	return i
-}
-
-func (i *instruction) asBRK(imm uint16) *instruction {
-	i.kind = brk
-	i.u1 = uint64(imm)
 	return i
 }
 
