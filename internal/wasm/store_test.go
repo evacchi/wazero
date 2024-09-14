@@ -485,7 +485,7 @@ func (e *mockModuleEngine) FunctionInstanceReference(i Index) Reference {
 }
 
 // ResolveImportedFunction implements the same method as documented on wasm.ModuleEngine.
-func (e *mockModuleEngine) ResolveImportedFunction(index, importedIndex Index, typeID FunctionTypeID, _ ModuleEngine) {
+func (e *mockModuleEngine) ResolveImportedFunction(index, importedIndex Index, _ FunctionTypeID, _ ModuleEngine) {
 	e.resolveImportsCalled[index] = importedIndex
 }
 
