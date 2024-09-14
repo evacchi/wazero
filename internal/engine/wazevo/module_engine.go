@@ -261,28 +261,6 @@ func (m *moduleEngine) ResolveImportedFunction(index, indexInImportedModule wasm
 	m.importedFunctions[index] = importedFunction{me: importedME, indexInModule: indexInImportedModule}
 }
 
-func getTypeIDOf(funcIndex wasm.Index, m *wasm.ModuleInstance) wasm.FunctionTypeID {
-	source := m.Source
-
-	var typeIndex wasm.Index
-	if funcIndex >= source.ImportFunctionCount {
-		funcIndex -= source.ImportFunctionCount
-		typeIndex = source.FunctionSection[funcIndex]
-	} else {
-		var cnt wasm.Index
-		for i := range source.ImportSection {
-			if source.ImportSection[i].Type == wasm.ExternTypeFunc {
-				if cnt == funcIndex {
-					typeIndex = source.ImportSection[i].DescFunc
-					break
-				}
-				cnt++
-			}
-		}
-	}
-	return m.TypeIDs[typeIndex]
-}
-
 // ResolveImportedMemory implements wasm.ModuleEngine.
 func (m *moduleEngine) ResolveImportedMemory(importedModuleEngine wasm.ModuleEngine) {
 	importedME := importedModuleEngine.(*moduleEngine)

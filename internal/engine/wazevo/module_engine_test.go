@@ -312,26 +312,6 @@ func Test_functionInstance_offsets(t *testing.T) {
 	require.Equal(t, typeID, ptr+16)
 }
 
-func Test_getTypeIDOf(t *testing.T) {
-	m := &wasm.ModuleInstance{
-		TypeIDs: []wasm.FunctionTypeID{111, 222, 333, 444},
-		Source: &wasm.Module{
-			ImportFunctionCount: 1,
-			ImportSection: []wasm.Import{
-				{Type: wasm.ExternTypeMemory},
-				{Type: wasm.ExternTypeTable},
-				{Type: wasm.ExternTypeFunc, DescFunc: 3},
-			},
-			FunctionSection: []wasm.Index{2, 1, 0},
-		},
-	}
-
-	require.Equal(t, wasm.FunctionTypeID(444), getTypeIDOf(0, m))
-	require.Equal(t, wasm.FunctionTypeID(333), getTypeIDOf(1, m))
-	require.Equal(t, wasm.FunctionTypeID(222), getTypeIDOf(2, m))
-	require.Equal(t, wasm.FunctionTypeID(111), getTypeIDOf(3, m))
-}
-
 func Test_newAlignedOpaque(t *testing.T) {
 	for i := 0; i < 100; i++ {
 		s := 16 * (i + 10)
