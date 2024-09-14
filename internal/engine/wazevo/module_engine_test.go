@@ -185,10 +185,10 @@ func TestModuleEngine_ResolveImportedFunction(t *testing.T) {
 		},
 	}
 
-	m.ResolveImportedFunction(0, 0, 0, im1) // fixme
-	m.ResolveImportedFunction(1, 0, 0, im2) // fixme
-	m.ResolveImportedFunction(2, 2, 0, im1) // fixme
-	m.ResolveImportedFunction(3, 1, 0, im1) // fixme
+	m.ResolveImportedFunction(0, 0, 111, im1) // fixme
+	m.ResolveImportedFunction(1, 0, 999, im2) // fixme
+	m.ResolveImportedFunction(2, 2, 333, im1) // fixme
+	m.ResolveImportedFunction(3, 1, 222, im1) // fixme
 
 	for i, tc := range []struct {
 		index      int
@@ -250,8 +250,8 @@ func TestModuleEngine_ResolveImportedFunction_recursive(t *testing.T) {
 		},
 	}
 
-	m.ResolveImportedFunction(0, 0, importing)
-	m.ResolveImportedFunction(1, 1, importing)
+	m.ResolveImportedFunction(0, 0, 111, importing)
+	m.ResolveImportedFunction(1, 1, 222, importing)
 
 	for i, tc := range []struct {
 		index      int

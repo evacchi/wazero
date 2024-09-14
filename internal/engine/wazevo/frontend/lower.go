@@ -3493,7 +3493,6 @@ func (c *Compiler) lowerAccessTableWithBoundsCheck(tableIndex uint32, elementOff
 
 	if c.wasmLocalFunctionIndex == (11042 - 64) {
 		println(tableIndex, c.offset.TableOffset(int(tableIndex)).U32())
-
 	}
 
 	// Load the table.

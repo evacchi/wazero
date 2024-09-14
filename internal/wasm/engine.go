@@ -45,6 +45,7 @@ type ModuleEngine interface {
 	// ResolveImportedFunction is used to add imported functions needed to make this ModuleEngine fully functional.
 	// 	- `index` is the function Index of this imported function.
 	// 	- `indexInImportedModule` is the function Index of the imported function in the imported module.
+	// 	- `typeID` is the FunctionTypeID as defined in the import section of the current module.
 	//	- `importedModuleEngine` is the ModuleEngine for the imported ModuleInstance.
 	ResolveImportedFunction(index, indexInImportedModule Index, typeID FunctionTypeID, importedModuleEngine ModuleEngine)
 
