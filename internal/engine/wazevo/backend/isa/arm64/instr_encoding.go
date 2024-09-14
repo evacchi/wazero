@@ -239,8 +239,7 @@ func (i *instruction) encode(m *machine) {
 		if wazevoapi.PrintMachineCodeHexPerFunctionDisassemblable {
 			c.Emit4Bytes(dummyInstruction)
 		} else {
-			// c.Emit4Bytes(0)
-			c.Emit4Bytes(0b11010100001<<21 | uint32(i.u1)<<5)
+			c.Emit4Bytes(0)
 		}
 	case adr:
 		c.Emit4Bytes(encodeAdr(regNumberInEncoding[i.rd.RealReg()], uint32(i.u1)))

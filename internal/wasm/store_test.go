@@ -341,7 +341,7 @@ func TestStore_Instantiate_Errors(t *testing.T) {
 				importedModuleName: {{Type: ExternTypeFunc, Module: importedModuleName, Name: "fn", DescFunc: 0}},
 				"non-exist":        {{Name: "fn", DescFunc: 0}},
 			},
-		}, importingModuleName, nil, nil)
+		}, importingModuleName, nil, []FunctionTypeID{0})
 		require.EqualError(t, err, "module[non-exist] not instantiated")
 	})
 
@@ -742,7 +742,7 @@ func Test_resolveImports(t *testing.T) {
 				},
 			}
 
-			m := &ModuleInstance{Engine: &mockModuleEngine{resolveImportsCalled: map[Index]Index{}}, s: s, Source: module}
+			m := &ModuleInstance{Engine: &mockModuleEngine{resolveImportsCalled: map[Index]Index{}}, s: s, Source: module, TypeIDs: []FunctionTypeID{0, 1}}
 			err := m.resolveImports(context.Background(), module)
 			require.NoError(t, err)
 
