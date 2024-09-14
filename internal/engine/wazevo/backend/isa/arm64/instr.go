@@ -1503,7 +1503,6 @@ func (i *instruction) String() (str string) {
 		str = "dmb"
 	case udf:
 		str = "udf"
-
 	case emitSourceOffsetInfo:
 		str = fmt.Sprintf("source_offset_info %d", ssa.SourceOffset(i.u1))
 	case vecLoad1R:

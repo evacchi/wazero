@@ -770,10 +770,6 @@ func (ce *callEngine) callNativeFunc(ctx context.Context, m *wasm.ModuleInstance
 			}
 
 			tf := functionFromUintptr(rawPtr)
-			if f.definition().Index() == (11042) {
-				println(f.definition().DebugName(), tf.typeID)
-				println(tf.definition().DebugName())
-			}
 			if tf.typeID != typeIDs[op.U1] {
 				panic(wasmruntime.ErrRuntimeIndirectCallTypeMismatch)
 			}

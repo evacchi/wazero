@@ -3491,10 +3491,6 @@ const (
 func (c *Compiler) lowerAccessTableWithBoundsCheck(tableIndex uint32, elementOffsetInTable ssa.Value) (elementAddress ssa.Value) {
 	builder := c.ssaBuilder
 
-	if c.wasmLocalFunctionIndex == (11042 - 64) {
-		println(tableIndex, c.offset.TableOffset(int(tableIndex)).U32())
-	}
-
 	// Load the table.
 	loadTableInstancePtr := builder.AllocateInstruction()
 	loadTableInstancePtr.AsLoad(c.moduleCtxPtrValue, c.offset.TableOffset(int(tableIndex)).U32(), ssa.TypeI64)

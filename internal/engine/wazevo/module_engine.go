@@ -250,7 +250,6 @@ func (m *moduleEngine) ResolveImportedFunction(index, indexInImportedModule wasm
 	}
 
 	offset := importedME.parent.functionOffsets[indexInImportedModule]
-
 	executable := &importedME.parent.executable[offset]
 	// Write functionInstance.
 	binary.LittleEndian.PutUint64(m.opaque[executableOffset:], uint64(uintptr(unsafe.Pointer(executable))))
