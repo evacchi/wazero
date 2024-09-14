@@ -3507,7 +3507,6 @@ func (c *Compiler) lowerAccessTableWithBoundsCheck(tableIndex uint32, elementOff
 	checkOOB := builder.AllocateInstruction()
 	checkOOB.AsIcmp(elementOffsetInTable, tableLen, ssa.IntegerCmpCondUnsignedGreaterThanOrEqual)
 	builder.InsertInstruction(checkOOB)
-
 	exitIfOOB := builder.AllocateInstruction()
 	exitIfOOB.AsExitIfTrueWithCode(c.execCtxPtrValue, checkOOB.Return(), wazevoapi.ExitCodeTableOutOfBounds)
 	builder.InsertInstruction(exitIfOOB)
@@ -3539,9 +3538,6 @@ func (c *Compiler) lowerCallIndirect(typeIndex, tableIndex uint32) {
 	state := c.state()
 
 	elementOffsetInTable := state.pop()
-	// if c.wasmLocalFunctionIndex == (11042 - 64) {
-	// 	builder.InsertUndefined()
-	// }
 	functionInstancePtrAddress := c.lowerAccessTableWithBoundsCheck(tableIndex, elementOffsetInTable)
 	loadFunctionInstancePtr := builder.AllocateInstruction()
 	loadFunctionInstancePtr.AsLoad(functionInstancePtrAddress, 0, ssa.TypeI64)
@@ -3575,10 +3571,6 @@ func (c *Compiler) lowerCallIndirect(typeIndex, tableIndex uint32) {
 	loadExpectedTypeID.AsLoad(typeIDsBegin, uint32(typeIndex)*4 /* size of wasm.FunctionTypeID */, ssa.TypeI32)
 	builder.InsertInstruction(loadExpectedTypeID)
 	expectedTypeID := loadExpectedTypeID.Return()
-
-	// if c.wasmLocalFunctionIndex == (11042 - 64) {
-	// 	builder.InsertUndefined()
-	// }
 
 	// Check if the type ID matches.
 	checkTypeID := builder.AllocateInstruction()
