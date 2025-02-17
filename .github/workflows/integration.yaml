@@ -18,7 +18,7 @@ defaults:
     shell: bash
 
 env:  # Update this prior to requiring a higher minor version in go.mod
-  GO_VERSION: "1.23"
+  GO_VERSION: "1.24"
   TINYGO_VERSION: "0.35.0"
   ZIG_VERSION: "0.11.0"
   BINARYEN_VERSION: "116"
