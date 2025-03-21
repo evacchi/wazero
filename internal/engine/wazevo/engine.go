@@ -8,6 +8,7 @@ import (
 	"runtime"
 	"sort"
 	"sync"
+	"sync/atomic"
 	"unsafe"
 
 	"github.com/tetratelabs/wazero/api"
@@ -233,33 +234,23 @@ func (e *engine) compileModule(ctx context.Context, module *wasm.Module, listene
 		SourceOffsetInfo []backend.SourceOffsetInfo
 	}
 
+	var nextFunc atomic.Uintptr
 	compiledFuncs := make([]CompiledLocalFuncResult, len(module.CodeSection))
-	errs := make(chan error, len(module.CodeSection))
 
-	workers := runtime.NumCPU()
-
+	workers := runtime.GOMAXPROCS(0)
 	wg := sync.WaitGroup{}
 	wg.Add(workers)
 
-	defer wg.Wait()
-
-	go func() {
-		wg.Wait()
-		close(errs)
-	}()
-
-	ctx, cancel := context.WithCancel(ctx)
-	defer cancel()
-
-	sections := sequence(len(module.CodeSection))
+	ctx, cancel := context.WithCancelCause(ctx)
+	defer cancel(nil)
 
 	for range workers {
 		go func() {
 			defer wg.Done()
 
-			for i := range sections {
-				if err := ctx.Err(); err != nil {
-					errs <- err
+			for i := int(nextFunc.Add(1) - 1); i < len(compiledFuncs); i = int(nextFunc.Add(1) - 1) {
+				if ctx.Err() != nil {
+					// Compilation cancelled.
 					return
 				}
 
@@ -287,7 +278,7 @@ func (e *engine) compileModule(ctx context.Context, module *wasm.Module, listene
 
 				body, relsPerFunc, err := e.compileLocalWasmFunction(ctx, module, wasm.Index(i), fe, ssaBuilder, be, needListener)
 				if err != nil {
-					errs <- fmt.Errorf("compile function %d/%d: %v", i, len(module.CodeSection)-1, err)
+					cancel(err)
 					return
 				}
 				compiledFuncs[i] = CompiledLocalFuncResult{
@@ -300,7 +291,8 @@ func (e *engine) compileModule(ctx context.Context, module *wasm.Module, listene
 		}()
 	}
 
-	if err := <-errs; err != nil {
+	wg.Wait()
+	if err := context.Cause(ctx); err != nil {
 		return nil, err
 	}
 
