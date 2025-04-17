@@ -814,6 +814,14 @@ operatorSwitch:
 		c.emit(
 			newOperationCallIndirect(typeIndex, tableIndex),
 		)
+	case wasm.OpcodeTailCallReturnCall:
+		c.emit(
+			newOperationCall(index),
+		)
+	case wasm.OpcodeTailCallReturnCall:
+		c.emit(
+			newOperationCall(index),
+		)
 	case wasm.OpcodeDrop:
 		r := inclusiveRange{Start: 0, End: 0}
 		if peekValueType == unsignedTypeV128 {
@@ -3449,7 +3457,10 @@ func (c *compiler) applyToStack(opcode wasm.Opcode) (index uint32, err error) {
 		wasm.OpcodeLocalSet,
 		wasm.OpcodeLocalTee,
 		wasm.OpcodeGlobalGet,
-		wasm.OpcodeGlobalSet:
+		wasm.OpcodeGlobalSet,
+		// tail-call proposal
+		wasm.OpcodeTailCallReturnCall,
+		wasm.OpcodeTailCallReturnCallIndirect:
 		// Assumes that we are at the opcode now so skip it before read immediates.
 		v, num, err := leb128.LoadUint32(c.body[c.pc+1:])
 		if err != nil {

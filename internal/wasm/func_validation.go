@@ -534,7 +534,7 @@ func (m *Module) validateFunctionWithMaxStackValues(
 
 			// br_table instruction is stack-polymorphic.
 			valueTypeStack.unreachable()
-		} else if op == OpcodeCall {
+		} else if op == OpcodeCall || op == OpcodeTailCallReturnCall {
 			pc++
 			index, num, err := leb128.LoadUint32(body[pc:])
 			if err != nil {
@@ -553,7 +553,15 @@ func (m *Module) validateFunctionWithMaxStackValues(
 			for _, exp := range funcType.Results {
 				valueTypeStack.push(exp)
 			}
-		} else if op == OpcodeCallIndirect {
+			if op == OpcodeTailCallReturnCall {
+				// Same formatting as OpcodeEnd on the outer-most block
+				if err := valueTypeStack.requireStackValues(false, "", functionType.Results, false); err != nil {
+					return err
+				}
+				// return instruction is stack-polymorphic.
+				valueTypeStack.unreachable()
+			}
+		} else if op == OpcodeCallIndirect || op == OpcodeTailCallReturnCallIndirect {
 			pc++
 			typeIndex, num, err := leb128.LoadUint32(body[pc:])
 			if err != nil {
@@ -596,6 +604,15 @@ func (m *Module) validateFunctionWithMaxStackValues(
 			}
 			for _, exp := range funcType.Results {
 				valueTypeStack.push(exp)
+			}
+
+			if op == OpcodeTailCallReturnCallIndirect {
+				// Same formatting as OpcodeEnd on the outer-most block
+				if err := valueTypeStack.requireStackValues(false, "", functionType.Results, false); err != nil {
+					return err
+				}
+				// return instruction is stack-polymorphic.
+				valueTypeStack.unreachable()
 			}
 		} else if OpcodeI32Eqz <= op && op <= OpcodeI64Extend32S {
 			switch op {
