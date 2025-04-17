@@ -818,10 +818,42 @@ operatorSwitch:
 		c.emit(
 			newOperationCall(index),
 		)
-	case wasm.OpcodeTailCallReturnCall:
+
+		functionFrame := c.controlFrames.functionFrame()
+		dropOp := newOperationDrop(c.getFrameDropRange(functionFrame, false))
+
+		// Cleanup the stack and then jmp to function frame's continuation (meaning return).
+		c.emit(dropOp)
+		c.emit(newOperationBr(functionFrame.asLabel()))
+
+		// Return operation is stack-polymorphic, and mark the state as unreachable.
+		// That means subsequent instructions in the current control frame are "unreachable"
+		// and can be safely removed.
+		c.markUnreachable()
+
+	case wasm.OpcodeTailCallReturnCallIndirect:
+		typeIndex := index
+		tableIndex, n, err := leb128.LoadUint32(c.body[c.pc+1:])
+		if err != nil {
+			return fmt.Errorf("read target for br_table: %w", err)
+		}
+		c.pc += n
 		c.emit(
-			newOperationCall(index),
+			newOperationCallIndirect(typeIndex, tableIndex),
 		)
+
+		functionFrame := c.controlFrames.functionFrame()
+		dropOp := newOperationDrop(c.getFrameDropRange(functionFrame, false))
+
+		// Cleanup the stack and then jmp to function frame's continuation (meaning return).
+		c.emit(dropOp)
+		c.emit(newOperationBr(functionFrame.asLabel()))
+
+		// Return operation is stack-polymorphic, and mark the state as unreachable.
+		// That means subsequent instructions in the current control frame are "unreachable"
+		// and can be safely removed.
+		c.markUnreachable()
+
 	case wasm.OpcodeDrop:
 		r := inclusiveRange{Start: 0, End: 0}
 		if peekValueType == unsignedTypeV128 {
