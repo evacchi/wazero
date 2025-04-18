@@ -445,6 +445,10 @@ func (o operationKind) String() (ret string) {
 		ret = "operationKindAtomicRMW8Cmpxchg"
 	case operationKindAtomicRMW16Cmpxchg:
 		ret = "operationKindAtomicRMW16Cmpxchg"
+	case operationKindTailCallReturnCall:
+		ret = "operationKindTailCallReturnCall"
+	case operationKindTailCallReturnCallIndirect:
+		ret = "operationKindTailCallReturnCallIndirect"
 	default:
 		panic(fmt.Errorf("unknown operation %d", o))
 	}
@@ -767,6 +771,11 @@ const (
 	operationKindAtomicRMW8Cmpxchg
 	// operationKindAtomicRMW16Cmpxchg is the kind for NewOperationAtomicRMW16Cmpxchg.
 	operationKindAtomicRMW16Cmpxchg
+
+	// operationKindTailCallReturnCall is the Kind for newOperationTailCallReturnCall.
+	operationKindTailCallReturnCall
+	// operationKindTailCallReturnCallIndirect is the Kind for newOperationKindTailCallReturnCallIndirect.
+	operationKindTailCallReturnCallIndirect
 
 	// operationKindEnd is always placed at the bottom of this iota definition to be used in the test.
 	operationKindEnd
@@ -1096,6 +1105,12 @@ func (o unionOperation) String() string {
 		operationKindAtomicRMW8Cmpxchg,
 		operationKindAtomicRMW16Cmpxchg:
 		return o.Kind.String()
+
+	case operationKindTailCallReturnCall:
+		return fmt.Sprintf("%s %d %s", o.Kind, o.U1, label(o.U2).String())
+
+	case operationKindTailCallReturnCallIndirect:
+		return fmt.Sprintf("%s %d %d", o.Kind, o.U1, o.U2)
 
 	default:
 		panic(fmt.Sprintf("TODO: %v", o.Kind))
@@ -2809,4 +2824,31 @@ func newOperationAtomicRMW8Cmpxchg(unsignedType unsignedType, arg memoryArg) uni
 //	wasm.OpcodeAtomicI32RMW16CmpxchgUName wasm.OpcodeAtomicI64Rmw16CmpxchgUName
 func newOperationAtomicRMW16Cmpxchg(unsignedType unsignedType, arg memoryArg) unionOperation {
 	return unionOperation{Kind: operationKindAtomicRMW16Cmpxchg, B1: byte(unsignedType), U1: uint64(arg.Alignment), U2: uint64(arg.Offset)}
+}
+
+// NewOperationCall is a constructor for unionOperation with operationKindCall.
+//
+// This corresponds to OpcodeTailCallReturnCall, and engines are expected to
+// enter to jump to a function whose index equals OperationCall.FunctionIndex.
+// # FIXME
+func newOperationTailCallReturnCall(functionIndex uint32) unionOperation {
+	return unionOperation{Kind: operationKindTailCallReturnCall, U1: uint64(functionIndex)}
+}
+
+// NewOperationCallIndirect implements Operation.
+//
+// # FIXME
+//
+// This corresponds to wasm.OpcodeCallIndirectName, and engines are expected to
+// consume the one value from the top of stack (called "offset"),
+// and make a function call against the function whose function address equals
+// Tables[OperationCallIndirect.TableIndex][offset].
+//
+// Note: This is called indirect function call in the sense that the target function is indirectly
+// determined by the current state (top value) of the stack.
+// Therefore, two checks are performed at runtime before entering the target function:
+// 1) whether "offset" exceeds the length of table Tables[OperationCallIndirect.TableIndex].
+// 2) whether the type of the function table[offset] matches the function type specified by OperationCallIndirect.TypeIndex.
+func newOperationTailCallReturnCallIndirect(typeIndex, tableIndex uint32) unionOperation {
+	return unionOperation{Kind: operationKindTailCallReturnCallIndirect, U1: uint64(typeIndex), U2: uint64(tableIndex)}
 }
