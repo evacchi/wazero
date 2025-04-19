@@ -9,6 +9,7 @@ import (
 	"github.com/tetratelabs/wazero/api"
 	"github.com/tetratelabs/wazero/experimental"
 	"github.com/tetratelabs/wazero/internal/integration_test/spectest"
+	"github.com/tetratelabs/wazero/internal/platform"
 )
 
 //go:embed testdata/*.wasm
@@ -18,11 +19,10 @@ var testcases embed.FS
 const enabledFeatures = api.CoreFeaturesV2 | experimental.CoreFeaturesTailCall
 
 func TestCompiler(t *testing.T) {
-	t.Skip("TODO")
-	// if !platform.CompilerSupported() {
-	// 	t.Skip()
-	// }
-	// spectest.Run(t, testcases, context.Background(), wazero.NewRuntimeConfigCompiler().WithCoreFeatures(enabledFeatures))
+	if !platform.CompilerSupported() {
+		t.Skip()
+	}
+	spectest.Run(t, testcases, context.Background(), wazero.NewRuntimeConfigCompiler().WithCoreFeatures(enabledFeatures))
 }
 
 func TestInterpreter(t *testing.T) {
