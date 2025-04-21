@@ -2183,7 +2183,7 @@ func (i *Instruction) AsCall(ref FuncRef, sig *Signature, args Values) {
 
 // CallData returns the call data for this instruction necessary for backends.
 func (i *Instruction) CallData() (ref FuncRef, sigID SignatureID, args []Value) {
-	if i.opcode != OpcodeCall {
+	if i.opcode != OpcodeCall && i.opcode != OpcodeTailCallReturnCall {
 		panic("BUG: CallData only available for OpcodeCall")
 	}
 	ref = FuncRef(i.u1)
