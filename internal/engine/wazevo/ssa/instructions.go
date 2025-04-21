@@ -633,6 +633,10 @@ const (
 	// OpcodeFence is a memory fence operation.
 	OpcodeFence
 
+	OpcodeTailCallReturnCall
+
+	OpcodeTailCallReturnCallIndirect
+
 	// opcodeEnd marks the end of the opcode list.
 	opcodeEnd
 )
@@ -2036,6 +2040,15 @@ func (i *Instruction) AtomicRmwData() (op AtomicRmwOp, size uint64) {
 // AtomicTargetSize returns the target memory size of the atomic instruction.
 func (i *Instruction) AtomicTargetSize() (size uint64) {
 	return i.u1
+}
+
+// AsCall initializes this instruction as a call instruction with OpcodeTailCallReturnCall.
+func (i *Instruction) AsTailCallReturnCall(ref FuncRef, sig *Signature, args Values) {
+	i.opcode = OpcodeTailCallReturnCall
+	i.u1 = uint64(ref)
+	i.vs = args
+	i.u2 = uint64(sig.ID)
+	sig.used = true
 }
 
 // ReturnVals returns the return values of OpcodeReturn.

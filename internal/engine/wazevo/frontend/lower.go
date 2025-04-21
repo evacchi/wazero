@@ -3656,6 +3656,31 @@ func (c *Compiler) lowerCallIndirect(typeIndex, tableIndex uint32) {
 	c.reloadAfterCall()
 }
 
+func (c *Compiler) lowerTailCallReturnCall(fnIndex uint32) {
+	builder := c.ssaBuilder
+	state := c.state()
+
+	if fnIndex < c.m.ImportFunctionCount {
+		panic("tail calls to imported functions not yet supported")
+	}
+	typIndex := c.m.FunctionSection[fnIndex-c.m.ImportFunctionCount]
+	typ := &c.m.TypeSection[typIndex]
+
+	argN := len(typ.Params)
+	tail := len(state.values) - argN
+	vs := state.values[tail:]
+	state.values = state.values[:tail]
+	args := c.allocateVarLengthValues(2+len(vs), c.execCtxPtrValue)
+
+	sig := c.signatures[typ]
+	call := builder.AllocateInstruction()
+	args = args.Append(builder.VarLengthPool(), c.moduleCtxPtrValue)
+	args = args.Append(builder.VarLengthPool(), vs...)
+	call.AsTailCallReturnCall(FunctionIndexToFuncRef(fnIndex), sig, args)
+	builder.InsertInstruction(call)
+	state.unreachable = true
+}
+
 // memOpSetup inserts the bounds check and calculates the address of the memory operation (loads/stores).
 func (c *Compiler) memOpSetup(baseAddr ssa.Value, constOffset, operationSizeInBytes uint64) (address ssa.Value) {
 	address = ssa.ValueInvalid
