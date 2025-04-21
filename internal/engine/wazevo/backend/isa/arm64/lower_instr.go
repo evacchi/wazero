@@ -788,6 +788,12 @@ func (m *machine) LowerInstr(instr *ssa.Instruction) {
 		instr.asDMB()
 		m.insert(instr)
 
+	case ssa.OpcodeTailCallReturnCall:
+		panic("TODO: tail calls " + op.String())
+
+	case ssa.OpcodeTailCallReturnCallIndirect:
+		panic("TODO: tail calls " + op.String())
+
 	default:
 		panic("TODO: lowering " + op.String())
 	}
