@@ -3458,6 +3458,13 @@ func (c *Compiler) lowerCurrentOpcode() {
 		elementAddr := c.lowerAccessTableWithBoundsCheck(tableIndex, targetOffsetInTable)
 		loaded := builder.AllocateInstruction().AsLoad(elementAddr, 0, ssa.TypeI64).Insert(builder).Return()
 		state.push(loaded)
+
+	case wasm.OpcodeTailCallReturnCall:
+		panic("TODO: return_call")
+
+	case wasm.OpcodeTailCallReturnCallIndirect:
+		panic("TODO: return_call_indirect")
+
 	default:
 		panic("TODO: unsupported in wazevo yet: " + wasm.InstructionName(op))
 	}
