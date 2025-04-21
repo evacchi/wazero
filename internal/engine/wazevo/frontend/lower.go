@@ -1595,66 +1595,7 @@ func (c *Compiler) lowerCurrentOpcode() {
 		if state.unreachable {
 			break
 		}
-
-		var typIndex wasm.Index
-		if fnIndex < c.m.ImportFunctionCount {
-			// Before transfer the control to the callee, we have to store the current module's moduleContextPtr
-			// into execContext.callerModuleContextPtr in case when the callee is a Go function.
-			c.storeCallerModuleContext()
-			var fi int
-			for i := range c.m.ImportSection {
-				imp := &c.m.ImportSection[i]
-				if imp.Type == wasm.ExternTypeFunc {
-					if fi == int(fnIndex) {
-						typIndex = imp.DescFunc
-						break
-					}
-					fi++
-				}
-			}
-		} else {
-			typIndex = c.m.FunctionSection[fnIndex-c.m.ImportFunctionCount]
-		}
-		typ := &c.m.TypeSection[typIndex]
-
-		argN := len(typ.Params)
-		tail := len(state.values) - argN
-		vs := state.values[tail:]
-		state.values = state.values[:tail]
-		args := c.allocateVarLengthValues(2+len(vs), c.execCtxPtrValue)
-
-		sig := c.signatures[typ]
-		call := builder.AllocateInstruction()
-		if fnIndex >= c.m.ImportFunctionCount {
-			args = args.Append(builder.VarLengthPool(), c.moduleCtxPtrValue) // This case the callee module is itself.
-			args = args.Append(builder.VarLengthPool(), vs...)
-			call.AsCall(FunctionIndexToFuncRef(fnIndex), sig, args)
-			builder.InsertInstruction(call)
-		} else {
-			// This case we have to read the address of the imported function from the module context.
-			moduleCtx := c.moduleCtxPtrValue
-			loadFuncPtr, loadModuleCtxPtr := builder.AllocateInstruction(), builder.AllocateInstruction()
-			funcPtrOffset, moduleCtxPtrOffset, _ := c.offset.ImportedFunctionOffset(fnIndex)
-			loadFuncPtr.AsLoad(moduleCtx, funcPtrOffset.U32(), ssa.TypeI64)
-			loadModuleCtxPtr.AsLoad(moduleCtx, moduleCtxPtrOffset.U32(), ssa.TypeI64)
-			builder.InsertInstruction(loadFuncPtr)
-			builder.InsertInstruction(loadModuleCtxPtr)
-
-			args = args.Append(builder.VarLengthPool(), loadModuleCtxPtr.Return())
-			args = args.Append(builder.VarLengthPool(), vs...)
-			call.AsCallIndirect(loadFuncPtr.Return(), sig, args)
-			builder.InsertInstruction(call)
-		}
-
-		first, rest := call.Returns()
-		if first.Valid() {
-			state.push(first)
-		}
-		for _, v := range rest {
-			state.push(v)
-		}
-
-		c.reloadAfterCall()
+		c.lowerCall(fnIndex)
 
 	case wasm.OpcodeDrop:
 		if state.unreachable {
@@ -3459,11 +3400,41 @@ func (c *Compiler) lowerCurrentOpcode() {
 		loaded := builder.AllocateInstruction().AsLoad(elementAddr, 0, ssa.TypeI64).Insert(builder).Return()
 		state.push(loaded)
 
-	case wasm.OpcodeTailCallReturnCall:
-		panic("TODO: return_call")
-
 	case wasm.OpcodeTailCallReturnCallIndirect:
-		panic("TODO: return_call_indirect")
+		typeIndex := c.readI32u()
+		tableIndex := c.readI32u()
+		if state.unreachable {
+			break
+		}
+		c.lowerCallIndirect(typeIndex, tableIndex)
+		if c.needListener {
+			c.callListenerAfter()
+		}
+
+		results := c.nPeekDup(c.results())
+		instr := builder.AllocateInstruction()
+
+		instr.AsReturn(results)
+		builder.InsertInstruction(instr)
+		state.unreachable = true
+
+	case wasm.OpcodeTailCallReturnCall:
+		fnIndex := c.readI32u()
+		if state.unreachable {
+			break
+		}
+		c.lowerCall(fnIndex)
+
+		if c.needListener {
+			c.callListenerAfter()
+		}
+
+		results := c.nPeekDup(c.results())
+		instr := builder.AllocateInstruction()
+
+		instr.AsReturn(results)
+		builder.InsertInstruction(instr)
+		state.unreachable = true
 
 	default:
 		panic("TODO: unsupported in wazevo yet: " + wasm.InstructionName(op))
@@ -3536,6 +3507,70 @@ func (c *Compiler) lowerAccessTableWithBoundsCheck(tableIndex uint32, elementOff
 	calcElementAddressInTable.AsIadd(tableBase, targetOffsetInTableMultipliedBy8)
 	builder.InsertInstruction(calcElementAddressInTable)
 	return calcElementAddressInTable.Return()
+}
+
+func (c *Compiler) lowerCall(fnIndex uint32) {
+	builder := c.ssaBuilder
+	state := c.state()
+	var typIndex wasm.Index
+	if fnIndex < c.m.ImportFunctionCount {
+		// Before transfer the control to the callee, we have to store the current module's moduleContextPtr
+		// into execContext.callerModuleContextPtr in case when the callee is a Go function.
+		c.storeCallerModuleContext()
+		var fi int
+		for i := range c.m.ImportSection {
+			imp := &c.m.ImportSection[i]
+			if imp.Type == wasm.ExternTypeFunc {
+				if fi == int(fnIndex) {
+					typIndex = imp.DescFunc
+					break
+				}
+				fi++
+			}
+		}
+	} else {
+		typIndex = c.m.FunctionSection[fnIndex-c.m.ImportFunctionCount]
+	}
+	typ := &c.m.TypeSection[typIndex]
+
+	argN := len(typ.Params)
+	tail := len(state.values) - argN
+	vs := state.values[tail:]
+	state.values = state.values[:tail]
+	args := c.allocateVarLengthValues(2+len(vs), c.execCtxPtrValue)
+
+	sig := c.signatures[typ]
+	call := builder.AllocateInstruction()
+	if fnIndex >= c.m.ImportFunctionCount {
+		args = args.Append(builder.VarLengthPool(), c.moduleCtxPtrValue) // This case the callee module is itself.
+		args = args.Append(builder.VarLengthPool(), vs...)
+		call.AsCall(FunctionIndexToFuncRef(fnIndex), sig, args)
+		builder.InsertInstruction(call)
+	} else {
+		// This case we have to read the address of the imported function from the module context.
+		moduleCtx := c.moduleCtxPtrValue
+		loadFuncPtr, loadModuleCtxPtr := builder.AllocateInstruction(), builder.AllocateInstruction()
+		funcPtrOffset, moduleCtxPtrOffset, _ := c.offset.ImportedFunctionOffset(fnIndex)
+		loadFuncPtr.AsLoad(moduleCtx, funcPtrOffset.U32(), ssa.TypeI64)
+		loadModuleCtxPtr.AsLoad(moduleCtx, moduleCtxPtrOffset.U32(), ssa.TypeI64)
+		builder.InsertInstruction(loadFuncPtr)
+		builder.InsertInstruction(loadModuleCtxPtr)
+
+		args = args.Append(builder.VarLengthPool(), loadModuleCtxPtr.Return())
+		args = args.Append(builder.VarLengthPool(), vs...)
+		call.AsCallIndirect(loadFuncPtr.Return(), sig, args)
+		builder.InsertInstruction(call)
+	}
+
+	first, rest := call.Returns()
+	if first.Valid() {
+		state.push(first)
+	}
+	for _, v := range rest {
+		state.push(v)
+	}
+
+	c.reloadAfterCall()
 }
 
 func (c *Compiler) lowerCallIndirect(typeIndex, tableIndex uint32) {
