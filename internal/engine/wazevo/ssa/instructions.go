@@ -850,6 +850,8 @@ var instructionSideEffects = [opcodeEnd]sideEffect{
 	OpcodeAtomicStore:                 sideEffectStrict,
 	OpcodeAtomicCas:                   sideEffectStrict,
 	OpcodeFence:                       sideEffectStrict,
+	OpcodeTailCallReturnCall:          sideEffectStrict,
+	OpcodeTailCallReturnCallIndirect:  sideEffectStrict,
 	OpcodeWideningPairwiseDotProductS: sideEffectNone,
 }
 
@@ -1036,6 +1038,8 @@ var instructionReturnTypes = [opcodeEnd]returnTypesFn{
 	OpcodeAtomicStore:                 returnTypesFnNoReturns,
 	OpcodeAtomicCas:                   returnTypesFnSingle,
 	OpcodeFence:                       returnTypesFnNoReturns,
+	OpcodeTailCallReturnCall:          returnTypesFnNoReturns,
+	OpcodeTailCallReturnCallIndirect:  returnTypesFnNoReturns,
 	OpcodeWideningPairwiseDotProductS: returnTypesFnV128,
 }
 
@@ -2633,6 +2637,17 @@ func (i *Instruction) Format(b Builder) string {
 		instSuffix = fmt.Sprintf("_%d, %s, %s, %s", 8*i.u1, i.v.Format(b), i.v2.Format(b), i.v3.Format(b))
 	case OpcodeFence:
 		instSuffix = fmt.Sprintf(" %d", i.u1)
+	case OpcodeTailCallReturnCall, OpcodeTailCallReturnCallIndirect:
+		view := i.vs.View()
+		vs := make([]string, len(view))
+		for idx := range vs {
+			vs[idx] = view[idx].Format(b)
+		}
+		if i.opcode == OpcodeCallIndirect {
+			instSuffix = fmt.Sprintf(" %s:%s, %s", i.v.Format(b), SignatureID(i.u1), strings.Join(vs, ", "))
+		} else {
+			instSuffix = fmt.Sprintf(" %s:%s, %s", FuncRef(i.u1), SignatureID(i.u2), strings.Join(vs, ", "))
+		}
 	case OpcodeWideningPairwiseDotProductS:
 		instSuffix = fmt.Sprintf(" %s, %s", i.v.Format(b), i.v2.Format(b))
 	default:
@@ -2892,6 +2907,10 @@ func (o Opcode) String() (ret string) {
 		return "AtomicStore"
 	case OpcodeFence:
 		return "Fence"
+	case OpcodeTailCallReturnCall:
+		return "ReturnCall"
+	case OpcodeTailCallReturnCallIndirect:
+		return "ReturnCallIndirect"
 	case OpcodeVbor:
 		return "Vbor"
 	case OpcodeVbxor:

@@ -3423,18 +3423,7 @@ func (c *Compiler) lowerCurrentOpcode() {
 		if state.unreachable {
 			break
 		}
-		c.lowerCall(fnIndex)
-
-		if c.needListener {
-			c.callListenerAfter()
-		}
-
-		results := c.nPeekDup(c.results())
-		instr := builder.AllocateInstruction()
-
-		instr.AsReturn(results)
-		builder.InsertInstruction(instr)
-		state.unreachable = true
+		c.lowerTailCallReturnCall(fnIndex)
 
 	default:
 		panic("TODO: unsupported in wazevo yet: " + wasm.InstructionName(op))
@@ -3679,6 +3668,12 @@ func (c *Compiler) lowerTailCallReturnCall(fnIndex uint32) {
 	call.AsTailCallReturnCall(FunctionIndexToFuncRef(fnIndex), sig, args)
 	builder.InsertInstruction(call)
 	state.unreachable = true
+
+	// FIXME: handle listener
+	// if c.needListener {
+	// 	c.callListenerAfter()
+	// }
+
 }
 
 // memOpSetup inserts the bounds check and calculates the address of the memory operation (loads/stores).
