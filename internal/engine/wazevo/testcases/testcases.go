@@ -2403,6 +2403,37 @@ var (
 			}}},
 		},
 	}
+	FibonacciTailRecursive = TestCase{
+		Name: "tail_recursive_fibonacci",
+		Module: SingleFunctionModule(
+			wasm.FunctionType{Params: []wasm.ValueType{wasm.ValueTypeI32, wasm.ValueTypeI32, wasm.ValueTypeI32}, Results: []wasm.ValueType{wasm.ValueTypeI32}},
+			[]byte{
+				wasm.OpcodeLocalGet, 0, // n
+				wasm.OpcodeI32Eqz,
+				wasm.OpcodeIf, 0x7f, // if (n == 0) -> i32
+				wasm.OpcodeLocalGet, 1, // then: return a
+				wasm.OpcodeElse,
+				wasm.OpcodeLocalGet, 0, // n
+				wasm.OpcodeI32Const, 1,
+				wasm.OpcodeI32Eq,
+				wasm.OpcodeIf, 0x7f, // if (n == 1) -> i32
+				wasm.OpcodeLocalGet, 2, // then: return b
+				wasm.OpcodeElse,
+				wasm.OpcodeLocalGet, 0,
+				wasm.OpcodeI32Const, 1,
+				wasm.OpcodeI32Sub,
+				wasm.OpcodeLocalGet, 2,
+				wasm.OpcodeLocalGet, 1,
+				wasm.OpcodeLocalGet, 2,
+				wasm.OpcodeI32Add,
+				wasm.OpcodeTailCallReturnCall, 0,
+				wasm.OpcodeEnd,
+				wasm.OpcodeEnd,
+				wasm.OpcodeEnd,
+			},
+			nil,
+		),
+	}
 )
 
 // VecShuffleWithLane returns a VecShuffle test with a custom 16-bytes immediate (lane indexes).

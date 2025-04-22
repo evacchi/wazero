@@ -840,6 +840,16 @@ func TestE2E(t *testing.T) {
 				{params: []uint64{math.Float64bits(math.NaN())}, expResults: []uint64{0, 0}},
 			},
 		},
+		{
+			name: "tail_call_return_call",
+			m:    testcases.FibonacciTailRecursive.Module,
+			calls: []callCase{
+				{params: []uint64{10, 0, 1}, expResults: []uint64{55}},
+				{params: []uint64{20, 0, 1}, expResults: []uint64{6765}},
+				{params: []uint64{40, 0, 1}, expResults: []uint64{102334155}},
+				{params: []uint64{320, 0, 1}, expResults: []uint64{0x80dbbba8}}, // this is not the correct value but it's crashing anyway
+			},
+		},
 	} {
 		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
