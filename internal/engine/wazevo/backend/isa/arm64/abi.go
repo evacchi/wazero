@@ -332,6 +332,7 @@ func (m *machine) lowerTailCall(si *ssa.Instruction) {
 	}
 
 	if isDirectCall {
+		// m.insert(m.allocateInstr().asUDF())
 		tailJump := m.allocateInstr()
 		tailJump.asTailCall(directCallee, calleeABI)
 		m.insert(tailJump)

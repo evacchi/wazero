@@ -1211,7 +1211,7 @@ func (i *instruction) encode(c backend.Compiler) (needsLabelResolution bool) {
 	case call:
 		c.EmitByte(0xe8)
 		// Meaning that the call target is a function value, and requires relocation.
-		c.AddRelocationInfo(ssa.FuncRef(i.u1))
+		c.AddRelocationInfo(ssa.FuncRef(i.u1), false)
 		// Note that this is zero as a placeholder for the call target if it's a function value.
 		c.Emit4Bytes(uint32(i.u2))
 
