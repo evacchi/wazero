@@ -3407,15 +3407,15 @@ func (c *Compiler) lowerCurrentOpcode() {
 			break
 		}
 		c.lowerCallIndirect(typeIndex, tableIndex)
-		if c.needListener {
-			c.callListenerAfter()
-		}
+		// if c.needListener {
+		// 	c.callListenerAfter()
+		// }
 
-		results := c.nPeekDup(c.results())
-		instr := builder.AllocateInstruction()
+		// results := c.nPeekDup(c.results())
+		// instr := builder.AllocateInstruction()
 
-		instr.AsReturn(results)
-		builder.InsertInstruction(instr)
+		// instr.AsReturn(results)
+		// builder.InsertInstruction(instr)
 		state.unreachable = true
 
 	case wasm.OpcodeTailCallReturnCall:
@@ -3424,6 +3424,7 @@ func (c *Compiler) lowerCurrentOpcode() {
 			break
 		}
 		c.lowerTailCallReturnCall(fnIndex)
+		state.unreachable = true
 
 	default:
 		panic("TODO: unsupported in wazevo yet: " + wasm.InstructionName(op))
