@@ -2434,6 +2434,32 @@ var (
 			nil,
 		),
 	}
+	CountTailRecursive = TestCase{
+		Name: "tail_recursive_count",
+		Module: SingleFunctionModule(
+			wasm.FunctionType{
+				Params:  []wasm.ValueType{wasm.ValueTypeI64, wasm.ValueTypeI64},
+				Results: []wasm.ValueType{wasm.ValueTypeI64},
+			},
+			[]byte{
+				wasm.OpcodeLocalGet, 0, // n
+				wasm.OpcodeI64Eqz,   // n == 0
+				wasm.OpcodeIf, 0x7e, // if (result i64)
+				wasm.OpcodeLocalGet, 1, // return acc
+				wasm.OpcodeElse,
+				wasm.OpcodeLocalGet, 0, // n
+				wasm.OpcodeI64Const, 1,
+				wasm.OpcodeI64Sub,      // n-1
+				wasm.OpcodeLocalGet, 1, // acc
+				wasm.OpcodeI64Const, 1,
+				wasm.OpcodeI64Add, // acc+1
+				wasm.OpcodeTailCallReturnCall, 0,
+				wasm.OpcodeEnd,
+				wasm.OpcodeEnd,
+			},
+			nil,
+		),
+	}
 )
 
 // VecShuffleWithLane returns a VecShuffle test with a custom 16-bytes immediate (lane indexes).

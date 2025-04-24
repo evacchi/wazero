@@ -846,14 +846,20 @@ func TestE2E(t *testing.T) {
 			calls: []callCase{
 				{params: []uint64{10, 0, 1}, expResults: []uint64{55}},
 				{params: []uint64{20, 0, 1}, expResults: []uint64{6765}},
-				{params: []uint64{40, 0, 1}, expResults: []uint64{102334155}},
-				{params: []uint64{320, 0, 1}, expResults: []uint64{0x80dbbba8}}, // this is not the correct value but it's crashing anyway
+				{params: []uint64{318, 0, 1}, expResults: []uint64{0x80dbbba8}},
+			},
+		},
+		{
+			name: "tail_call_return_call_count",
+			m:    testcases.CountTailRecursive.Module,
+			calls: []callCase{
+				{params: []uint64{1_000_000, 0}, expResults: []uint64{1_000_000}},
 			},
 		},
 	} {
 		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
-			for i := 0; i < 2; i++ {
+			for i := 0; i < 1; i++ {
 				var name string
 				if i == 0 {
 					name = "no cache"

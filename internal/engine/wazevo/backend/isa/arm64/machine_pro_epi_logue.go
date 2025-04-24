@@ -196,6 +196,8 @@ func (m *machine) createFrameSizeSlot(cur *instruction, s int64) *instruction {
 func (m *machine) postRegAlloc() {
 	for cur := m.rootInstr; cur != nil; cur = cur.next {
 		switch cur.kind {
+		case tailCall:
+			m.setupEpilogueAfter(cur.prev)
 		case ret:
 			m.setupEpilogueAfter(cur.prev)
 		case loadConstBlockArg:

@@ -3406,7 +3406,8 @@ func (c *Compiler) lowerCurrentOpcode() {
 		if state.unreachable {
 			break
 		}
-		c.lowerCallIndirect(typeIndex, tableIndex)
+		_, _ = typeIndex, tableIndex
+		// c.lowerCallIndirect(typeIndex, tableIndex)
 		// if c.needListener {
 		// 	c.callListenerAfter()
 		// }
@@ -3416,6 +3417,7 @@ func (c *Compiler) lowerCurrentOpcode() {
 
 		// instr.AsReturn(results)
 		// builder.InsertInstruction(instr)
+		panic("not yet implemented")
 		state.unreachable = true
 
 	case wasm.OpcodeTailCallReturnCall:
@@ -3674,7 +3676,6 @@ func (c *Compiler) lowerTailCallReturnCall(fnIndex uint32) {
 	// if c.needListener {
 	// 	c.callListenerAfter()
 	// }
-
 }
 
 // memOpSetup inserts the bounds check and calculates the address of the memory operation (loads/stores).
