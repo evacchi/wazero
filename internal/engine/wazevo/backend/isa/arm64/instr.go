@@ -1566,6 +1566,14 @@ func (i *instruction) asTailCall(ref ssa.FuncRef, abi *backend.FunctionABI) {
 	}
 }
 
+func (i *instruction) asTailCallIndirect(ptr regalloc.VReg, abi *backend.FunctionABI) {
+	i.kind = tailCallInd
+	i.rn = operandNR(ptr)
+	if abi != nil {
+		i.u2 = abi.ABIInfoAsUint64()
+	}
+}
+
 // TODO: delete unnecessary things.
 const (
 	// nop0 represents a no-op of zero size.

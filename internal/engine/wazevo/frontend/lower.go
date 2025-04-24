@@ -3407,17 +3407,7 @@ func (c *Compiler) lowerCurrentOpcode() {
 			break
 		}
 		_, _ = typeIndex, tableIndex
-		// c.lowerCallIndirect(typeIndex, tableIndex)
-		// if c.needListener {
-		// 	c.callListenerAfter()
-		// }
-
-		// results := c.nPeekDup(c.results())
-		// instr := builder.AllocateInstruction()
-
-		// instr.AsReturn(results)
-		// builder.InsertInstruction(instr)
-		panic("not yet implemented")
+		c.lowerTailCallReturnCallIndirect(typeIndex, tableIndex)
 		state.unreachable = true
 
 	case wasm.OpcodeTailCallReturnCall:
@@ -3676,6 +3666,97 @@ func (c *Compiler) lowerTailCallReturnCall(fnIndex uint32) {
 	// if c.needListener {
 	// 	c.callListenerAfter()
 	// }
+}
+
+func (c *Compiler) lowerTailCallReturnCallIndirect(typeIndex, tableIndex uint32) {
+	builder := c.ssaBuilder
+	state := c.state()
+
+	elementOffsetInTable := state.pop()
+	functionInstancePtrAddress := c.lowerAccessTableWithBoundsCheck(tableIndex, elementOffsetInTable)
+	loadFunctionInstancePtr := builder.AllocateInstruction()
+	loadFunctionInstancePtr.AsLoad(functionInstancePtrAddress, 0, ssa.TypeI64)
+	builder.InsertInstruction(loadFunctionInstancePtr)
+	functionInstancePtr := loadFunctionInstancePtr.Return()
+
+	// Check if it is not the null pointer.
+	zero := builder.AllocateInstruction()
+	zero.AsIconst64(0)
+	builder.InsertInstruction(zero)
+	checkNull := builder.AllocateInstruction()
+	checkNull.AsIcmp(functionInstancePtr, zero.Return(), ssa.IntegerCmpCondEqual)
+	builder.InsertInstruction(checkNull)
+	exitIfNull := builder.AllocateInstruction()
+	exitIfNull.AsExitIfTrueWithCode(c.execCtxPtrValue, checkNull.Return(), wazevoapi.ExitCodeIndirectCallNullPointer)
+	builder.InsertInstruction(exitIfNull)
+
+	// We need to do the type check. First, load the target function instance's typeID.
+	loadTypeID := builder.AllocateInstruction()
+	loadTypeID.AsLoad(functionInstancePtr, wazevoapi.FunctionInstanceTypeIDOffset, ssa.TypeI32)
+	builder.InsertInstruction(loadTypeID)
+	actualTypeID := loadTypeID.Return()
+
+	// Next, we load the expected TypeID:
+	loadTypeIDsBegin := builder.AllocateInstruction()
+	loadTypeIDsBegin.AsLoad(c.moduleCtxPtrValue, c.offset.TypeIDs1stElement.U32(), ssa.TypeI64)
+	builder.InsertInstruction(loadTypeIDsBegin)
+	typeIDsBegin := loadTypeIDsBegin.Return()
+
+	loadExpectedTypeID := builder.AllocateInstruction()
+	loadExpectedTypeID.AsLoad(typeIDsBegin, uint32(typeIndex)*4 /* size of wasm.FunctionTypeID */, ssa.TypeI32)
+	builder.InsertInstruction(loadExpectedTypeID)
+	expectedTypeID := loadExpectedTypeID.Return()
+
+	// Check if the type ID matches.
+	checkTypeID := builder.AllocateInstruction()
+	checkTypeID.AsIcmp(actualTypeID, expectedTypeID, ssa.IntegerCmpCondNotEqual)
+	builder.InsertInstruction(checkTypeID)
+	exitIfNotMatch := builder.AllocateInstruction()
+	exitIfNotMatch.AsExitIfTrueWithCode(c.execCtxPtrValue, checkTypeID.Return(), wazevoapi.ExitCodeIndirectCallTypeMismatch)
+	builder.InsertInstruction(exitIfNotMatch)
+
+	// Now ready to call the function. Load the executable and moduleContextOpaquePtr from the function instance.
+	loadExecutablePtr := builder.AllocateInstruction()
+	loadExecutablePtr.AsLoad(functionInstancePtr, wazevoapi.FunctionInstanceExecutableOffset, ssa.TypeI64)
+	builder.InsertInstruction(loadExecutablePtr)
+	executablePtr := loadExecutablePtr.Return()
+	loadModuleContextOpaquePtr := builder.AllocateInstruction()
+	loadModuleContextOpaquePtr.AsLoad(functionInstancePtr, wazevoapi.FunctionInstanceModuleContextOpaquePtrOffset, ssa.TypeI64)
+	builder.InsertInstruction(loadModuleContextOpaquePtr)
+	moduleContextOpaquePtr := loadModuleContextOpaquePtr.Return()
+
+	typ := &c.m.TypeSection[typeIndex]
+	tail := len(state.values) - len(typ.Params)
+	vs := state.values[tail:]
+	state.values = state.values[:tail]
+	args := c.allocateVarLengthValues(2+len(vs), c.execCtxPtrValue, moduleContextOpaquePtr)
+	args = args.Append(builder.VarLengthPool(), vs...)
+
+	// Before transfer the control to the callee, we have to store the current module's moduleContextPtr
+	// into execContext.callerModuleContextPtr in case when the callee is a Go function.
+	c.storeCallerModuleContext()
+
+	call := builder.AllocateInstruction()
+	call.AsTailCallReturnCallIndirect(executablePtr, c.signatures[typ], args)
+	builder.InsertInstruction(call)
+
+	state.unreachable = true
+
+	// first, rest := call.Returns()
+	// if first.Valid() {
+	// 	state.push(first)
+	// }
+	// for _, v := range rest {
+	// 	state.push(v)
+	// }
+
+	// c.reloadAfterCall()
+
+	// FIXME: handle listener
+	// if c.needListener {
+	// 	c.callListenerAfter()
+	// }
+
 }
 
 // memOpSetup inserts the bounds check and calculates the address of the memory operation (loads/stores).

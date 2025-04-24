@@ -338,12 +338,10 @@ func (m *machine) lowerTailCall(si *ssa.Instruction) {
 		m.insert(tailJump)
 	} else {
 		_ = indirectCalleePtr
-		panic("indirect call not implemented yet")
-
-		// ptr := m.compiler.VRegOf(indirectCalleePtr)
-		// callInd := m.allocateInstr()
-		// callInd.asCallIndirect(ptr, calleeABI)
-		// m.insert(callInd)
+		ptr := m.compiler.VRegOf(indirectCalleePtr)
+		callInd := m.allocateInstr()
+		callInd.asTailCallIndirect(ptr, calleeABI)
+		m.insert(callInd)
 	}
 
 	// var index int

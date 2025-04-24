@@ -2046,13 +2046,24 @@ func (i *Instruction) AtomicTargetSize() (size uint64) {
 	return i.u1
 }
 
-// AsCall initializes this instruction as a call instruction with OpcodeTailCallReturnCall.
+// AsTailCallReturnCall initializes this instruction as a call instruction with OpcodeTailCallReturnCall.
 func (i *Instruction) AsTailCallReturnCall(ref FuncRef, sig *Signature, args Values) {
 	i.opcode = OpcodeTailCallReturnCall
 	i.u1 = uint64(ref)
 	i.vs = args
 	i.u2 = uint64(sig.ID)
 	sig.used = true
+}
+
+// AsTailCallReturnCallIndirect initializes this instruction as a call-indirect instruction with OpcodeTailCallReturnCallIndirect.
+func (i *Instruction) AsTailCallReturnCallIndirect(funcPtr Value, sig *Signature, args Values) *Instruction {
+	i.opcode = OpcodeTailCallReturnCallIndirect
+	i.typ = TypeF64
+	i.vs = args
+	i.v = funcPtr
+	i.u1 = uint64(sig.ID)
+	sig.used = true
+	return i
 }
 
 // ReturnVals returns the return values of OpcodeReturn.
@@ -2212,8 +2223,8 @@ func (i *Instruction) AsCallGoRuntimeMemmove(funcPtr Value, sig *Signature, args
 
 // CallIndirectData returns the call indirect data for this instruction necessary for backends.
 func (i *Instruction) CallIndirectData() (funcPtr Value, sigID SignatureID, args []Value, isGoMemmove bool) {
-	if i.opcode != OpcodeCallIndirect {
-		panic("BUG: CallIndirectData only available for OpcodeCallIndirect")
+	if i.opcode != OpcodeCallIndirect && i.opcode != OpcodeTailCallReturnCallIndirect {
+		panic("BUG: CallIndirectData only available for OpcodeCallIndirect and OpcodeTailCallReturnCallIndirect")
 	}
 	funcPtr = i.v
 	sigID = SignatureID(i.u1)
