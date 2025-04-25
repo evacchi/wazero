@@ -1251,7 +1251,11 @@ func (i *instruction) encode(c backend.Compiler) (needsLabelResolution bool) {
 		c.AddRelocationInfo(ssa.FuncRef(i.u1), true)
 		// Note that this is zero as a placeholder for the call target if it's a function value.
 		c.Emit4Bytes(uint32(i.u2))
+
 	case tailCallIndirect:
+
+		// c.EmitByte(0xcc)
+
 		op := i.op1
 
 		const opcodeNum = 1
@@ -1280,6 +1284,7 @@ func (i *instruction) encode(c backend.Compiler) (needsLabelResolution bool) {
 		default:
 			panic("BUG: invalid operand kind")
 		}
+
 	case xchg:
 		src, dst := regEncodings[i.op1.reg().RealReg()], i.op2
 		size := i.u1

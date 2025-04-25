@@ -853,7 +853,7 @@ func TestE2E(t *testing.T) {
 			name: "tail_call_return_call_count",
 			m:    testcases.CountTailRecursive.Module,
 			calls: []callCase{
-				{params: []uint64{1_000_000, 0}, expResults: []uint64{1_000_000}},
+				{params: []uint64{1000_000_000, 0}, expResults: []uint64{1000_000_000}},
 			},
 		},
 	} {

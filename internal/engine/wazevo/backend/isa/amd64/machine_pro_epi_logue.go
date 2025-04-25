@@ -132,7 +132,17 @@ func (m *machine) setupPrologue() {
 func (m *machine) postRegAlloc() {
 	for cur := m.rootInstr; cur != nil; cur = cur.next {
 		switch k := cur.kind; k {
-		case tailCall, tailCallIndirect, ret:
+		case tailCallIndirect:
+			op := &cur.op1
+			// prepend a mov instruction to move the register to r11
+			prev := cur.prev
+			prev.next = m.allocateInstr().asMovRR(op.reg(), r11VReg, true)
+			prev.next.next = cur
+			op.setReg(r11VReg)
+			m.setupEpilogueAfter(prev.next)
+			continue
+
+		case tailCall, ret:
 			m.setupEpilogueAfter(cur.prev)
 			continue
 		case fcvtToSintSequence, fcvtToUintSequence:
