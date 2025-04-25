@@ -135,11 +135,18 @@ func (m *machine) postRegAlloc() {
 		case tailCallIndirect:
 			op := &cur.op1
 			// prepend a mov instruction to move the register to r11
-			prev := cur.prev
-			prev.next = m.allocateInstr().asMovRR(op.reg(), r11VReg, true)
-			prev.next.next = cur
+			movInstr := m.allocateInstr().asMovRR(op.reg(), r11VReg, true)
 			op.setReg(r11VReg)
-			m.setupEpilogueAfter(prev.next)
+
+			// the sequence will be:
+			// MOV r11, op.Reg
+			// epilogue
+			// tailCall
+
+			linkInstr(cur.prev, movInstr)
+			linkInstr(movInstr, cur)
+
+			m.setupEpilogueAfter(movInstr)
 			continue
 
 		case tailCall, ret:

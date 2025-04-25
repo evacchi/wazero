@@ -3756,7 +3756,6 @@ func (c *Compiler) lowerTailCallReturnCallIndirect(typeIndex, tableIndex uint32)
 	// if c.needListener {
 	// 	c.callListenerAfter()
 	// }
-
 }
 
 // memOpSetup inserts the bounds check and calculates the address of the memory operation (loads/stores).

@@ -1994,7 +1994,6 @@ func (m *machine) lowerTailCall(si *ssa.Instruction) {
 		callInd := m.allocateInstr().asTailCallReturnCallIndirect(ptrOp, calleeABI)
 		m.insert(callInd)
 	}
-
 }
 
 // callerGenVRegToFunctionArg is the opposite of GenFunctionArgToVReg, which is used to generate the
