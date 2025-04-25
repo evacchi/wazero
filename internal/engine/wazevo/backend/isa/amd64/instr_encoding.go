@@ -1244,6 +1244,42 @@ func (i *instruction) encode(c backend.Compiler) (needsLabelResolution bool) {
 			panic("BUG: invalid operand kind")
 		}
 
+	case tailCall:
+		// Encode as jmp.
+		c.EmitByte(0xe9)
+		// Meaning that the call target is a function value, and requires relocation.
+		c.AddRelocationInfo(ssa.FuncRef(i.u1), true)
+		// Note that this is zero as a placeholder for the call target if it's a function value.
+		c.Emit4Bytes(uint32(i.u2))
+	case tailCallIndirect:
+		op := i.op1
+
+		const opcodeNum = 1
+		const opcode = 0xff
+		const regMemSubOpcode = 4
+		rex := rexInfo(0).clearW()
+		switch op.kind {
+		case operandKindReg:
+			dst := regEncodings[op.reg().RealReg()]
+			encodeRegReg(c,
+				legacyPrefixesNone,
+				opcode, opcodeNum,
+				regMemSubOpcode,
+				dst,
+				rex,
+			)
+		case operandKindMem:
+			m := op.addressMode()
+			encodeRegMem(c,
+				legacyPrefixesNone,
+				opcode, opcodeNum,
+				regMemSubOpcode,
+				m,
+				rex,
+			)
+		default:
+			panic("BUG: invalid operand kind")
+		}
 	case xchg:
 		src, dst := regEncodings[i.op1.reg().RealReg()], i.op2
 		size := i.u1

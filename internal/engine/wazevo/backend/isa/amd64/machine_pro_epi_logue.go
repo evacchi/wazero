@@ -132,7 +132,7 @@ func (m *machine) setupPrologue() {
 func (m *machine) postRegAlloc() {
 	for cur := m.rootInstr; cur != nil; cur = cur.next {
 		switch k := cur.kind; k {
-		case ret:
+		case tailCall, tailCallIndirect, ret:
 			m.setupEpilogueAfter(cur.prev)
 			continue
 		case fcvtToSintSequence, fcvtToUintSequence:

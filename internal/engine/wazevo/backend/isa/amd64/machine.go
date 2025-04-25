@@ -1109,6 +1109,9 @@ func (m *machine) LowerInstr(instr *ssa.Instruction) {
 		atomicOp, size := instr.AtomicRmwData()
 		m.lowerAtomicRmw(atomicOp, addr, val, size, instr.Return())
 
+	case ssa.OpcodeTailCallReturnCall, ssa.OpcodeTailCallReturnCallIndirect:
+		m.lowerTailCall(instr)
+
 	default:
 		panic("TODO: lowering " + op.String())
 	}
@@ -1950,6 +1953,48 @@ func (m *machine) lowerCall(si *ssa.Instruction) {
 		m.callerGenFunctionReturnVReg(calleeABI, index, m.c.VRegOf(r), stackSlotSize)
 		index++
 	}
+}
+
+func (m *machine) lowerTailCall(si *ssa.Instruction) {
+	isDirectCall := si.Opcode() == ssa.OpcodeTailCallReturnCall
+	var indirectCalleePtr ssa.Value
+	var directCallee ssa.FuncRef
+	var sigID ssa.SignatureID
+	var args []ssa.Value
+	var isMemmove bool
+	if isDirectCall {
+		directCallee, sigID, args = si.CallData()
+	} else {
+		indirectCalleePtr, sigID, args, isMemmove = si.CallIndirectData()
+		if isMemmove {
+			panic("invalid: memmove tail call")
+		}
+	}
+	calleeABI := m.c.GetFunctionABI(m.c.SSABuilder().ResolveSignature(sigID))
+
+	stackSlotSize := int64(calleeABI.AlignedArgResultStackSlotSize())
+	if m.maxRequiredStackSizeForCalls < stackSlotSize+16 {
+		m.maxRequiredStackSizeForCalls = stackSlotSize + 16 // 16 == return address + RBP.
+	}
+
+	// Note: See machine.SetupPrologue for the stack layout.
+	// The stack pointer decrease/increase will be inserted later in the compilation.
+
+	for i, arg := range args {
+		reg := m.c.VRegOf(arg)
+		def := m.c.ValueDefinition(arg)
+		m.callerGenVRegToFunctionArg(calleeABI, i, reg, def, stackSlotSize)
+	}
+
+	if isDirectCall {
+		call := m.allocateInstr().asTailCallReturnCall(directCallee, calleeABI)
+		m.insert(call)
+	} else {
+		ptrOp := m.getOperand_Mem_Reg(m.c.ValueDefinition(indirectCalleePtr))
+		callInd := m.allocateInstr().asTailCallReturnCallIndirect(ptrOp, calleeABI)
+		m.insert(callInd)
+	}
+
 }
 
 // callerGenVRegToFunctionArg is the opposite of GenFunctionArgToVReg, which is used to generate the

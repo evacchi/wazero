@@ -838,6 +838,12 @@ const (
 	// nopUseReg is a meta instruction that uses one register and does nothing.
 	nopUseReg
 
+	// tailCall is a meta instruction that emits a tail call.
+	tailCall
+
+	// tailCallIndirect is a meta instruction that emits a tail call with an indirect call.
+	tailCallIndirect
+
 	instrMax
 )
 
@@ -1079,6 +1085,10 @@ func (k instructionKind) String() string {
 		return "lockcmpxchg"
 	case lockxadd:
 		return "lockxadd"
+	case tailCall:
+		return "tailCall"
+	case tailCallIndirect:
+		return "tailCallIndirect"
 	default:
 		panic("BUG")
 	}
@@ -1166,6 +1176,27 @@ func (i *instruction) asCallIndirect(ptr operand, abi *backend.FunctionABI) *ins
 		panic("BUG")
 	}
 	i.kind = callIndirect
+	i.op1 = ptr
+	if abi != nil {
+		i.u2 = abi.ABIInfoAsUint64()
+	}
+	return i
+}
+
+func (i *instruction) asTailCallReturnCall(ref ssa.FuncRef, abi *backend.FunctionABI) *instruction {
+	i.kind = tailCall
+	i.u1 = uint64(ref)
+	if abi != nil {
+		i.u2 = abi.ABIInfoAsUint64()
+	}
+	return i
+}
+
+func (i *instruction) asTailCallReturnCallIndirect(ptr operand, abi *backend.FunctionABI) *instruction {
+	if ptr.kind != operandKindReg && ptr.kind != operandKindMem {
+		panic("BUG")
+	}
+	i.kind = tailCallIndirect
 	i.op1 = ptr
 	if abi != nil {
 		i.u2 = abi.ABIInfoAsUint64()
@@ -2342,6 +2373,8 @@ var defKinds = [instrMax]defKind{
 	lockxadd:               defKindNone,
 	neg:                    defKindNone,
 	nopUseReg:              defKindNone,
+	tailCall:               defKindCall,
+	tailCallIndirect:       defKindCall,
 }
 
 // String implements fmt.Stringer.
@@ -2425,6 +2458,8 @@ var useKinds = [instrMax]useKind{
 	lockxadd:               useKindOp1RegOp2,
 	neg:                    useKindOp1,
 	nopUseReg:              useKindOp1,
+	tailCall:               useKindCall,
+	tailCallIndirect:       useKindCallInd,
 }
 
 func (u useKind) String() string {
