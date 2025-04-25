@@ -2309,7 +2309,38 @@ L2 (SSA Block: blk2):
 		{
 			name: "tail_recursive_fibonacci",
 			m:    testcases.FibonacciTailRecursive.Module,
-			// TODO afterFinalizeAMD64: ,
+			afterFinalizeAMD64: `
+L0 (SSA Block: blk0):
+	pushq %rbp
+	movq %rsp, %rbp
+	sub $16, %rsp
+	cmpl $0, %ecx
+	jnz L2
+L1 (SSA Block: blk1):
+	jmp L3
+L2 (SSA Block: blk2):
+	cmpl $1, %ecx
+	jnz L5
+L4 (SSA Block: blk4):
+L6 (SSA Block: blk6):
+	movl %esi, %edi
+L3 (SSA Block: blk3):
+	movl %edi, %eax
+	add $16, %rsp
+	movq %rbp, %rsp
+	popq %rbp
+	ret
+L5 (SSA Block: blk5):
+	sub $1, %ecx
+	add %esi, %edi
+	mov.l %rdi, (%rsp)
+	movl %esi, %edi
+	movzx.lq (%rsp), %rsi
+	add $16, %rsp
+	movq %rbp, %rsp
+	popq %rbp
+	tailCall f0
+`,
 			afterFinalizeARM64: `
 L0 (SSA Block: blk0):
 	stp x30, xzr, [sp, #-0x10]!
@@ -2334,6 +2365,8 @@ L5 (SSA Block: blk5):
 	add w8, w3, w4
 	mov x3, x4
 	mov x4, x8
+	add sp, sp, #0x10
+	ldr x30, [sp], #0x10
 	b f0
 `,
 		},

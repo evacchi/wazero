@@ -288,6 +288,11 @@ func (i *instruction) String() string {
 	case nopUseReg:
 		return fmt.Sprintf("nop_use_reg %s", i.op1.format(true))
 
+	case tailCall:
+		return fmt.Sprintf("tailCall %s", ssa.FuncRef(i.u1))
+	case tailCallIndirect:
+		return fmt.Sprintf("tailCallIndirect %s", i.op1.format(true))
+
 	default:
 		panic(fmt.Sprintf("BUG: %d", int(i.kind)))
 	}
