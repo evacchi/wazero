@@ -1253,9 +1253,6 @@ func (i *instruction) encode(c backend.Compiler) (needsLabelResolution bool) {
 		c.Emit4Bytes(uint32(i.u2))
 
 	case tailCallIndirect:
-
-		// c.EmitByte(0xcc)
-
 		op := i.op1
 
 		const opcodeNum = 1
@@ -1263,6 +1260,8 @@ func (i *instruction) encode(c backend.Compiler) (needsLabelResolution bool) {
 		const regMemSubOpcode = 4
 		rex := rexInfo(0).clearW()
 		switch op.kind {
+		// Indirect tail calls always take a register as the target.
+		// Note: the register should be a callee-saved register (usually r11).
 		case operandKindReg:
 			dst := regEncodings[op.reg().RealReg()]
 			encodeRegReg(c,
@@ -1270,15 +1269,6 @@ func (i *instruction) encode(c backend.Compiler) (needsLabelResolution bool) {
 				opcode, opcodeNum,
 				regMemSubOpcode,
 				dst,
-				rex,
-			)
-		case operandKindMem:
-			m := op.addressMode()
-			encodeRegMem(c,
-				legacyPrefixesNone,
-				opcode, opcodeNum,
-				regMemSubOpcode,
-				m,
 				rex,
 			)
 		default:
