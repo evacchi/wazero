@@ -1990,10 +1990,10 @@ func (m *machine) lowerTailCall(si *ssa.Instruction) {
 		call := m.allocateInstr().asTailCallReturnCall(directCallee, calleeABI)
 		m.insert(call)
 	} else {
-		// As compared to a regular indirect call, we ensure the pointer is stored in
-		// a callee-saved register. In a tail call we insert the epilogue before
-		// the jump instruction, so other registers might be overwritten
-		// while restoring the stack.
+		// In a tail call we insert the epilogue before the jump instruction,
+		// so an arbitrary register might be overwritten while restoring the stack.
+		// So, as compared to a regular indirect call, we ensure the pointer is stored
+		// in a caller-saved register (r11).
 		ptrOp := m.getOperand_Reg(m.c.ValueDefinition(indirectCalleePtr))
 		tmpJmp := r11VReg
 		m.InsertMove(tmpJmp, ptrOp.reg(), ssa.TypeI64)
