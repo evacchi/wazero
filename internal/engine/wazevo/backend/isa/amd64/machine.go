@@ -1990,8 +1990,11 @@ func (m *machine) lowerTailCall(si *ssa.Instruction) {
 		call := m.allocateInstr().asTailCallReturnCall(directCallee, calleeABI)
 		m.insert(call)
 	} else {
-		ptrOp := m.getOperand_Mem_Reg(m.c.ValueDefinition(indirectCalleePtr))
-		callInd := m.allocateInstr().asTailCallReturnCallIndirect(ptrOp, calleeABI)
+		ptrOp := m.getOperand_Reg(m.c.ValueDefinition(indirectCalleePtr))
+		// We use a callee-saved register to store the pointer to the callee.
+		tmpJmp := r11VReg
+		m.InsertMove(tmpJmp, ptrOp.reg(), ssa.TypeI64)
+		callInd := m.allocateInstr().asTailCallReturnCallIndirect(newOperandReg(tmpJmp), calleeABI)
 		m.insert(callInd)
 	}
 }

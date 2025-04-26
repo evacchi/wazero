@@ -132,24 +132,7 @@ func (m *machine) setupPrologue() {
 func (m *machine) postRegAlloc() {
 	for cur := m.rootInstr; cur != nil; cur = cur.next {
 		switch k := cur.kind; k {
-		case tailCallIndirect:
-			op := &cur.op1
-			// prepend a mov instruction to move the register to r11
-			movInstr := m.allocateInstr().asMovRR(op.reg(), r11VReg, true)
-			op.setReg(r11VReg)
-
-			// the sequence will be:
-			// MOV r11, op.Reg
-			// epilogue
-			// tailCall
-
-			linkInstr(cur.prev, movInstr)
-			linkInstr(movInstr, cur)
-
-			m.setupEpilogueAfter(movInstr)
-			continue
-
-		case tailCall, ret:
+		case ret:
 			m.setupEpilogueAfter(cur.prev)
 			continue
 		case fcvtToSintSequence, fcvtToUintSequence:
@@ -204,6 +187,19 @@ func (m *machine) postRegAlloc() {
 				linkInstr(call, inc)
 				linkInstr(inc, next)
 			}
+			continue
+		case tailCall, tailCallIndirect:
+			// At this point, reg alloc is done, therefore we can safely insert dec RPS instruction
+			// right before the tail call (jump) instruction. If this is done before reg alloc, the stack slot
+			// can point to the wrong location and therefore results in a wrong value.
+			call := cur
+			_, _, _, _, size := backend.ABIInfoFromUint64(call.u2)
+			if size > 0 {
+				dec := m.allocateInstr().asAluRmiR(aluRmiROpcodeSub, newOperandImm32(size), rspVReg, true)
+				linkInstr(call.prev, dec)
+				linkInstr(dec, call)
+			}
+			m.setupEpilogueAfter(call.prev)
 			continue
 		}
 
