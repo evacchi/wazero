@@ -332,29 +332,16 @@ func (m *machine) lowerTailCall(si *ssa.Instruction) {
 	}
 
 	if isDirectCall {
-		// m.insert(m.allocateInstr().asUDF())
 		tailJump := m.allocateInstr()
 		tailJump.asTailCall(directCallee, calleeABI)
 		m.insert(tailJump)
 	} else {
-		_ = indirectCalleePtr
 		ptr := m.compiler.VRegOf(indirectCalleePtr)
 		callInd := m.allocateInstr()
 		callInd.asTailCallIndirect(ptr, calleeABI)
 		m.insert(callInd)
 	}
 
-	// var index int
-	// r1, rs := si.Returns()
-	// if r1.Valid() {
-	// 	m.callerGenFunctionReturnVReg(calleeABI, 0, m.compiler.VRegOf(r1), stackSlotSize)
-	// 	index++
-	// }
-
-	// for _, r := range rs {
-	// 	m.callerGenFunctionReturnVReg(calleeABI, index, m.compiler.VRegOf(r), stackSlotSize)
-	// 	index++
-	// }
 }
 
 func (m *machine) insertAddOrSubStackPointer(rd regalloc.VReg, diff int64, add bool) {

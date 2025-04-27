@@ -21,7 +21,9 @@ type instruction struct {
 func (i *instruction) IsCall() bool { return i.kind == call }
 
 // IsIndirectCall implements regalloc.Instr.
-func (i *instruction) IsIndirectCall() bool { return i.kind == callIndirect }
+func (i *instruction) IsIndirectCall() bool {
+	return i.kind == callIndirect
+}
 
 // IsReturn implements regalloc.Instr.
 func (i *instruction) IsReturn() bool { return i.kind == ret }
@@ -362,7 +364,7 @@ func (i *instruction) Uses(regs *[]regalloc.VReg) []regalloc.VReg {
 		default:
 			panic(fmt.Sprintf("BUG: invalid operand: %s", i))
 		}
-	case useKindCallInd:
+	case useKindCallInd, useKindTailCallInd:
 		op := i.op1
 		switch op.kind {
 		case operandKindReg:
@@ -433,13 +435,16 @@ func (i *instruction) Uses(regs *[]regalloc.VReg) []regalloc.VReg {
 func (i *instruction) AssignUse(index int, v regalloc.VReg) {
 	switch uk := useKinds[i.kind]; uk {
 	case useKindNone:
-	case useKindCallInd:
+	case useKindCallInd, useKindTailCallInd:
 		if index != 0 {
 			panic("BUG")
 		}
 		op := &i.op1
 		switch op.kind {
 		case operandKindReg:
+			if uk == useKindTailCallInd && v != r11VReg {
+				panic("BUG")
+			}
 			op.setReg(v)
 		case operandKindMem:
 			op.addressMode().assignUses(index, v)
@@ -2413,6 +2418,7 @@ const (
 	useKindBlendvpd
 	useKindCall
 	useKindCallInd
+	useKindTailCallInd
 	useKindFcvtToSintSequence
 	useKindFcvtToUintSequence
 )
@@ -2464,7 +2470,7 @@ var useKinds = [instrMax]useKind{
 	neg:                    useKindOp1,
 	nopUseReg:              useKindOp1,
 	tailCall:               useKindCall,
-	tailCallIndirect:       useKindCallInd,
+	tailCallIndirect:       useKindTailCallInd,
 }
 
 func (u useKind) String() string {
@@ -2481,6 +2487,8 @@ func (u useKind) String() string {
 		return "call"
 	case useKindCallInd:
 		return "callInd"
+	case useKindTailCallInd:
+		return "tailCallInd"
 	default:
 		return "invalid"
 	}
