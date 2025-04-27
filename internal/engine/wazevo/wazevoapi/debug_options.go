@@ -41,7 +41,7 @@ const (
 
 // printTarget is the function index to print the machine code. This is used for debugging to print the machine code
 // of a specific function.
-const printTarget = 19
+const printTarget = -1
 
 // PrintEnabledIndex returns true if the current function index is the print target.
 func PrintEnabledIndex(ctx context.Context) bool {

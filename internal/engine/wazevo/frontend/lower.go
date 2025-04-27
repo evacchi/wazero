@@ -3491,7 +3491,7 @@ func (c *Compiler) lowerAccessTableWithBoundsCheck(tableIndex uint32, elementOff
 	return calcElementAddressInTable.Return()
 }
 
-func (c *Compiler) lowerCall(fnIndex uint32) {
+func (c *Compiler) prepareCall(fnIndex uint32) (isIndirect bool, sig *ssa.Signature, args ssa.Values, funcRefOrPtrValue uint64) {
 	builder := c.ssaBuilder
 	state := c.state()
 	var typIndex wasm.Index
@@ -3519,15 +3519,13 @@ func (c *Compiler) lowerCall(fnIndex uint32) {
 	tail := len(state.values) - argN
 	vs := state.values[tail:]
 	state.values = state.values[:tail]
-	args := c.allocateVarLengthValues(2+len(vs), c.execCtxPtrValue)
+	args = c.allocateVarLengthValues(2+len(vs), c.execCtxPtrValue)
 
-	sig := c.signatures[typ]
-	call := builder.AllocateInstruction()
+	sig = c.signatures[typ]
 	if fnIndex >= c.m.ImportFunctionCount {
 		args = args.Append(builder.VarLengthPool(), c.moduleCtxPtrValue) // This case the callee module is itself.
 		args = args.Append(builder.VarLengthPool(), vs...)
-		call.AsCall(FunctionIndexToFuncRef(fnIndex), sig, args)
-		builder.InsertInstruction(call)
+		return false, sig, args, uint64(FunctionIndexToFuncRef(fnIndex))
 	} else {
 		// This case we have to read the address of the imported function from the module context.
 		moduleCtx := c.moduleCtxPtrValue
@@ -3540,9 +3538,22 @@ func (c *Compiler) lowerCall(fnIndex uint32) {
 
 		args = args.Append(builder.VarLengthPool(), loadModuleCtxPtr.Return())
 		args = args.Append(builder.VarLengthPool(), vs...)
-		call.AsCallIndirect(loadFuncPtr.Return(), sig, args)
-		builder.InsertInstruction(call)
+
+		return true, sig, args, uint64(loadFuncPtr.Return())
 	}
+}
+
+func (c *Compiler) lowerCall(fnIndex uint32) {
+	builder := c.ssaBuilder
+	state := c.state()
+	isIndirect, sig, args, funcRefOrPtrValue := c.prepareCall(fnIndex)
+	call := builder.AllocateInstruction()
+	if isIndirect {
+		call.AsCallIndirect(ssa.Value(funcRefOrPtrValue), sig, args)
+	} else {
+		call.AsCall(ssa.FuncRef(funcRefOrPtrValue), sig, args)
+	}
+	builder.InsertInstruction(call)
 
 	first, rest := call.Returns()
 	if first.Valid() {
@@ -3555,7 +3566,7 @@ func (c *Compiler) lowerCall(fnIndex uint32) {
 	c.reloadAfterCall()
 }
 
-func (c *Compiler) lowerCallIndirect(typeIndex, tableIndex uint32) {
+func (c *Compiler) prepareCallIndirect(typeIndex, tableIndex uint32) (ssa.Value, *wasm.FunctionType, ssa.Values) {
 	builder := c.ssaBuilder
 	state := c.state()
 
@@ -3622,6 +3633,14 @@ func (c *Compiler) lowerCallIndirect(typeIndex, tableIndex uint32) {
 	// Before transfer the control to the callee, we have to store the current module's moduleContextPtr
 	// into execContext.callerModuleContextPtr in case when the callee is a Go function.
 	c.storeCallerModuleContext()
+
+	return executablePtr, typ, args
+}
+
+func (c *Compiler) lowerCallIndirect(typeIndex, tableIndex uint32) {
+	builder := c.ssaBuilder
+	state := c.state()
+	executablePtr, typ, args := c.prepareCallIndirect(typeIndex, tableIndex)
 
 	call := builder.AllocateInstruction()
 	call.AsCallIndirect(executablePtr, c.signatures[typ], args)
@@ -3639,123 +3658,30 @@ func (c *Compiler) lowerCallIndirect(typeIndex, tableIndex uint32) {
 }
 
 func (c *Compiler) lowerTailCallReturnCall(fnIndex uint32) {
+	isIndirect, sig, args, funcRefOrPtrValue := c.prepareCall(fnIndex)
 	builder := c.ssaBuilder
 	state := c.state()
 
-	if fnIndex < c.m.ImportFunctionCount {
-		panic("tail calls to imported functions not yet supported")
-	}
-	typIndex := c.m.FunctionSection[fnIndex-c.m.ImportFunctionCount]
-	typ := &c.m.TypeSection[typIndex]
-
-	argN := len(typ.Params)
-	tail := len(state.values) - argN
-	vs := state.values[tail:]
-	state.values = state.values[:tail]
-	args := c.allocateVarLengthValues(2+len(vs), c.execCtxPtrValue)
-
-	sig := c.signatures[typ]
 	call := builder.AllocateInstruction()
-	args = args.Append(builder.VarLengthPool(), c.moduleCtxPtrValue)
-	args = args.Append(builder.VarLengthPool(), vs...)
-	call.AsTailCallReturnCall(FunctionIndexToFuncRef(fnIndex), sig, args)
+	if isIndirect {
+		call.AsTailCallReturnCallIndirect(ssa.Value(funcRefOrPtrValue), sig, args)
+	} else {
+		call.AsTailCallReturnCall(ssa.FuncRef(funcRefOrPtrValue), sig, args)
+	}
 	builder.InsertInstruction(call)
 	state.unreachable = true
-
-	// FIXME: handle listener
-	// if c.needListener {
-	// 	c.callListenerAfter()
-	// }
 }
 
 func (c *Compiler) lowerTailCallReturnCallIndirect(typeIndex, tableIndex uint32) {
 	builder := c.ssaBuilder
 	state := c.state()
-
-	elementOffsetInTable := state.pop()
-	functionInstancePtrAddress := c.lowerAccessTableWithBoundsCheck(tableIndex, elementOffsetInTable)
-	loadFunctionInstancePtr := builder.AllocateInstruction()
-	loadFunctionInstancePtr.AsLoad(functionInstancePtrAddress, 0, ssa.TypeI64)
-	builder.InsertInstruction(loadFunctionInstancePtr)
-	functionInstancePtr := loadFunctionInstancePtr.Return()
-
-	// Check if it is not the null pointer.
-	zero := builder.AllocateInstruction()
-	zero.AsIconst64(0)
-	builder.InsertInstruction(zero)
-	checkNull := builder.AllocateInstruction()
-	checkNull.AsIcmp(functionInstancePtr, zero.Return(), ssa.IntegerCmpCondEqual)
-	builder.InsertInstruction(checkNull)
-	exitIfNull := builder.AllocateInstruction()
-	exitIfNull.AsExitIfTrueWithCode(c.execCtxPtrValue, checkNull.Return(), wazevoapi.ExitCodeIndirectCallNullPointer)
-	builder.InsertInstruction(exitIfNull)
-
-	// We need to do the type check. First, load the target function instance's typeID.
-	loadTypeID := builder.AllocateInstruction()
-	loadTypeID.AsLoad(functionInstancePtr, wazevoapi.FunctionInstanceTypeIDOffset, ssa.TypeI32)
-	builder.InsertInstruction(loadTypeID)
-	actualTypeID := loadTypeID.Return()
-
-	// Next, we load the expected TypeID:
-	loadTypeIDsBegin := builder.AllocateInstruction()
-	loadTypeIDsBegin.AsLoad(c.moduleCtxPtrValue, c.offset.TypeIDs1stElement.U32(), ssa.TypeI64)
-	builder.InsertInstruction(loadTypeIDsBegin)
-	typeIDsBegin := loadTypeIDsBegin.Return()
-
-	loadExpectedTypeID := builder.AllocateInstruction()
-	loadExpectedTypeID.AsLoad(typeIDsBegin, uint32(typeIndex)*4 /* size of wasm.FunctionTypeID */, ssa.TypeI32)
-	builder.InsertInstruction(loadExpectedTypeID)
-	expectedTypeID := loadExpectedTypeID.Return()
-
-	// Check if the type ID matches.
-	checkTypeID := builder.AllocateInstruction()
-	checkTypeID.AsIcmp(actualTypeID, expectedTypeID, ssa.IntegerCmpCondNotEqual)
-	builder.InsertInstruction(checkTypeID)
-	exitIfNotMatch := builder.AllocateInstruction()
-	exitIfNotMatch.AsExitIfTrueWithCode(c.execCtxPtrValue, checkTypeID.Return(), wazevoapi.ExitCodeIndirectCallTypeMismatch)
-	builder.InsertInstruction(exitIfNotMatch)
-
-	// Now ready to call the function. Load the executable and moduleContextOpaquePtr from the function instance.
-	loadExecutablePtr := builder.AllocateInstruction()
-	loadExecutablePtr.AsLoad(functionInstancePtr, wazevoapi.FunctionInstanceExecutableOffset, ssa.TypeI64)
-	builder.InsertInstruction(loadExecutablePtr)
-	executablePtr := loadExecutablePtr.Return()
-	loadModuleContextOpaquePtr := builder.AllocateInstruction()
-	loadModuleContextOpaquePtr.AsLoad(functionInstancePtr, wazevoapi.FunctionInstanceModuleContextOpaquePtrOffset, ssa.TypeI64)
-	builder.InsertInstruction(loadModuleContextOpaquePtr)
-	moduleContextOpaquePtr := loadModuleContextOpaquePtr.Return()
-
-	typ := &c.m.TypeSection[typeIndex]
-	tail := len(state.values) - len(typ.Params)
-	vs := state.values[tail:]
-	state.values = state.values[:tail]
-	args := c.allocateVarLengthValues(2+len(vs), c.execCtxPtrValue, moduleContextOpaquePtr)
-	args = args.Append(builder.VarLengthPool(), vs...)
-
-	// Before transfer the control to the callee, we have to store the current module's moduleContextPtr
-	// into execContext.callerModuleContextPtr in case when the callee is a Go function.
-	c.storeCallerModuleContext()
+	executablePtr, typ, args := c.prepareCallIndirect(typeIndex, tableIndex)
 
 	call := builder.AllocateInstruction()
 	call.AsTailCallReturnCallIndirect(executablePtr, c.signatures[typ], args)
 	builder.InsertInstruction(call)
 
 	state.unreachable = true
-
-	// first, rest := call.Returns()
-	// if first.Valid() {
-	// 	state.push(first)
-	// }
-	// for _, v := range rest {
-	// 	state.push(v)
-	// }
-
-	// c.reloadAfterCall()
-
-	// FIXME: handle listener
-	// if c.needListener {
-	// 	c.callListenerAfter()
-	// }
 }
 
 // memOpSetup inserts the bounds check and calculates the address of the memory operation (loads/stores).

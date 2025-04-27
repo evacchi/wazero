@@ -341,7 +341,6 @@ func (m *machine) lowerTailCall(si *ssa.Instruction) {
 		callInd.asTailCallIndirect(ptr, calleeABI)
 		m.insert(callInd)
 	}
-
 }
 
 func (m *machine) insertAddOrSubStackPointer(rd regalloc.VReg, diff int64, add bool) {
