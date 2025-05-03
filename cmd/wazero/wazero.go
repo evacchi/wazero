@@ -271,6 +271,7 @@ func doRun(args []string, stdOut io.Writer, stdErr logging.Writer) int {
 		rtc = wazero.NewRuntimeConfigInterpreter()
 	} else {
 		rtc = wazero.NewRuntimeConfig()
+		rtc.WithCoreFeatures(api.CoreFeaturesV2 | experimental.CoreFeaturesTailCall)
 	}
 
 	ctx := maybeHostLogging(context.Background(), logging.LogScopes(hostlogging), stdErr)
