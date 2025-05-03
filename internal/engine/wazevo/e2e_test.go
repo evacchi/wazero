@@ -841,8 +841,9 @@ func TestE2E(t *testing.T) {
 			},
 		},
 		{
-			name: "tail_call_return_call",
-			m:    testcases.FibonacciTailRecursive.Module,
+			name:     "tail_call_return_call",
+			m:        testcases.FibonacciTailRecursive.Module,
+			features: api.CoreFeaturesV2 | experimental.CoreFeaturesTailCall,
 			calls: []callCase{
 				{params: []uint64{10, 0, 1}, expResults: []uint64{55}},
 				{params: []uint64{20, 0, 1}, expResults: []uint64{6765}},
@@ -850,8 +851,9 @@ func TestE2E(t *testing.T) {
 			},
 		},
 		{
-			name: "tail_call_return_call_count",
-			m:    testcases.CountTailRecursive.Module,
+			name:     "tail_call_return_call_count",
+			m:        testcases.CountTailRecursive.Module,
+			features: api.CoreFeaturesV2 | experimental.CoreFeaturesTailCall,
 			calls: []callCase{
 				{params: []uint64{1000_000_000, 0}, expResults: []uint64{1000_000_000}},
 			},

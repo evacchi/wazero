@@ -2386,7 +2386,7 @@ L5 (SSA Block: blk5):
 				t.Fail()
 			}
 
-			err := tc.m.Validate(api.CoreFeaturesV2 | experimental.CoreFeaturesThreads)
+			err := tc.m.Validate(api.CoreFeaturesV2 | experimental.CoreFeaturesThreads | experimental.CoreFeaturesTailCall)
 			require.NoError(t, err)
 
 			ssab := ssa.NewBuilder()
