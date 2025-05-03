@@ -2826,29 +2826,20 @@ func newOperationAtomicRMW16Cmpxchg(unsignedType unsignedType, arg memoryArg) un
 	return unionOperation{Kind: operationKindAtomicRMW16Cmpxchg, B1: byte(unsignedType), U1: uint64(arg.Alignment), U2: uint64(arg.Offset)}
 }
 
-// NewOperationCall is a constructor for unionOperation with operationKindCall.
+// newOperationTailCallReturnCall is a constructor for unionOperation with operationKindTailCallReturnCall.
 //
-// This corresponds to OpcodeTailCallReturnCall, and engines are expected to
-// enter to jump to a function whose index equals OperationCall.FunctionIndex.
-// # FIXME
+// This corresponds to
+//
+//	wasm.OpcodeTailCallReturnCall.
 func newOperationTailCallReturnCall(functionIndex uint32) unionOperation {
 	return unionOperation{Kind: operationKindTailCallReturnCall, U1: uint64(functionIndex)}
 }
 
-// NewOperationCallIndirect implements Operation.
+// NewOperationCallIndirect is a constructor for unionOperation with operationKindTailCallReturnCallIndirect.
 //
-// # FIXME
+// This corresponds to
 //
-// This corresponds to wasm.OpcodeCallIndirectName, and engines are expected to
-// consume the one value from the top of stack (called "offset"),
-// and make a function call against the function whose function address equals
-// Tables[OperationCallIndirect.TableIndex][offset].
-//
-// Note: This is called indirect function call in the sense that the target function is indirectly
-// determined by the current state (top value) of the stack.
-// Therefore, two checks are performed at runtime before entering the target function:
-// 1) whether "offset" exceeds the length of table Tables[OperationCallIndirect.TableIndex].
-// 2) whether the type of the function table[offset] matches the function type specified by OperationCallIndirect.TypeIndex.
+//	wasm.OpcodeTailCallReturnCallIndirect.
 func newOperationTailCallReturnCallIndirect(typeIndex, tableIndex uint32) unionOperation {
 	return unionOperation{Kind: operationKindTailCallReturnCallIndirect, U1: uint64(typeIndex), U2: uint64(tableIndex)}
 }
