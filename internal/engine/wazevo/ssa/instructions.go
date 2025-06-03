@@ -633,8 +633,10 @@ const (
 	// OpcodeFence is a memory fence operation.
 	OpcodeFence
 
+	// OpcodeTailCallReturnCall is ...
 	OpcodeTailCallReturnCall
 
+	// OpcodeTailCallReturnCallIndirect is ...
 	OpcodeTailCallReturnCallIndirect
 
 	// opcodeEnd marks the end of the opcode list.

@@ -858,6 +858,14 @@ func TestE2E(t *testing.T) {
 				{params: []uint64{1000_000_000, 0}, expResults: []uint64{1000_000_000}},
 			},
 		},
+		{
+			name:     "tail_call_return_call_count_acc",
+			m:        testcases.CountTailRecursiveTwoResults.Module,
+			features: api.CoreFeaturesV2 | experimental.CoreFeaturesTailCall,
+			calls: []callCase{
+				{params: []uint64{1000_000_000, 0}, expResults: []uint64{0, 1000_000_000}},
+			},
+		},
 	} {
 		tc := tc
 		t.Run(tc.name, func(t *testing.T) {

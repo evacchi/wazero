@@ -3426,8 +3426,9 @@ operatorSwitch:
 		}
 
 	case wasm.OpcodeTailCallReturnCall:
+		functionFrame := c.controlFrames.functionFrame()
 		c.emit(
-			newOperationTailCallReturnCall(index),
+			newOperationTailCallReturnCall(index, c.getFrameDropRange(functionFrame, false)),
 		)
 
 		// Return operation is stack-polymorphic, and mark the state as unreachable.
@@ -3442,8 +3443,11 @@ operatorSwitch:
 			return fmt.Errorf("read target for br_table: %w", err)
 		}
 		c.pc += n
+
+		functionFrame := c.controlFrames.functionFrame()
+
 		c.emit(
-			newOperationTailCallReturnCallIndirect(typeIndex, tableIndex),
+			newOperationTailCallReturnCallIndirect(typeIndex, tableIndex, c.getFrameDropRange(functionFrame, false)),
 		)
 
 		// Return operation is stack-polymorphic, and mark the state as unreachable.

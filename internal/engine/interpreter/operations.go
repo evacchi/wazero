@@ -2831,8 +2831,8 @@ func newOperationAtomicRMW16Cmpxchg(unsignedType unsignedType, arg memoryArg) un
 // This corresponds to
 //
 //	wasm.OpcodeTailCallReturnCall.
-func newOperationTailCallReturnCall(functionIndex uint32) unionOperation {
-	return unionOperation{Kind: operationKindTailCallReturnCall, U1: uint64(functionIndex)}
+func newOperationTailCallReturnCall(functionIndex uint32, dropDepth inclusiveRange) unionOperation {
+	return unionOperation{Kind: operationKindTailCallReturnCall, U1: uint64(functionIndex), U2: dropDepth.AsU64()}
 }
 
 // NewOperationCallIndirect is a constructor for unionOperation with operationKindTailCallReturnCallIndirect.
@@ -2840,6 +2840,6 @@ func newOperationTailCallReturnCall(functionIndex uint32) unionOperation {
 // This corresponds to
 //
 //	wasm.OpcodeTailCallReturnCallIndirect.
-func newOperationTailCallReturnCallIndirect(typeIndex, tableIndex uint32) unionOperation {
-	return unionOperation{Kind: operationKindTailCallReturnCallIndirect, U1: uint64(typeIndex), U2: uint64(tableIndex)}
+func newOperationTailCallReturnCallIndirect(typeIndex, tableIndex uint32, dropDepth inclusiveRange) unionOperation {
+	return unionOperation{Kind: operationKindTailCallReturnCallIndirect, U1: uint64(typeIndex), U2: uint64(tableIndex), U3: dropDepth.AsU64()}
 }

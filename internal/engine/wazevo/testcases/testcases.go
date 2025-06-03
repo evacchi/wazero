@@ -2460,6 +2460,45 @@ var (
 			nil,
 		),
 	}
+	// Tail recursive function returning two arguments: (n, acc)
+	CountTailRecursiveTwoResults = TestCase{
+		Name: "tail_recursive_count_two_results",
+		Module: &wasm.Module{
+			TypeSection: []wasm.FunctionType{
+				{
+					Params:  []wasm.ValueType{wasm.ValueTypeI64, wasm.ValueTypeI64},
+					Results: []wasm.ValueType{wasm.ValueTypeI64, wasm.ValueTypeI64},
+				},
+				{
+					Params:  []wasm.ValueType{},
+					Results: []wasm.ValueType{wasm.ValueTypeI64, wasm.ValueTypeI64},
+				},
+			},
+			FunctionSection: []wasm.Index{0},
+			CodeSection: []wasm.Code{{
+				LocalTypes: nil,
+				Body: []byte{
+					wasm.OpcodeLocalGet, 0, // n
+					wasm.OpcodeI64Eqz, // n == 0
+					wasm.OpcodeIf, 1,  // if (blockSignature_vv)
+					wasm.OpcodeLocalGet, 0, // return n
+					wasm.OpcodeLocalGet, 1, // return acc
+					wasm.OpcodeReturn,
+					wasm.OpcodeElse,
+					wasm.OpcodeLocalGet, 0, // n
+					wasm.OpcodeI64Const, 1,
+					wasm.OpcodeI64Sub,      // n-1
+					wasm.OpcodeLocalGet, 1, // acc
+					wasm.OpcodeI64Const, 1,
+					wasm.OpcodeI64Add, // acc+1
+					wasm.OpcodeTailCallReturnCall, 0,
+					wasm.OpcodeEnd,
+					wasm.OpcodeEnd,
+				},
+			}},
+			ExportSection: []wasm.Export{{Name: ExportedFunctionName, Type: wasm.ExternTypeFunc, Index: 0}},
+		},
+	}
 )
 
 // VecShuffleWithLane returns a VecShuffle test with a custom 16-bytes immediate (lane indexes).
@@ -2508,6 +2547,7 @@ var (
 	i32_i32i32                      = wasm.FunctionType{Params: []wasm.ValueType{i32}, Results: []wasm.ValueType{i32, i32}}
 	i32f32f64_v                     = wasm.FunctionType{Params: []wasm.ValueType{i32, f32, f64}, Results: nil}
 	i64f32f64_i64f32f64             = wasm.FunctionType{Params: []wasm.ValueType{i64, f32, f64}, Results: []wasm.ValueType{i64, f32, f64}}
+	i64i64_i64i64                   = wasm.FunctionType{Params: []wasm.ValueType{i64, i64}, Results: []wasm.ValueType{i64, i64}}
 )
 
 const (

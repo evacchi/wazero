@@ -696,6 +696,8 @@ func (ce *callEngine) callGoFunc(ctx context.Context, m *wasm.ModuleInstance, f 
 }
 
 func (ce *callEngine) callNativeFunc(ctx context.Context, m *wasm.ModuleInstance, f *function) {
+	// fmt.Printf("call: %s\n	", f.definition().DebugName())
+
 	frame := &callFrame{f: f, base: len(ce.stack)}
 	moduleInst := f.moduleInstance
 	functions := moduleInst.Engine.(*moduleEngine).functions
@@ -774,6 +776,7 @@ func (ce *callEngine) callNativeFunc(ctx context.Context, m *wasm.ModuleInstance
 				panic(wasmruntime.ErrRuntimeIndirectCallTypeMismatch)
 			}
 
+			// fmt.Printf("call indirect: %s\n	", tf.definition().DebugName())
 			ce.callFunction(ctx, f.moduleInstance, tf)
 			frame.pc++
 		case operationKindDrop:
@@ -4342,8 +4345,9 @@ func (ce *callEngine) callNativeFunc(ctx context.Context, m *wasm.ModuleInstance
 				frame.pc = 0
 				continue
 			}
-
+			ce.drop(op.U2)
 			ce.popFrame()
+			// fmt.Printf("Tail call return call: %s\n	", f.definition().DebugName())
 
 			frame = &callFrame{f: f, base: len(ce.stack)}
 			moduleInst = f.moduleInstance
@@ -4359,6 +4363,7 @@ func (ce *callEngine) callNativeFunc(ctx context.Context, m *wasm.ModuleInstance
 			bodyLen = uint64(len(body))
 
 		case operationKindTailCallReturnCallIndirect:
+			// fmt.Printf("Tail call return call indirect: %s\n", f.definition().DebugName())
 			offset := ce.popValue()
 			table := tables[op.U2]
 			if offset >= uint64(len(table.References)) {
@@ -4379,6 +4384,7 @@ func (ce *callEngine) callNativeFunc(ctx context.Context, m *wasm.ModuleInstance
 				continue
 			}
 
+			ce.drop(op.U3)
 			ce.popFrame()
 
 			frame = &callFrame{f: tf, base: len(ce.stack)}
