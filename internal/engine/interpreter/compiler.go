@@ -3426,10 +3426,21 @@ operatorSwitch:
 		}
 
 	case wasm.OpcodeTailCallReturnCall:
-		functionFrame := c.controlFrames.functionFrame()
 		c.emit(
-			newOperationTailCallReturnCall(index, c.getFrameDropRange(functionFrame, false)),
+			newOperationCall(index),
 		)
+
+		functionFrame := c.controlFrames.functionFrame()
+		dropOp := newOperationDrop(c.getFrameDropRange(functionFrame, false))
+
+		// Cleanup the stack and then jmp to function frame's continuation (meaning return).
+		c.emit(dropOp)
+		c.emit(newOperationBr(functionFrame.asLabel()))
+
+		//functionFrame := c.controlFrames.functionFrame()
+		//c.emit(
+		//	newOperationTailCallReturnCall(index, c.getFrameDropRange(functionFrame, false)),
+		//)
 
 		// Return operation is stack-polymorphic, and mark the state as unreachable.
 		// That means subsequent instructions in the current control frame are "unreachable"

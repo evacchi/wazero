@@ -169,6 +169,12 @@ func (ce *callEngine) drop(raw uint64) {
 	} else if r.Start == 0 {
 		ce.stack = ce.stack[:int32(len(ce.stack))-1-r.End]
 	} else {
+		v := int32(len(ce.stack)) - 1 - r.End
+		if v < 0 {
+			panic(fmt.Sprintf(
+				"invalid range: stack len = %d, range start = %d, end = %d",
+				len(ce.stack), r.Start, r.End))
+		}
 		newStack := ce.stack[:int32(len(ce.stack))-1-r.End]
 		newStack = append(newStack, ce.stack[int32(len(ce.stack))-r.Start:]...)
 		ce.stack = newStack
@@ -4384,7 +4390,7 @@ func (ce *callEngine) callNativeFunc(ctx context.Context, m *wasm.ModuleInstance
 				continue
 			}
 
-			ce.drop(op.U3)
+			//ce.drop(op.U3)
 			ce.popFrame()
 
 			frame = &callFrame{f: tf, base: len(ce.stack)}
