@@ -696,8 +696,8 @@ func (ce *callEngine) callGoFunc(ctx context.Context, m *wasm.ModuleInstance, f 
 }
 
 func (ce *callEngine) callNativeFunc(ctx context.Context, m *wasm.ModuleInstance, f *function) {
-	// fmt.Printf("call: %s\n	", f.definition().DebugName())
-
+	// read the params for the function
+	//log.Printf("call: %s [%v] (%v)", f.definition().DebugName(), f.definition().ParamTypes(), ce.peekValues(f.funcType.ParamNumInUint64))
 	frame := &callFrame{f: f, base: len(ce.stack)}
 	moduleInst := f.moduleInstance
 	functions := moduleInst.Engine.(*moduleEngine).functions
@@ -4340,14 +4340,23 @@ func (ce *callEngine) callNativeFunc(ctx context.Context, m *wasm.ModuleInstance
 			ce.pushValue(uint64(old))
 			frame.pc++
 		case operationKindTailCallReturnCall:
+			// log.Printf("Tail call from: %s %s", f.definition().DebugName(), f.funcType)
+			g := &functions[op.U1]
+
+			if f.funcType.ParamNumInUint64 != g.funcType.ParamNumInUint64 || f.funcType.ResultNumInUint64 != g.funcType.ResultNumInUint64 {
+				panic(fmt.Sprintf("Incompatible signatures in tail call: %s != %s", f.funcType, g.funcType))
+			}
+
 			f := &functions[op.U1]
 			if *f == *(frame.f) {
 				frame.pc = 0
 				continue
 			}
-			ce.drop(op.U2)
+			// log.Printf("Tail call to: %s %s", f.definition().DebugName(), f.funcType)
+			// if f.funcType.ParamNumInUint64 > 0 {
+			// 	ce.drop(op.U2)
+			// }
 			ce.popFrame()
-			// fmt.Printf("Tail call return call: %s\n	", f.definition().DebugName())
 
 			frame = &callFrame{f: f, base: len(ce.stack)}
 			moduleInst = f.moduleInstance
@@ -4384,7 +4393,7 @@ func (ce *callEngine) callNativeFunc(ctx context.Context, m *wasm.ModuleInstance
 				continue
 			}
 
-			ce.drop(op.U3)
+			// ce.drop(op.U3)
 			ce.popFrame()
 
 			frame = &callFrame{f: tf, base: len(ce.stack)}
