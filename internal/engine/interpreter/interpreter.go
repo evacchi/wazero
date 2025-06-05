@@ -4354,7 +4354,7 @@ func (ce *callEngine) callNativeFunc(ctx context.Context, m *wasm.ModuleInstance
 			}
 			// log.Printf("Tail call to: %s %s", f.definition().DebugName(), f.funcType)
 			// if f.funcType.ParamNumInUint64 > 0 {
-			// 	ce.drop(op.U2)
+			ce.drop(op.U2)
 			// }
 			ce.popFrame()
 

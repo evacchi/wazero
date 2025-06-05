@@ -3426,24 +3426,21 @@ operatorSwitch:
 		}
 
 	case wasm.OpcodeTailCallReturnCall:
-		// Emit a proper tail call only when the signatures match.
+		fdef := c.module.FunctionDefinition(index)
 		functionFrame := c.controlFrames.functionFrame()
-		targetSig := c.module.FunctionDefinition(index).Functype
-		if false && c.sig.EqualsSignature(targetSig.Params, targetSig.Results) {
-			c.emit(
-				newOperationTailCallReturnCall(index, c.getFrameDropRange(functionFrame, false)),
-			)
+		if c.sig.EqualsSignature(fdef.Functype.Params, fdef.Functype.Results) {
+			c.emit(newOperationTailCallReturnCall(index,
+				c.getFrameDropRange(functionFrame, false)))
 		} else {
-			c.emit(
-				newOperationCall(index),
-			)
-
+			// If the signatures don't match, we fallback to a plain call for now
+			c.emit(newOperationCall(index))
 			dropOp := newOperationDrop(c.getFrameDropRange(functionFrame, false))
 
 			// Cleanup the stack and then jmp to function frame's continuation (meaning return).
 			c.emit(dropOp)
 			c.emit(newOperationBr(functionFrame.asLabel()))
 		}
+
 		// Return operation is stack-polymorphic, and mark the state as unreachable.
 		// That means subsequent instructions in the current control frame are "unreachable"
 		// and can be safely removed.
