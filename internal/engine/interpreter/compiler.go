@@ -3428,7 +3428,8 @@ operatorSwitch:
 	case wasm.OpcodeTailCallReturnCall:
 		fdef := c.module.FunctionDefinition(index)
 		functionFrame := c.controlFrames.functionFrame()
-		if c.sig.EqualsSignature(fdef.Functype.Params, fdef.Functype.Results) {
+		_, _, isImport := fdef.Import()
+		if !isImport && c.sig.EqualsSignature(fdef.Functype.Params, fdef.Functype.Results) {
 			c.emit(newOperationTailCallReturnCall(index,
 				c.getFrameDropRange(functionFrame, false)))
 		} else {

@@ -658,6 +658,7 @@ func (ce *callEngine) recoverOnCall(ctx context.Context, m *wasm.ModuleInstance,
 }
 
 func (ce *callEngine) callFunction(ctx context.Context, m *wasm.ModuleInstance, f *function) {
+	//log.Println("callFunction", f.definition().DebugName())
 	if f.parent.hostFn != nil {
 		ce.callGoFuncWithStack(ctx, m, f)
 	} else if lsn := f.parent.listener; lsn != nil {
@@ -4340,8 +4341,8 @@ func (ce *callEngine) callNativeFunc(ctx context.Context, m *wasm.ModuleInstance
 			ce.pushValue(uint64(old))
 			frame.pc++
 		case operationKindTailCallReturnCall:
-			// log.Printf("Tail call from: %s %s", f.definition().DebugName(), f.funcType)
 			g := &functions[op.U1]
+			//log.Printf("Tail call: %s %s => %s %s", f.definition().DebugName(), f.funcType, g.definition().DebugName(), g.funcType)
 
 			if f.funcType.ParamNumInUint64 != g.funcType.ParamNumInUint64 || f.funcType.ResultNumInUint64 != g.funcType.ResultNumInUint64 {
 				panic(fmt.Sprintf("Incompatible signatures in tail call: %s != %s", f.funcType, g.funcType))
