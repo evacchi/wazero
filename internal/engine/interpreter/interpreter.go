@@ -5,7 +5,6 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
-	"log"
 	"math"
 	"math/bits"
 	"sync"
@@ -4381,7 +4380,7 @@ func (ce *callEngine) callNativeFunc(ctx context.Context, m *wasm.ModuleInstance
 			bodyLen = uint64(len(body))
 
 		case operationKindTailCallReturnCallIndirect:
-			log.Printf("Tail call return call indirect: %s\n", f.definition().DebugName())
+			//log.Printf("Tail call return call indirect: %s\n", f.definition().DebugName())
 			offset := ce.popValue()
 			table := tables[op.U2]
 			if offset >= uint64(len(table.References)) {
@@ -4399,11 +4398,11 @@ func (ce *callEngine) callNativeFunc(ctx context.Context, m *wasm.ModuleInstance
 			if frame.f.parent.hostFn != nil {
 				// fallback to a plain call + drop
 
-				log.Printf("call indirect: %s\n	", tf.definition().DebugName())
+				//log.Printf("call indirect: %s\n	", tf.definition().DebugName())
 				ce.callFunction(ctx, f.moduleInstance, tf)
 				frame.pc++
 
-				//ce.drop(op.U3)
+				ce.drop(op.U3)
 				frame.pc = op.Us[0]
 				continue
 			}
