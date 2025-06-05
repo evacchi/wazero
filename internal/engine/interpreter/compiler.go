@@ -3457,10 +3457,10 @@ operatorSwitch:
 
 		functionFrame := c.controlFrames.functionFrame()
 		dropRange := c.getFrameDropRange(functionFrame, false)
-		// FIXME this should be handled in getFrameDropRange or callEngine.drop()
-		if dropRange.Start == dropRange.End {
-			dropRange = nopinclusiveRange
-		}
+		//// FIXME this should be handled in getFrameDropRange or callEngine.drop()
+		//if dropRange.Start == dropRange.End {
+		//	dropRange = nopinclusiveRange
+		//}
 		c.emit(newOperationTailCallReturnCallIndirect(typeIndex, tableIndex, dropRange))
 
 		// Return operation is stack-polymorphic, and mark the state as unreachable.

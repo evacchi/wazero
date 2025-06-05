@@ -4410,7 +4410,11 @@ func (ce *callEngine) callNativeFunc(ctx context.Context, m *wasm.ModuleInstance
 				continue
 			}
 
-			ce.drop(op.U3)
+			//log.Println("range = ", inclusiveRangeFromU64(op.U3), " stacklen = ", len(ce.stack))
+			// FIXME still hacky
+			if r := inclusiveRangeFromU64(op.U3); r.Start != r.End {
+				ce.drop(op.U3)
+			}
 			ce.popFrame()
 
 			frame = &callFrame{f: tf, base: len(ce.stack)}
