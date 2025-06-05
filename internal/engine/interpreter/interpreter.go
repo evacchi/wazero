@@ -659,14 +659,14 @@ func (ce *callEngine) recoverOnCall(ctx context.Context, m *wasm.ModuleInstance,
 }
 
 func (ce *callEngine) callFunction(ctx context.Context, m *wasm.ModuleInstance, f *function) {
-	typ := f.funcType
-	paramLen := typ.ParamNumInUint64
-	stackLen := paramLen
-
-	// Pass the stack elements to the go function.
-	stack := ce.stack[len(ce.stack)-stackLen:]
-
-	log.Println("callFunction", f.definition().DebugName(), stack)
+	//typ := f.funcType
+	//paramLen := typ.ParamNumInUint64
+	//stackLen := paramLen
+	//
+	//// Pass the stack elements to the go function.
+	//stack := ce.stack[len(ce.stack)-stackLen:]
+	//
+	//log.Println("callFunction", f.definition().DebugName(), stack)
 	if f.parent.hostFn != nil {
 		ce.callGoFuncWithStack(ctx, m, f)
 	} else if lsn := f.parent.listener; lsn != nil {
@@ -4350,7 +4350,7 @@ func (ce *callEngine) callNativeFunc(ctx context.Context, m *wasm.ModuleInstance
 			frame.pc++
 		case operationKindTailCallReturnCall:
 			g := &functions[op.U1]
-			log.Printf("Tail call: %s %s => %s %s", f.definition().DebugName(), f.funcType, g.definition().DebugName(), g.funcType)
+			//log.Printf("Tail call: %s %s => %s %s", f.definition().DebugName(), f.funcType, g.definition().DebugName(), g.funcType)
 
 			if f.funcType.ParamNumInUint64 != g.funcType.ParamNumInUint64 || f.funcType.ResultNumInUint64 != g.funcType.ResultNumInUint64 {
 				panic(fmt.Sprintf("Incompatible signatures in tail call: %s != %s", f.funcType, g.funcType))
@@ -4381,7 +4381,7 @@ func (ce *callEngine) callNativeFunc(ctx context.Context, m *wasm.ModuleInstance
 			bodyLen = uint64(len(body))
 
 		case operationKindTailCallReturnCallIndirect:
-			// fmt.Printf("Tail call return call indirect: %s\n", f.definition().DebugName())
+			log.Printf("Tail call return call indirect: %s\n", f.definition().DebugName())
 			offset := ce.popValue()
 			table := tables[op.U2]
 			if offset >= uint64(len(table.References)) {
@@ -4396,30 +4396,15 @@ func (ce *callEngine) callNativeFunc(ctx context.Context, m *wasm.ModuleInstance
 			if tf.typeID != typeIDs[op.U1] {
 				panic(wasmruntime.ErrRuntimeIndirectCallTypeMismatch)
 			}
-			if tf.typeID != frame.f.typeID || tf.moduleInstance != frame.f.moduleInstance {
+			if frame.f.parent.hostFn != nil {
 				// fallback to a plain call + drop
 
-				offset := ce.popValue()
-				table := tables[op.U2]
-				if offset >= uint64(len(table.References)) {
-					panic(wasmruntime.ErrRuntimeInvalidTableAccess)
-				}
-				rawPtr := table.References[offset]
-				if rawPtr == 0 {
-					panic(wasmruntime.ErrRuntimeInvalidTableAccess)
-				}
-
-				tf := functionFromUintptr(rawPtr)
-				if tf.typeID != typeIDs[op.U1] {
-					panic(wasmruntime.ErrRuntimeIndirectCallTypeMismatch)
-				}
-
-				// fmt.Printf("call indirect: %s\n	", tf.definition().DebugName())
+				log.Printf("call indirect: %s\n	", tf.definition().DebugName())
 				ce.callFunction(ctx, f.moduleInstance, tf)
 				frame.pc++
 
-				ce.drop(op.U3)
-				frame.pc = 0
+				//ce.drop(op.U3)
+				frame.pc = op.Us[0]
 				continue
 			}
 
