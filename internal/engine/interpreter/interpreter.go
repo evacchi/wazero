@@ -4349,7 +4349,7 @@ func (ce *callEngine) callNativeFunc(ctx context.Context, m *wasm.ModuleInstance
 			frame.pc++
 		case operationKindTailCallReturnCall:
 			g := &functions[op.U1]
-			//log.Printf("Tail call: %s %s => %s %s", f.definition().DebugName(), f.funcType, g.definition().DebugName(), g.funcType)
+			// log.Printf("Tail call: %s %s => %s %s", f.definition().DebugName(), f.funcType, g.definition().DebugName(), g.funcType)
 
 			if f.funcType.ParamNumInUint64 != g.funcType.ParamNumInUint64 || f.funcType.ResultNumInUint64 != g.funcType.ResultNumInUint64 {
 				panic(fmt.Sprintf("Incompatible signatures in tail call: %s != %s", f.funcType, g.funcType))
@@ -4380,7 +4380,6 @@ func (ce *callEngine) callNativeFunc(ctx context.Context, m *wasm.ModuleInstance
 			bodyLen = uint64(len(body))
 
 		case operationKindTailCallReturnCallIndirect:
-			//log.Printf("Tail call return call indirect: %s\n", f.definition().DebugName())
 			offset := ce.popValue()
 			table := tables[op.U2]
 			if offset >= uint64(len(table.References)) {
@@ -4395,26 +4394,23 @@ func (ce *callEngine) callNativeFunc(ctx context.Context, m *wasm.ModuleInstance
 			if tf.typeID != typeIDs[op.U1] {
 				panic(wasmruntime.ErrRuntimeIndirectCallTypeMismatch)
 			}
-			if frame.f.parent.hostFn != nil {
-				// fallback to a plain call + drop
 
-				//log.Printf("call indirect: %s\n	", tf.definition().DebugName())
+			// If we are invoking a native function, we treat it as a regular call.
+			if tf.parent.hostFn != nil {
 				ce.callFunction(ctx, f.moduleInstance, tf)
 				frame.pc++
-
 				ce.drop(op.U3)
-				frame.pc = op.Us[0]
+				frame.pc = 0
 				continue
 			}
 
+			// Short-circuit self-recursion.
 			if *tf == *(frame.f) {
 				frame.pc = 0
 				continue
 			}
 
-			if f.funcType.EqualsSignature(tf.funcType.Params, tf.funcType.Results) {
-				ce.drop(op.U3)
-			}
+			ce.drop(op.U3)
 			ce.popFrame()
 
 			frame = &callFrame{f: tf, base: len(ce.stack)}

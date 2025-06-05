@@ -2547,7 +2547,6 @@ var (
 	i32_i32i32                      = wasm.FunctionType{Params: []wasm.ValueType{i32}, Results: []wasm.ValueType{i32, i32}}
 	i32f32f64_v                     = wasm.FunctionType{Params: []wasm.ValueType{i32, f32, f64}, Results: nil}
 	i64f32f64_i64f32f64             = wasm.FunctionType{Params: []wasm.ValueType{i64, f32, f64}, Results: []wasm.ValueType{i64, f32, f64}}
-	i64i64_i64i64                   = wasm.FunctionType{Params: []wasm.ValueType{i64, i64}, Results: []wasm.ValueType{i64, i64}}
 )
 
 const (

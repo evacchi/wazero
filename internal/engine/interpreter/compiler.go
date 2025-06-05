@@ -3456,18 +3456,12 @@ operatorSwitch:
 		c.pc += n
 
 		functionFrame := c.controlFrames.functionFrame()
-
-		c.emit(
-			newOperationTailCallReturnCallIndirect(
-				typeIndex, tableIndex, c.getFrameDropRange(functionFrame, false), functionFrame.asLabel()))
-
-		//// If the signatures don't match, we fallback to a plain call for now
-		//c.emit(newOperationCallIndirect(typeIndex, tableIndex))
-		//dropOp := newOperationDrop(c.getFrameDropRange(functionFrame, false))
-		//
-		//// Cleanup the stack and then jmp to function frame's continuation (meaning return).
-		//c.emit(dropOp)
-		//c.emit(newOperationBr(functionFrame.asLabel()))
+		dropRange := c.getFrameDropRange(functionFrame, false)
+		// FIXME this should be handled in getFrameDropRange or callEngine.drop()
+		if dropRange.Start == dropRange.End {
+			dropRange = nopinclusiveRange
+		}
+		c.emit(newOperationTailCallReturnCallIndirect(typeIndex, tableIndex, dropRange))
 
 		// Return operation is stack-polymorphic, and mark the state as unreachable.
 		// That means subsequent instructions in the current control frame are "unreachable"
