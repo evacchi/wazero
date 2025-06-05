@@ -4396,13 +4396,39 @@ func (ce *callEngine) callNativeFunc(ctx context.Context, m *wasm.ModuleInstance
 			if tf.typeID != typeIDs[op.U1] {
 				panic(wasmruntime.ErrRuntimeIndirectCallTypeMismatch)
 			}
+			if tf.typeID != frame.f.typeID || tf.moduleInstance != frame.f.moduleInstance {
+				// fallback to a plain call + drop
+
+				offset := ce.popValue()
+				table := tables[op.U2]
+				if offset >= uint64(len(table.References)) {
+					panic(wasmruntime.ErrRuntimeInvalidTableAccess)
+				}
+				rawPtr := table.References[offset]
+				if rawPtr == 0 {
+					panic(wasmruntime.ErrRuntimeInvalidTableAccess)
+				}
+
+				tf := functionFromUintptr(rawPtr)
+				if tf.typeID != typeIDs[op.U1] {
+					panic(wasmruntime.ErrRuntimeIndirectCallTypeMismatch)
+				}
+
+				// fmt.Printf("call indirect: %s\n	", tf.definition().DebugName())
+				ce.callFunction(ctx, f.moduleInstance, tf)
+				frame.pc++
+
+				ce.drop(op.U3)
+				frame.pc = 0
+				continue
+			}
 
 			if *tf == *(frame.f) {
 				frame.pc = 0
 				continue
 			}
 
-			// ce.drop(op.U3)
+			ce.drop(op.U3)
 			ce.popFrame()
 
 			frame = &callFrame{f: tf, base: len(ce.stack)}

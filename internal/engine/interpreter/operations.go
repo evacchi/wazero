@@ -2840,6 +2840,6 @@ func newOperationTailCallReturnCall(functionIndex uint32, dropDepth inclusiveRan
 // This corresponds to
 //
 //	wasm.OpcodeTailCallReturnCallIndirect.
-func newOperationTailCallReturnCallIndirect(typeIndex, tableIndex uint32, dropDepth inclusiveRange) unionOperation {
-	return unionOperation{Kind: operationKindTailCallReturnCallIndirect, U1: uint64(typeIndex), U2: uint64(tableIndex), U3: dropDepth.AsU64()}
+func newOperationTailCallReturnCallIndirect(typeIndex, tableIndex uint32, dropDepth inclusiveRange, l label) unionOperation {
+	return unionOperation{Kind: operationKindTailCallReturnCallIndirect, U1: uint64(typeIndex), U2: uint64(tableIndex), U3: dropDepth.AsU64(), Us: []uint64{uint64(l)}}
 }
