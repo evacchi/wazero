@@ -4412,7 +4412,9 @@ func (ce *callEngine) callNativeFunc(ctx context.Context, m *wasm.ModuleInstance
 				continue
 			}
 
-			ce.drop(op.U3)
+			if f.funcType.EqualsSignature(tf.funcType.Params, tf.funcType.Results) {
+				ce.drop(op.U3)
+			}
 			ce.popFrame()
 
 			frame = &callFrame{f: tf, base: len(ce.stack)}
