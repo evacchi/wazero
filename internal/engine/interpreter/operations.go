@@ -2831,7 +2831,7 @@ func newOperationAtomicRMW16Cmpxchg(unsignedType unsignedType, arg memoryArg) un
 // This corresponds to
 //
 //	wasm.OpcodeTailCallReturnCall.
-func newOperationTailCallReturnCall(functionIndex uint32, dropDepth inclusiveRange) unionOperation {
+func newOperationTailCallReturnCall(functionIndex uint32) unionOperation {
 	return unionOperation{Kind: operationKindTailCallReturnCall, U1: uint64(functionIndex)}
 }
 

@@ -4385,9 +4385,9 @@ func (ce *callEngine) callNativeFunc(ctx context.Context, m *wasm.ModuleInstance
 				panic(wasmruntime.ErrRuntimeIndirectCallTypeMismatch)
 			}
 
-			// If we are invoking a native function, we treat it as a regular call.
-			if tf.parent.hostFn != nil {
-				ce.callFunction(ctx, f.moduleInstance, tf)
+			// Currently we do not support imported functions, we treat them as regular calls.
+			if tf.moduleInstance != f.moduleInstance {
+				ce.callFunction(ctx, tf.moduleInstance, tf)
 				frame.pc++
 				ce.drop(op.U3)
 				frame.pc = 0

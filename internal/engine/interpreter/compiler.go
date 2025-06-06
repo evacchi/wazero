@@ -3428,18 +3428,16 @@ operatorSwitch:
 	case wasm.OpcodeTailCallReturnCall:
 		fdef := c.module.FunctionDefinition(index)
 		functionFrame := c.controlFrames.functionFrame()
-		_, _, isImport := fdef.Import()
-		if !isImport {
-			c.emit(newOperationTailCallReturnCall(index,
-				c.getTailCallDropRange(functionFrame, fdef.Functype)))
-		} else {
-			// If the signatures don't match, we fallback to a plain call for now
+		// Currently we do not support imported functions, we treat them as regular calls.
+		if _, _, isImport := fdef.Import(); isImport {
 			c.emit(newOperationCall(index))
 			dropOp := newOperationDrop(c.getFrameDropRange(functionFrame, false))
 
 			// Cleanup the stack and then jmp to function frame's continuation (meaning return).
 			c.emit(dropOp)
 			c.emit(newOperationBr(functionFrame.asLabel()))
+		} else {
+			c.emit(newOperationTailCallReturnCall(index))
 		}
 
 		// Return operation is stack-polymorphic, and mark the state as unreachable.
@@ -3658,12 +3656,6 @@ func (c *compiler) getFrameDropRange(frame *controlFrame, isEnd bool) inclusiveR
 	} else {
 		return nopinclusiveRange
 	}
-}
-
-func (c *compiler) getTailCallDropRange(frame *controlFrame, calleeType *wasm.FunctionType) inclusiveRange {
-	base := frame.originalStackLenWithoutParamUint64
-	paramCount := calleeType.ParamNumInUint64
-	return inclusiveRange{Start: int32(base), End: int32(paramCount)}
 }
 
 func (c *compiler) readMemoryArg(tag string) (memoryArg, error) {
