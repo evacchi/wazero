@@ -3429,9 +3429,9 @@ operatorSwitch:
 		fdef := c.module.FunctionDefinition(index)
 		functionFrame := c.controlFrames.functionFrame()
 		_, _, isImport := fdef.Import()
-		if !isImport && c.sig.EqualsSignature(fdef.Functype.Params, fdef.Functype.Results) {
+		if !isImport {
 			c.emit(newOperationTailCallReturnCall(index,
-				c.getFrameDropRange(functionFrame, false)))
+				c.getTailCallDropRange(fdef.Functype)))
 		} else {
 			// If the signatures don't match, we fallback to a plain call for now
 			c.emit(newOperationCall(index))
@@ -3662,6 +3662,27 @@ func (c *compiler) getFrameDropRange(frame *controlFrame, isEnd bool) inclusiveR
 	} else {
 		return nopinclusiveRange
 	}
+}
+
+//func (c *compiler) getTailCallDropRange(calleeType *wasm.FunctionType) inclusiveRange {
+//	paramCount := calleeType.ParamNumInUint64
+//	stackLen := c.stackLenInUint64
+//	if stackLen <= paramCount {
+//		return nopinclusiveRange
+//	}
+//	// Drop everything below the top paramCount values
+//	return inclusiveRange{Start: int32(paramCount), End: int32(stackLen - 1)}
+//}
+
+func (c *compiler) getTailCallDropRange(calleeType *wasm.FunctionType) inclusiveRange {
+	paramCount := calleeType.ParamNumInUint64
+	stackLen := c.stackLenInUint64
+	if stackLen <= paramCount {
+		return nopinclusiveRange
+	}
+	// Drop everything below the top paramCount values
+	// That is, drop from index 0 up to index stackLen-paramCount-1
+	return inclusiveRange{Start: 0, End: int32(stackLen - paramCount - 1)}
 }
 
 func (c *compiler) readMemoryArg(tag string) (memoryArg, error) {

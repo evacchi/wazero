@@ -4348,22 +4348,37 @@ func (ce *callEngine) callNativeFunc(ctx context.Context, m *wasm.ModuleInstance
 			ce.pushValue(uint64(old))
 			frame.pc++
 		case operationKindTailCallReturnCall:
-			g := &functions[op.U1]
-			// log.Printf("Tail call: %s %s => %s %s", f.definition().DebugName(), f.funcType, g.definition().DebugName(), g.funcType)
 
-			if f.funcType.ParamNumInUint64 != g.funcType.ParamNumInUint64 || f.funcType.ResultNumInUint64 != g.funcType.ResultNumInUint64 {
-				panic(fmt.Sprintf("Incompatible signatures in tail call: %s != %s", f.funcType, g.funcType))
-			}
+			//g := &functions[op.U1]
+			//if f.funcType.ParamNumInUint64 != g.funcType.ParamNumInUint64 ||
+			//	f.funcType.ResultNumInUint64 != g.funcType.ResultNumInUint64 {
+			//	panic(fmt.Sprintf("Incompatible signatures in tail call: %s != %s (drop range: %v)",
+			//		f.funcType, g.funcType, inclusiveRangeFromU64(op.U2)))
+			//}
 
 			f := &functions[op.U1]
+
+			//log.Printf("Tail call: %s %s => %s %s (%v)",
+			//	f.definition().DebugName(), f.funcType, g.definition().DebugName(),
+			//	g.funcType, inclusiveRangeFromU64(op.U2))
+
+			//ce.drop(op.U2)
+			//if len(ce.stack) < int(f.funcType.ParamNumInUint64) {
+			//	panic(fmt.Sprintf("tail call: stack underflow: have %d, need %d", len(ce.stack), f.funcType.ParamNumInUint64))
+			//}
+			//ce.stack = ce.stack[len(ce.stack)-f.funcType.ParamNumInUint64:]
+
+			base := frame.base - frame.f.funcType.ParamNumInUint64
+			paramCount := int(f.funcType.ParamNumInUint64)
+			if len(ce.stack) < base+paramCount {
+				panic(fmt.Sprintf("tail call: stack underflow: have %d, need %d", len(ce.stack)-base, paramCount))
+			}
+			ce.stack = append(ce.stack[:base], ce.stack[len(ce.stack)-paramCount:]...)
+
 			if *f == *(frame.f) {
 				frame.pc = 0
 				continue
 			}
-			// log.Printf("Tail call to: %s %s", f.definition().DebugName(), f.funcType)
-			// if f.funcType.ParamNumInUint64 > 0 {
-			ce.drop(op.U2)
-			// }
 			ce.popFrame()
 
 			frame = &callFrame{f: f, base: len(ce.stack)}
