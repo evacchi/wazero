@@ -4350,6 +4350,7 @@ func (ce *callEngine) callNativeFunc(ctx context.Context, m *wasm.ModuleInstance
 			f := &functions[op.U1]
 			ce.dropForTailCall(frame, f)
 			if *f == *(frame.f) {
+				// Short-circuit self-recursion.
 				frame.pc = 0
 				continue
 			}
@@ -4394,8 +4395,8 @@ func (ce *callEngine) callNativeFunc(ctx context.Context, m *wasm.ModuleInstance
 			}
 
 			ce.dropForTailCall(frame, tf)
-			// Short-circuit self-recursion.
 			if *tf == *(frame.f) {
+				// Short-circuit self-recursion.
 				frame.pc = 0
 				continue
 			}

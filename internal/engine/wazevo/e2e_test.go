@@ -879,7 +879,7 @@ func TestE2E(t *testing.T) {
 				t.Run(name, func(t *testing.T) {
 					cache, err := wazero.NewCompilationCacheWithDir(tmp)
 					require.NoError(t, err)
-					config := wazero.NewRuntimeConfigInterpreter().WithCompilationCache(cache)
+					config := wazero.NewRuntimeConfigCompiler().WithCompilationCache(cache)
 					if tc.features != 0 {
 						config = config.WithCoreFeatures(tc.features)
 					}

@@ -3431,7 +3431,7 @@ operatorSwitch:
 		_, _, isImport := fdef.Import()
 		if !isImport {
 			c.emit(newOperationTailCallReturnCall(index,
-				c.getTailCallDropRange(fdef.Functype)))
+				c.getTailCallDropRange(functionFrame, fdef.Functype)))
 		} else {
 			// If the signatures don't match, we fallback to a plain call for now
 			c.emit(newOperationCall(index))
@@ -3457,10 +3457,6 @@ operatorSwitch:
 
 		functionFrame := c.controlFrames.functionFrame()
 		dropRange := c.getFrameDropRange(functionFrame, false)
-		//// FIXME this should be handled in getFrameDropRange or callEngine.drop()
-		//if dropRange.Start == dropRange.End {
-		//	dropRange = nopinclusiveRange
-		//}
 		c.emit(newOperationTailCallReturnCallIndirect(typeIndex, tableIndex, dropRange))
 
 		// Return operation is stack-polymorphic, and mark the state as unreachable.
@@ -3664,25 +3660,10 @@ func (c *compiler) getFrameDropRange(frame *controlFrame, isEnd bool) inclusiveR
 	}
 }
 
-//func (c *compiler) getTailCallDropRange(calleeType *wasm.FunctionType) inclusiveRange {
-//	paramCount := calleeType.ParamNumInUint64
-//	stackLen := c.stackLenInUint64
-//	if stackLen <= paramCount {
-//		return nopinclusiveRange
-//	}
-//	// Drop everything below the top paramCount values
-//	return inclusiveRange{Start: int32(paramCount), End: int32(stackLen - 1)}
-//}
-
-func (c *compiler) getTailCallDropRange(calleeType *wasm.FunctionType) inclusiveRange {
+func (c *compiler) getTailCallDropRange(frame *controlFrame, calleeType *wasm.FunctionType) inclusiveRange {
+	base := frame.originalStackLenWithoutParamUint64
 	paramCount := calleeType.ParamNumInUint64
-	stackLen := c.stackLenInUint64
-	if stackLen <= paramCount {
-		return nopinclusiveRange
-	}
-	// Drop everything below the top paramCount values
-	// That is, drop from index 0 up to index stackLen-paramCount-1
-	return inclusiveRange{Start: 0, End: int32(stackLen - paramCount - 1)}
+	return inclusiveRange{Start: int32(base), End: int32(paramCount)}
 }
 
 func (c *compiler) readMemoryArg(tag string) (memoryArg, error) {
