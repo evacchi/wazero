@@ -784,7 +784,6 @@ func (ce *callEngine) callNativeFunc(ctx context.Context, m *wasm.ModuleInstance
 				panic(wasmruntime.ErrRuntimeIndirectCallTypeMismatch)
 			}
 
-			// fmt.Printf("call indirect: %s\n	", tf.definition().DebugName())
 			ce.callFunction(ctx, f.moduleInstance, tf)
 			frame.pc++
 		case operationKindDrop:
@@ -4348,33 +4347,8 @@ func (ce *callEngine) callNativeFunc(ctx context.Context, m *wasm.ModuleInstance
 			ce.pushValue(uint64(old))
 			frame.pc++
 		case operationKindTailCallReturnCall:
-
-			//g := &functions[op.U1]
-			//if f.funcType.ParamNumInUint64 != g.funcType.ParamNumInUint64 ||
-			//	f.funcType.ResultNumInUint64 != g.funcType.ResultNumInUint64 {
-			//	panic(fmt.Sprintf("Incompatible signatures in tail call: %s != %s (drop range: %v)",
-			//		f.funcType, g.funcType, inclusiveRangeFromU64(op.U2)))
-			//}
-
 			f := &functions[op.U1]
-
-			//log.Printf("Tail call: %s %s => %s %s (%v)",
-			//	f.definition().DebugName(), f.funcType, g.definition().DebugName(),
-			//	g.funcType, inclusiveRangeFromU64(op.U2))
-
-			//ce.drop(op.U2)
-			//if len(ce.stack) < int(f.funcType.ParamNumInUint64) {
-			//	panic(fmt.Sprintf("tail call: stack underflow: have %d, need %d", len(ce.stack), f.funcType.ParamNumInUint64))
-			//}
-			//ce.stack = ce.stack[len(ce.stack)-f.funcType.ParamNumInUint64:]
-
-			base := frame.base - frame.f.funcType.ParamNumInUint64
-			paramCount := int(f.funcType.ParamNumInUint64)
-			if len(ce.stack) < base+paramCount {
-				panic(fmt.Sprintf("tail call: stack underflow: have %d, need %d", len(ce.stack)-base, paramCount))
-			}
-			ce.stack = append(ce.stack[:base], ce.stack[len(ce.stack)-paramCount:]...)
-
+			ce.dropForTailCall(frame, f)
 			if *f == *(frame.f) {
 				frame.pc = 0
 				continue
@@ -4419,16 +4393,11 @@ func (ce *callEngine) callNativeFunc(ctx context.Context, m *wasm.ModuleInstance
 				continue
 			}
 
+			ce.dropForTailCall(frame, tf)
 			// Short-circuit self-recursion.
 			if *tf == *(frame.f) {
 				frame.pc = 0
 				continue
-			}
-
-			//log.Println("range = ", inclusiveRangeFromU64(op.U3), " stacklen = ", len(ce.stack))
-			// FIXME still hacky
-			if r := inclusiveRangeFromU64(op.U3); r.Start != r.End {
-				ce.drop(op.U3)
 			}
 			ce.popFrame()
 
@@ -4450,6 +4419,15 @@ func (ce *callEngine) callNativeFunc(ctx context.Context, m *wasm.ModuleInstance
 		}
 	}
 	ce.popFrame()
+}
+
+func (ce *callEngine) dropForTailCall(frame *callFrame, f *function) {
+	base := frame.base - frame.f.funcType.ParamNumInUint64
+	paramCount := int(f.funcType.ParamNumInUint64)
+	if len(ce.stack) < base+paramCount {
+		panic(fmt.Sprintf("tail call: stack underflow: have %d, need %d", len(ce.stack)-base, paramCount))
+	}
+	ce.stack = append(ce.stack[:base], ce.stack[len(ce.stack)-paramCount:]...)
 }
 
 func wasmCompatMax32bits(v1, v2 uint32) uint64 {
