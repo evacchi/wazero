@@ -3407,14 +3407,7 @@ func (c *Compiler) lowerCurrentOpcode() {
 			break
 		}
 		_, _ = typeIndex, tableIndex
-		//c.lowerTailCallReturnCallIndirect(typeIndex, tableIndex)
-		c.lowerCallIndirect(typeIndex, tableIndex)
-		results := c.nPeekDup(c.results())
-		instr := builder.AllocateInstruction()
-
-		instr.AsReturn(results)
-		builder.InsertInstruction(instr)
-
+		c.lowerTailCallReturnCallIndirect(typeIndex, tableIndex)
 		state.unreachable = true
 
 	case wasm.OpcodeTailCallReturnCall:
@@ -3422,17 +3415,13 @@ func (c *Compiler) lowerCurrentOpcode() {
 		if state.unreachable {
 			break
 		}
-		////fdef := c.m.FunctionDefinition(fnIndex)
-		////if _, _, isImport := fdef.Import(); isImport {
-		c.lowerCall(fnIndex)
-		results := c.nPeekDup(c.results())
-		instr := builder.AllocateInstruction()
-
-		instr.AsReturn(results)
-		builder.InsertInstruction(instr)
-		////} else {
-		//c.lowerTailCallReturnCall(fnIndex)
-		//}
+		//c.lowerCall(fnIndex)
+		//results := c.nPeekDup(c.results())
+		//instr := builder.AllocateInstruction()
+		//
+		//instr.AsReturn(results)
+		//builder.InsertInstruction(instr)
+		c.lowerTailCallReturnCall(fnIndex)
 		state.unreachable = true
 
 	default:
@@ -3681,7 +3670,12 @@ func (c *Compiler) lowerTailCallReturnCall(fnIndex uint32) {
 
 	if isIndirect {
 		call := builder.AllocateInstruction()
-		call.AsCallIndirect(ssa.Value(funcRefOrPtrValue), sig, args)
+		call.AsTailCallReturnCallIndirect(ssa.Value(funcRefOrPtrValue), sig, args)
+		builder.InsertInstruction(call)
+	} else {
+		// FIXME this should insert a proper tail call!
+		call := builder.AllocateInstruction()
+		call.AsCall(ssa.FuncRef(funcRefOrPtrValue), sig, args)
 		builder.InsertInstruction(call)
 
 		first, rest := call.Returns()
@@ -3696,13 +3690,11 @@ func (c *Compiler) lowerTailCallReturnCall(fnIndex uint32) {
 
 		results := c.nPeekDup(c.results())
 		instr := builder.AllocateInstruction()
+
 		instr.AsReturn(results)
 		builder.InsertInstruction(instr)
-	} else {
-		call := builder.AllocateInstruction()
-		call.AsTailCallReturnCall(ssa.FuncRef(funcRefOrPtrValue), sig, args)
-		builder.InsertInstruction(call)
 	}
+
 	state.unreachable = true
 }
 
