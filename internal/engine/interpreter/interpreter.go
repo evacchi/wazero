@@ -4354,18 +4354,12 @@ func (ce *callEngine) callNativeFunc(ctx context.Context, m *wasm.ModuleInstance
 				frame.pc = 0
 				continue
 			}
-			ce.popFrame()
 
-			frame = &callFrame{f: f, base: len(ce.stack)}
-			moduleInst = f.moduleInstance
-			functions = moduleInst.Engine.(*moduleEngine).functions
-			memoryInst = moduleInst.MemoryInstance
-			globals = moduleInst.Globals
-			tables = moduleInst.Tables
-			typeIDs = moduleInst.TypeIDs
-			dataInstances = moduleInst.DataInstances
-			elementInstances = moduleInst.ElementInstances
-			ce.pushFrame(frame)
+			// The compiler is currently allowing proper tail call only across functions
+			// that belong to the same module; thus, we can overwrite the frame in-place.
+			frame.f = f
+			frame.base = len(ce.stack)
+			frame.pc = 0
 			body = frame.f.parent.body
 			bodyLen = uint64(len(body))
 
@@ -4385,7 +4379,8 @@ func (ce *callEngine) callNativeFunc(ctx context.Context, m *wasm.ModuleInstance
 				panic(wasmruntime.ErrRuntimeIndirectCallTypeMismatch)
 			}
 
-			// Currently we do not support imported functions, we treat them as regular calls.
+			// We are allowing proper tail calls only across functions that belong to the same
+			// module; for indirect calls, we have to enforce it at run-time.
 			if tf.moduleInstance != f.moduleInstance {
 				ce.callFunction(ctx, tf.moduleInstance, tf)
 				frame.pc++
@@ -4400,18 +4395,10 @@ func (ce *callEngine) callNativeFunc(ctx context.Context, m *wasm.ModuleInstance
 				frame.pc = 0
 				continue
 			}
-			ce.popFrame()
 
-			frame = &callFrame{f: tf, base: len(ce.stack)}
-			moduleInst = f.moduleInstance
-			functions = moduleInst.Engine.(*moduleEngine).functions
-			memoryInst = moduleInst.MemoryInstance
-			globals = moduleInst.Globals
-			tables = moduleInst.Tables
-			typeIDs = moduleInst.TypeIDs
-			dataInstances = moduleInst.DataInstances
-			elementInstances = moduleInst.ElementInstances
-			ce.pushFrame(frame)
+			frame.f = tf
+			frame.pc = 0
+			frame.base = len(ce.stack)
 			body = frame.f.parent.body
 			bodyLen = uint64(len(body))
 
