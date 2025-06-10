@@ -3,6 +3,7 @@ package frontend
 import (
 	"encoding/binary"
 	"fmt"
+	"log"
 	"math"
 	"runtime"
 	"strings"
@@ -3415,12 +3416,6 @@ func (c *Compiler) lowerCurrentOpcode() {
 		if state.unreachable {
 			break
 		}
-		//c.lowerCall(fnIndex)
-		//results := c.nPeekDup(c.results())
-		//instr := builder.AllocateInstruction()
-		//
-		//instr.AsReturn(results)
-		//builder.InsertInstruction(instr)
 		c.lowerTailCallReturnCall(fnIndex)
 		state.unreachable = true
 
@@ -3673,26 +3668,32 @@ func (c *Compiler) lowerTailCallReturnCall(fnIndex uint32) {
 		call.AsTailCallReturnCallIndirect(ssa.Value(funcRefOrPtrValue), sig, args)
 		builder.InsertInstruction(call)
 	} else {
-		// FIXME this should insert a proper tail call!
-		call := builder.AllocateInstruction()
-		call.AsCall(ssa.FuncRef(funcRefOrPtrValue), sig, args)
-		builder.InsertInstruction(call)
+		// FIXME if the signatures don't match, revert to a plain call
+		if sig == c.signatures[c.wasmFunctionTyp] {
+			call := builder.AllocateInstruction()
+			call.AsTailCallReturnCall(ssa.FuncRef(funcRefOrPtrValue), sig, args)
+			builder.InsertInstruction(call)
+		} else {
+			call := builder.AllocateInstruction()
+			call.AsCall(ssa.FuncRef(funcRefOrPtrValue), sig, args)
+			builder.InsertInstruction(call)
 
-		first, rest := call.Returns()
-		if first.Valid() {
-			state.push(first)
+			first, rest := call.Returns()
+			if first.Valid() {
+				state.push(first)
+			}
+			for _, v := range rest {
+				state.push(v)
+			}
+
+			c.reloadAfterCall()
+
+			results := c.nPeekDup(c.results())
+			instr := builder.AllocateInstruction()
+
+			instr.AsReturn(results)
+			builder.InsertInstruction(instr)
 		}
-		for _, v := range rest {
-			state.push(v)
-		}
-
-		c.reloadAfterCall()
-
-		results := c.nPeekDup(c.results())
-		instr := builder.AllocateInstruction()
-
-		instr.AsReturn(results)
-		builder.InsertInstruction(instr)
 	}
 
 	state.unreachable = true
