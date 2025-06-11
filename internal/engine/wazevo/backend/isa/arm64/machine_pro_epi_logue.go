@@ -3,7 +3,6 @@ package arm64
 import (
 	"fmt"
 
-	"github.com/tetratelabs/wazero/internal/engine/wazevo/backend"
 	"github.com/tetratelabs/wazero/internal/engine/wazevo/backend/regalloc"
 	"github.com/tetratelabs/wazero/internal/engine/wazevo/wazevoapi"
 )
@@ -263,78 +262,6 @@ func (m *machine) setupEpilogueAfter(cur *instruction) {
 
 	if s := int64(m.currentABI.AlignedArgResultStackSlotSize()); s > 0 {
 		cur = m.addsAddOrSubStackPointer(cur, spVReg, s, true)
-	}
-
-	linkInstr(cur, prevNext)
-}
-
-func (m *machine) setupEpilogueAfterTailCall(cur *instruction, tailCallInstr *instruction) {
-	prevNext := cur.next
-
-	// Get the callee's stack slot size from the tail call instruction
-	var calleeStackSlotSize uint32
-	if tailCallInstr.u2 != 0 {
-		_, _, _, _, calleeStackSlotSize = backend.ABIInfoFromUint64(tailCallInstr.u2)
-	}
-
-	// We've stored the frame size in the prologue, and now that we are about to return from this function, we won't need it anymore.
-	cur = m.addsAddOrSubStackPointer(cur, spVReg, 16, true)
-
-	if s := m.spillSlotSize; s > 0 {
-		// Adjust SP to the original value:
-		cur = m.addsAddOrSubStackPointer(cur, spVReg, s, true)
-	}
-
-	// First we need to restore the clobbered registers.
-	if len(m.clobberedRegs) > 0 {
-		l := len(m.clobberedRegs) - 1
-		for i := range m.clobberedRegs {
-			vr := m.clobberedRegs[l-i] // reverse order to restore.
-			load := m.allocateInstr()
-			amode := addressModePreOrPostIndex(m, spVReg,
-				16,    // stack pointer must be 16-byte aligned.
-				false, // Increment after store.
-			)
-			// TODO: pair loads to reduce the number of instructions.
-			switch regTypeToRegisterSizeInBits(vr.RegType()) {
-			case 64: // save int reg.
-				load.asULoad(vr, amode, 64)
-			case 128: // save vector reg.
-				load.asFpuLoad(vr, amode, 128)
-			}
-			cur = linkInstr(cur, load)
-		}
-	}
-
-	// For tail calls, we need to restore the original caller's LR (return address)
-	// Load the original caller's LR from our stack frame
-	ldr := m.allocateInstr()
-	ldr.asULoad(lrVReg,
-		addressModePreOrPostIndex(m, spVReg, 16 /* stack pointer must be 16-byte aligned. */, false /* increment after loads */), 64)
-	cur = linkInstr(cur, ldr)
-
-	// CRITICAL: For tail calls, we need to handle stack argument relocation properly.
-	// The callee's stack arguments were placed at positions relative to the current SP,
-	// but after the epilogue adjusts SP, they need to be at different positions.
-	//
-	// Stack transformation:
-	// Before: [caller_args][our_frame][callee_args] <- current SP
-	// After:  [callee_args] <- new SP (ready for callee's prologue)
-
-	currentArgSpace := int64(m.currentABI.AlignedArgResultStackSlotSize())
-	calleeArgSpace := int64(calleeStackSlotSize)
-
-	// The net adjustment is: restore our arg space but keep callee's arg space
-	netAdjustment := currentArgSpace - calleeArgSpace
-
-	if netAdjustment != 0 {
-		if netAdjustment > 0 {
-			// We used more space than callee needs - shrink (add to SP)
-			cur = m.addsAddOrSubStackPointer(cur, spVReg, netAdjustment, true)
-		} else {
-			// Callee needs more space than we used - expand (subtract from SP)
-			cur = m.addsAddOrSubStackPointer(cur, spVReg, -netAdjustment, false)
-		}
 	}
 
 	linkInstr(cur, prevNext)
