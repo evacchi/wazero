@@ -418,6 +418,8 @@ func (i *instruction) encode(m *machine) {
 	case dmb:
 		c.Emit4Bytes(encodeDMB())
 	case tailCall:
+		// Debug: Add BRK instruction to pause execution for debugging
+		c.Emit4Bytes(0xd4200000) // BRK #0
 		// We still don't know the exact address of the function to call, so we emit a placeholder.
 		c.AddRelocationInfo(i.callFuncRef(), true)        // true = IsTailCall
 		c.Emit4Bytes(encodeUnconditionalBranch(false, 0)) // 0 = placeholder
