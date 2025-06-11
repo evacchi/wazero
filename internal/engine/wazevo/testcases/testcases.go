@@ -2631,19 +2631,20 @@ var (
 		},
 	}
 
-	// TailCallSQLitePattern tests the specific pattern from SQLite that causes return value corruption:
-	// 6-parameter function tail-calling a 7-parameter function, both returning single i32
-	// This reproduces the SQLite scenario: sqlite3_prepare_v3 (6 params) -> function 216 (7 params)
+	// TailCallSQLitePattern tests boundary-crossing tail calls that cause stack corruption:
+	// 7-parameter function tail-calling an 8-parameter function, both returning single i32
+	// This triggers boundary crossing on both ARM64 (9→10 total args) and AMD64 (9→10 total args)
+	// ARM64: x0-x7 (8 regs) → 9th+ on stack, AMD64: 9 regs → 10th+ on stack
 	TailCallSQLitePattern = TestCase{
 		Name: "tail_call_sqlite_pattern", 
 		Module: &wasm.Module{
 			TypeSection: []wasm.FunctionType{
-				{Params: []wasm.ValueType{i32, i32, i32, i32, i32, i32}, Results: []wasm.ValueType{i32}},                  // type 0: (i32 x 6) -> i32
-				{Params: []wasm.ValueType{i32, i32, i32, i32, i32, i32, i32}, Results: []wasm.ValueType{i32}}, // type 1: (i32 x 7) -> i32
+				{Params: []wasm.ValueType{i32, i32, i32, i32, i32, i32, i32}, Results: []wasm.ValueType{i32}},                  // type 0: (i32 x 7) -> i32
+				{Params: []wasm.ValueType{i32, i32, i32, i32, i32, i32, i32, i32}, Results: []wasm.ValueType{i32}}, // type 1: (i32 x 8) -> i32
 			},
 			FunctionSection: []wasm.Index{0, 0, 1}, // entry (type 0), caller (type 0), callee (type 1)
 			CodeSection: []wasm.Code{
-				{ // entry(a,b,c,d,e,f) -> caller(a,b,c,d,e,f)
+				{ // entry(a,b,c,d,e,f,g) -> caller(a,b,c,d,e,f,g)
 					Body: []byte{
 						wasm.OpcodeLocalGet, 0, // a
 						wasm.OpcodeLocalGet, 1, // b
@@ -2651,11 +2652,12 @@ var (
 						wasm.OpcodeLocalGet, 3, // d
 						wasm.OpcodeLocalGet, 4, // e
 						wasm.OpcodeLocalGet, 5, // f
-						wasm.OpcodeCall, 1, // call caller(a,b,c,d,e,f)
+						wasm.OpcodeLocalGet, 6, // g
+						wasm.OpcodeCall, 1, // call caller(a,b,c,d,e,f,g)
 						wasm.OpcodeEnd,
 					},
 				},
-				{ // caller(a,b,c,d,e,f) -> tail call callee(a,b,c,d|128,0,e,f) - mimics SQLite's pattern
+				{ // caller(a,b,c,d,e,f,g) -> tail call callee(a,b,c,d|128,0,e,f,g) - mimics SQLite's pattern
 					Body: []byte{
 						wasm.OpcodeLocalGet, 0, // a
 						wasm.OpcodeLocalGet, 1, // b
@@ -2668,11 +2670,12 @@ var (
 						wasm.OpcodeI32Const, 0,  // const 0 (like SQLite)
 						wasm.OpcodeLocalGet, 4, // e
 						wasm.OpcodeLocalGet, 5, // f
-						wasm.OpcodeTailCallReturnCall, 2, // tail call callee(a,b,c,(d&31)|128,0,e,f)
+						wasm.OpcodeLocalGet, 6, // g
+						wasm.OpcodeTailCallReturnCall, 2, // tail call callee(a,b,c,(d&31)|128,0,e,f,g)
 						wasm.OpcodeEnd,
 					},
 				},
-				{ // callee(a,b,c,d,e,f,g) -> returns a+b+c+d+e+f+g (should be predictable)
+				{ // callee(a,b,c,d,e,f,g,h) -> returns a+b+c+d+e+f+g+h (should be predictable)
 					Body: []byte{
 						wasm.OpcodeLocalGet, 0, // a
 						wasm.OpcodeLocalGet, 1, // b
@@ -2687,6 +2690,8 @@ var (
 						wasm.OpcodeI32Add,      // a+b+c+d+e+f
 						wasm.OpcodeLocalGet, 6, // g
 						wasm.OpcodeI32Add,      // a+b+c+d+e+f+g
+						wasm.OpcodeLocalGet, 7, // h
+						wasm.OpcodeI32Add,      // a+b+c+d+e+f+g+h
 						wasm.OpcodeEnd,
 					},
 				},

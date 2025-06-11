@@ -3667,9 +3667,58 @@ func (c *Compiler) lowerTailCallReturnCall(fnIndex uint32) {
 		call.AsTailCallReturnCallIndirect(ssa.Value(funcRefOrPtrValue), sig, args)
 		builder.InsertInstruction(call)
 	} else {
-		call := builder.AllocateInstruction()
-		call.AsTailCallReturnCall(ssa.FuncRef(funcRefOrPtrValue), sig, args)
-		builder.InsertInstruction(call)
+		// Detect boundary-crossing tail calls that cause stack corruption.
+		// ARM64 AAPCS64: x0-x7 (8 regs) + stack, AMD64 System V: 9 regs + stack
+		// Problematic pattern: caller fits in registers, callee needs stack args.
+		// Total args = 2 (execCtx + moduleCtx) + WASM params
+		//currentTotalArgs := 2 + len(c.wasmFunctionTyp.Params)
+		typ := &c.m.TypeSection[c.m.FunctionSection[fnIndex-c.m.ImportFunctionCount]]
+		calleeTotalArgs := 2 + len(typ.Params)
+
+		// ARM64: boundary at 8 args, AMD64: boundary at 9 args
+		var registerBoundary int
+		if runtime.GOARCH == "arm64" {
+			registerBoundary = 8
+		} else {
+			registerBoundary = 9 // AMD64 and others
+		}
+		//// Detect boundary crossing: any case where caller and callee are on different sides
+		//// of the register/stack boundary (one uses only regs, other uses stack args)
+		//callerUsesStack := currentTotalArgs > registerBoundary
+		//calleeUsesStack := calleeTotalArgs > registerBoundary
+		//needsFallback := callerUsesStack != calleeUsesStack
+		//
+		//// Debug: print boundary crossing detection
+		//if  { // Only for our test case
+		//	fmt.Printf("BOUNDARY CHECK: arch=%s, current=%d, callee=%d, boundary=%d, fallback=%v\n",
+		//		runtime.GOARCH, currentTotalArgs, calleeTotalArgs, registerBoundary, needsFallback)
+		//}
+
+		if calleeTotalArgs > registerBoundary {
+			call := builder.AllocateInstruction()
+			call.AsCall(ssa.FuncRef(funcRefOrPtrValue), sig, args)
+			builder.InsertInstruction(call)
+
+			first, rest := call.Returns()
+			if first.Valid() {
+				state.push(first)
+			}
+			for _, v := range rest {
+				state.push(v)
+			}
+
+			c.reloadAfterCall()
+
+			results := c.nPeekDup(c.results())
+			instr := builder.AllocateInstruction()
+
+			instr.AsReturn(results)
+			builder.InsertInstruction(instr)
+		} else {
+			call := builder.AllocateInstruction()
+			call.AsTailCallReturnCall(ssa.FuncRef(funcRefOrPtrValue), sig, args)
+			builder.InsertInstruction(call)
+		}
 	}
 
 	state.unreachable = true

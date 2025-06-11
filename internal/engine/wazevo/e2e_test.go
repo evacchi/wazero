@@ -892,10 +892,10 @@ func TestE2E(t *testing.T) {
 			m:        testcases.TailCallSQLitePattern.Module,
 			features: api.CoreFeaturesV2 | experimental.CoreFeaturesTailCall,
 			calls: []callCase{
-				// entry(1,2,3,4,5,6) -> caller(1,2,3,4,5,6) -> callee(1,2,3,(4&31)|128,0,5,6)
-				// callee returns 1+2+3+((4&31)|128)+0+5+6 = 1+2+3+132+0+5+6 = 149
-				// This reproduces the SQLite return value corruption issue
-				{params: []uint64{1, 2, 3, 4, 5, 6}, expResults: []uint64{149}},
+				// entry(1,2,3,4,5,6,7) -> caller(1,2,3,4,5,6,7) -> callee(1,2,3,(4&31)|128,0,5,6,7)
+				// callee returns 1+2+3+((4&31)|128)+0+5+6+7 = 1+2+3+132+0+5+6+7 = 156
+				// This reproduces boundary-crossing tail call corruption on both ARM64 and AMD64
+				{params: []uint64{1, 2, 3, 4, 5, 6, 7}, expResults: []uint64{156}},
 			},
 		},
 	} {

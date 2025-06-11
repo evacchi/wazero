@@ -315,13 +315,13 @@ func (m *machine) setupEpilogueAfterTailCall(cur *instruction, tailCallInstr *in
 		addressModePreOrPostIndex(m, spVReg, 16 /* stack pointer must be 16-byte aligned. */, false /* increment after loads */), 64)
 	cur = linkInstr(cur, ldr)
 
-	// CRITICAL: For tail calls, we need to leave the callee's argument space intact
-	// while restoring our own function's state. The callee's arguments were already
-	// placed by the tail call setup, and the callee expects them to be there.
+	// CRITICAL: For tail calls, we need to handle stack argument relocation properly.
+	// The callee's stack arguments were placed at positions relative to the current SP,
+	// but after the epilogue adjusts SP, they need to be at different positions.
 	//
 	// Stack transformation:
-	// Before: [caller_args][our_frame][callee_args] <- SP
-	// After:  [callee_args] <- SP (ready for callee's prologue)
+	// Before: [caller_args][our_frame][callee_args] <- current SP
+	// After:  [callee_args] <- new SP (ready for callee's prologue)
 
 	currentArgSpace := int64(m.currentABI.AlignedArgResultStackSlotSize())
 	calleeArgSpace := int64(calleeStackSlotSize)
