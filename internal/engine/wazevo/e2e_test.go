@@ -887,6 +887,17 @@ func TestE2E(t *testing.T) {
 				{params: []uint64{}, expResults: []uint64{10, 35}},
 			},
 		},
+		{
+			name:     "tail_call_sqlite_pattern",
+			m:        testcases.TailCallSQLitePattern.Module,
+			features: api.CoreFeaturesV2 | experimental.CoreFeaturesTailCall,
+			calls: []callCase{
+				// entry(1,2,3,4,5,6) -> caller(1,2,3,4,5,6) -> callee(1,2,3,(4&31)|128,0,5,6)
+				// callee returns 1+2+3+((4&31)|128)+0+5+6 = 1+2+3+132+0+5+6 = 149
+				// This reproduces the SQLite return value corruption issue
+				{params: []uint64{1, 2, 3, 4, 5, 6}, expResults: []uint64{149}},
+			},
+		},
 	} {
 		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
