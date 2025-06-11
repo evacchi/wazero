@@ -3667,22 +3667,7 @@ func (c *Compiler) lowerTailCallReturnCall(fnIndex uint32) {
 		call.AsTailCallReturnCallIndirect(ssa.Value(funcRefOrPtrValue), sig, args)
 		builder.InsertInstruction(call)
 	} else {
-		// Detect boundary-crossing tail calls that cause stack corruption.
-		// ARM64 AAPCS64: x0-x7 (8 regs) + stack, AMD64 System V: 9 regs + stack
-		// Problematic pattern: caller fits in registers, callee needs stack args.
-		// Total args = 2 (execCtx + moduleCtx) + WASM params
-		//currentTotalArgs := 2 + len(c.wasmFunctionTyp.Params)
-		typ := &c.m.TypeSection[c.m.FunctionSection[fnIndex-c.m.ImportFunctionCount]]
-		calleeTotalArgs := 2 + len(typ.Params)
-
-		// ARM64: boundary at 8 args, AMD64: boundary at 9 args
-		var registerBoundary int
-		if runtime.GOARCH == "arm64" {
-			registerBoundary = 8
-		} else {
-			registerBoundary = 9 // AMD64 and others
-		}
-		if calleeTotalArgs > registerBoundary {
+		if len(sig.Params) > tailCallMaxArgs {
 			call := builder.AllocateInstruction()
 			call.AsCall(ssa.FuncRef(funcRefOrPtrValue), sig, args)
 			builder.InsertInstruction(call)
