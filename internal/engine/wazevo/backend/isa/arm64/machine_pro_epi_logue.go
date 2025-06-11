@@ -198,9 +198,7 @@ func (m *machine) postRegAlloc() {
 	for cur := m.rootInstr; cur != nil; cur = cur.next {
 		switch cur.kind {
 		case tailCall, tailCallInd:
-			// For tail calls, we need to pass the callee's ABI info to the epilogue setup
-			_, _, _, _, calleeStackSlotSize := backend.ABIInfoFromUint64(cur.u2)
-			m.setupEpilogueAfterTailCall(cur.prev, int64(calleeStackSlotSize))
+			m.setupEpilogueAfterTailCall(cur.prev, cur)
 		case ret:
 			m.setupEpilogueAfter(cur.prev)
 		case loadConstBlockArg:
@@ -235,55 +233,11 @@ func (m *machine) setupEpilogueAfter(cur *instruction) {
 
 	if s := m.spillSlotSize; s > 0 {
 		// Adjust SP to the original value:
-		//
-		//            (high address)                        (high address)
-		//          +-----------------+                  +-----------------+
-		//          |     .......     |                  |     .......     |
-		//          |      ret Y      |                  |      ret Y      |
-		//          |     .......     |                  |     .......     |
-		//          |      ret 0      |                  |      ret 0      |
-		//          |      arg X      |                  |      arg X      |
-		//          |     .......     |                  |     .......     |
-		//          |      arg 1      |                  |      arg 1      |
-		//          |      arg 0      |                  |      arg 0      |
-		//          |      xxxxx      |                  |      xxxxx      |
-		//          |   ReturnAddress |                  |   ReturnAddress |
-		//          +-----------------+      ====>       +-----------------+
-		//          |    clobbered M  |                  |    clobbered M  |
-		//          |   ............  |                  |   ............  |
-		//          |    clobbered 1  |                  |    clobbered 1  |
-		//          |    clobbered 0  |                  |    clobbered 0  |
-		//          |   spill slot N  |                  +-----------------+ <---- SP
-		//          |   ............  |
-		//          |   spill slot 0  |
-		//   SP---> +-----------------+
-		//             (low address)
-		//
 		cur = m.addsAddOrSubStackPointer(cur, spVReg, s, true)
 	}
 
 	// First we need to restore the clobbered registers.
 	if len(m.clobberedRegs) > 0 {
-		//            (high address)
-		//          +-----------------+                      +-----------------+
-		//          |     .......     |                      |     .......     |
-		//          |      ret Y      |                      |      ret Y      |
-		//          |     .......     |                      |     .......     |
-		//          |      ret 0      |                      |      ret 0      |
-		//          |      arg X      |                      |      arg X      |
-		//          |     .......     |                      |     .......     |
-		//          |      arg 1      |                      |      arg 1      |
-		//          |      arg 0      |                      |      arg 0      |
-		//          |      xxxxx      |                      |      xxxxx      |
-		//          |   ReturnAddress |                      |   ReturnAddress |
-		//          +-----------------+      ========>       +-----------------+ <---- SP
-		//          |   clobbered M   |
-		//          |   ...........   |
-		//          |   clobbered 1   |
-		//          |   clobbered 0   |
-		//   SP---> +-----------------+
-		//             (low address)
-
 		l := len(m.clobberedRegs) - 1
 		for i := range m.clobberedRegs {
 			vr := m.clobberedRegs[l-i] // reverse order to restore.
@@ -304,20 +258,6 @@ func (m *machine) setupEpilogueAfter(cur *instruction) {
 	}
 
 	// Reload the return address (lr).
-	//
-	//            +-----------------+          +-----------------+
-	//            |     .......     |          |     .......     |
-	//            |      ret Y      |          |      ret Y      |
-	//            |     .......     |          |     .......     |
-	//            |      ret 0      |          |      ret 0      |
-	//            |      arg X      |          |      arg X      |
-	//            |     .......     |   ===>   |     .......     |
-	//            |      arg 1      |          |      arg 1      |
-	//            |      arg 0      |          |      arg 0      |
-	//            |      xxxxx      |          +-----------------+ <---- SP
-	//            |  ReturnAddress  |
-	//    SP----> +-----------------+
-
 	ldr := m.allocateInstr()
 	ldr.asULoad(lrVReg,
 		addressModePreOrPostIndex(m, spVReg, 16 /* stack pointer must be 16-byte aligned. */, false /* increment after loads */), 64)
@@ -330,14 +270,18 @@ func (m *machine) setupEpilogueAfter(cur *instruction) {
 	linkInstr(cur, prevNext)
 }
 
-// setupEpilogueAfterTailCall is like setupEpilogueAfter but uses the callee's stack slot size instead of the current function's.
-func (m *machine) setupEpilogueAfterTailCall(cur *instruction, calleeStackSlotSize int64) {
+func (m *machine) setupEpilogueAfterTailCall(cur *instruction, tailCallInstr *instruction) {
 	prevNext := cur.next
+
+	// Extract the callee's ABI information from the tail call instruction
+	_, _, _, _, calleeStackSlotSize := backend.ABIInfoFromUint64(tailCallInstr.u2)
+	currentStackSlotSize := int64(m.currentABI.AlignedArgResultStackSlotSize())
 
 	// We've stored the frame size in the prologue, and now that we are about to return from this function, we won't need it anymore.
 	cur = m.addsAddOrSubStackPointer(cur, spVReg, 16, true)
 
 	if s := m.spillSlotSize; s > 0 {
+		// Adjust SP to the original value:
 		cur = m.addsAddOrSubStackPointer(cur, spVReg, s, true)
 	}
 
@@ -369,12 +313,16 @@ func (m *machine) setupEpilogueAfterTailCall(cur *instruction, calleeStackSlotSi
 	cur = linkInstr(cur, ldr)
 
 	// For tail calls, use the callee's stack slot size instead of the current function's
+	// This ensures return values are placed where the caller expects them
 	if calleeStackSlotSize > 0 {
-		cur = m.addsAddOrSubStackPointer(cur, spVReg, calleeStackSlotSize, true)
+		cur = m.addsAddOrSubStackPointer(cur, spVReg, int64(calleeStackSlotSize), true)
+	} else if currentStackSlotSize > 0 {
+		cur = m.addsAddOrSubStackPointer(cur, spVReg, currentStackSlotSize, true)
 	}
 
 	linkInstr(cur, prevNext)
 }
+
 
 // saveRequiredRegs is the set of registers that must be saved/restored during growing stack when there's insufficient
 // stack space left. Basically this is the combination of CalleeSavedRegisters plus argument registers execpt for x0,

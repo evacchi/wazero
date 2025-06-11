@@ -2564,48 +2564,61 @@ var (
 	}
 
 	// TailCallMoreParams tests tail calls where the callee has more parameters than the caller.
-	// - entry: (a, b) -> calls tail_caller(a, b) with a normal call
-	// - tail_caller: (x, y) -> tail calls tail_callee(x, y, 100, 200, 300)
-	// - tail_callee: (a, b, c, d, e) -> returns (a + b) * (c + d + e)
+	// This reproduces the ARM64 bug where current=0, callee=16 stack slot sizes cause return value corruption
+	// - entry: () -> calls tail_caller() with no parameters
+	// - tail_caller: () -> tail calls tail_callee(1, 2, 3, 4, 5, 6, 7, 8, 9) with many stack args
+	// - tail_callee: returns multiple values that should be (10, 26) but get corrupted on ARM64
 	TailCallMoreParams = TestCase{
-		Name: "tail_call_more_params",
+		Name: "tail_call_more_params", 
 		Module: &wasm.Module{
 			TypeSection: []wasm.FunctionType{
-				{Params: []wasm.ValueType{i64, i64}, Results: []wasm.ValueType{i64}},                // type 0: (i64, i64) -> i64
-				{Params: []wasm.ValueType{i64, i64, i64, i64, i64}, Results: []wasm.ValueType{i64}}, // type 1: (i64, i64, i64, i64, i64) -> i64
+				{Params: []wasm.ValueType{}, Results: []wasm.ValueType{i64, i64}},                                                              // type 0: () -> (i64, i64)
+				{Params: []wasm.ValueType{i64, i64, i64, i64, i64, i64, i64, i64, i64}, Results: []wasm.ValueType{i64, i64}}, // type 1: (i64 x 9) -> (i64, i64)
 			},
 			FunctionSection: []wasm.Index{0, 0, 1}, // entry (type 0), tail_caller (type 0), tail_callee (type 1)
 			CodeSection: []wasm.Code{
-				{ // entry(a, b) -> tail_caller(a, b)
+				{ // entry() -> tail_caller()
 					Body: []byte{
-						wasm.OpcodeLocalGet, 0, // a
-						wasm.OpcodeLocalGet, 1, // b
-						wasm.OpcodeCall, 1, // call tail_caller(a, b)
+						wasm.OpcodeCall, 1, // call tail_caller()
 						wasm.OpcodeEnd,
 					},
 				},
-				{ // tail_caller(x, y) -> tail call tail_callee(x, y, 100, 200, 300)
+				{ // tail_caller() -> tail call tail_callee(1,2,3,4,5,6,7,8,9)
 					Body: []byte{
-						wasm.OpcodeLocalGet, 0, // x
-						wasm.OpcodeLocalGet, 1, // y
-						wasm.OpcodeI64Const, 10,
-						wasm.OpcodeI64Const, 20,
-						wasm.OpcodeI64Const, 30,
-						wasm.OpcodeTailCallReturnCall, 2, // tail call tail_callee(x, y, 10, 20, 30)
+						wasm.OpcodeI64Const, 1,
+						wasm.OpcodeI64Const, 2,
+						wasm.OpcodeI64Const, 3,
+						wasm.OpcodeI64Const, 4,
+						wasm.OpcodeI64Const, 5,
+						wasm.OpcodeI64Const, 6,
+						wasm.OpcodeI64Const, 7,
+						wasm.OpcodeI64Const, 8,
+						wasm.OpcodeI64Const, 9,
+						wasm.OpcodeTailCallReturnCall, 2, // tail call tail_callee(1,2,3,4,5,6,7,8,9)
 						wasm.OpcodeEnd,
 					},
 				},
-				{ // tail_callee(a, b, c, d, e) -> (a + b) * (c + d + e)
+				{ // tail_callee(a,b,c,d,e,f,g,h,i) -> returns (a+b+c+d, e+f+g+h+i)
 					Body: []byte{
-						wasm.OpcodeLocalGet, 0, // a
-						wasm.OpcodeLocalGet, 1, // b
-						wasm.OpcodeI64Add,      // a + b
-						wasm.OpcodeLocalGet, 2, // c
-						wasm.OpcodeLocalGet, 3, // d
-						wasm.OpcodeI64Add,      // c + d
-						wasm.OpcodeLocalGet, 4, // e
-						wasm.OpcodeI64Add, // c + d + e
-						wasm.OpcodeI64Mul, // (a + b) * (c + d + e)
+						// First return value: a+b+c+d = 1+2+3+4 = 10
+						wasm.OpcodeLocalGet, 0, // a=1
+						wasm.OpcodeLocalGet, 1, // b=2
+						wasm.OpcodeI64Add,      // a+b=3
+						wasm.OpcodeLocalGet, 2, // c=3
+						wasm.OpcodeI64Add,      // a+b+c=6
+						wasm.OpcodeLocalGet, 3, // d=4
+						wasm.OpcodeI64Add,      // a+b+c+d=10
+						
+						// Second return value: e+f+g+h+i = 5+6+7+8+9 = 35
+						wasm.OpcodeLocalGet, 4, // e=5
+						wasm.OpcodeLocalGet, 5, // f=6
+						wasm.OpcodeI64Add,      // e+f=11
+						wasm.OpcodeLocalGet, 6, // g=7
+						wasm.OpcodeI64Add,      // e+f+g=18
+						wasm.OpcodeLocalGet, 7, // h=8
+						wasm.OpcodeI64Add,      // e+f+g+h=26
+						wasm.OpcodeLocalGet, 8, // i=9
+						wasm.OpcodeI64Add,      // e+f+g+h+i=35
 						wasm.OpcodeEnd,
 					},
 				},

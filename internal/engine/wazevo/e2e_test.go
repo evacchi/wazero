@@ -881,12 +881,10 @@ func TestE2E(t *testing.T) {
 			m:        testcases.TailCallMoreParams.Module,
 			features: api.CoreFeaturesV2 | experimental.CoreFeaturesTailCall,
 			calls: []callCase{
-				// entry(a, b) -> tail_caller(a, b) -> tail_callee(a, b, 100, 200, 300)
-				// tail_callee returns (a + b) * (100 + 200 + 300)
-				// For (3,1): (3 + 1) * (10 + 20 + 30) = 4 * 60 = 240
-				// For (5,2): (5 + 2) * (10 + 20 + 30) = 7 * 60 = 420
-				{params: []uint64{3, 1}, expResults: []uint64{240}},
-				{params: []uint64{5, 2}, expResults: []uint64{420}},
+				// entry() -> tail_caller() -> tail_callee(1,2,3,4,5,6,7,8,9)
+				// tail_callee returns (1+2+3+4, 5+6+7+8+9) = (10, 35)
+				// This should fail on ARM64 due to return value corruption in tail calls
+				{params: []uint64{}, expResults: []uint64{10, 35}},
 			},
 		},
 	} {
