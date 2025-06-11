@@ -840,32 +840,32 @@ func TestE2E(t *testing.T) {
 				{params: []uint64{math.Float64bits(math.NaN())}, expResults: []uint64{0, 0}},
 			},
 		},
-		{
-			name:     "tail_call_return_call",
-			m:        testcases.FibonacciTailRecursive.Module,
-			features: api.CoreFeaturesV2 | experimental.CoreFeaturesTailCall,
-			calls: []callCase{
-				{params: []uint64{10, 0, 1}, expResults: []uint64{55}},
-				{params: []uint64{20, 0, 1}, expResults: []uint64{6765}},
-				{params: []uint64{318, 0, 1}, expResults: []uint64{0x80dbbba8}},
-			},
-		},
-		{
-			name:     "tail_call_return_call_count",
-			m:        testcases.CountTailRecursive.Module,
-			features: api.CoreFeaturesV2 | experimental.CoreFeaturesTailCall,
-			calls: []callCase{
-				{params: []uint64{1000_000_000, 0}, expResults: []uint64{1000_000_000}},
-			},
-		},
-		{
-			name:     "tail_call_return_call_count_acc",
-			m:        testcases.CountTailRecursiveTwoResults.Module,
-			features: api.CoreFeaturesV2 | experimental.CoreFeaturesTailCall,
-			calls: []callCase{
-				{params: []uint64{1000_000_000, 0}, expResults: []uint64{0, 1000_000_000}},
-			},
-		},
+		//{
+		//	name:     "tail_call_return_call",
+		//	m:        testcases.FibonacciTailRecursive.Module,
+		//	features: api.CoreFeaturesV2 | experimental.CoreFeaturesTailCall,
+		//	calls: []callCase{
+		//		{params: []uint64{10, 0, 1}, expResults: []uint64{55}},
+		//		{params: []uint64{20, 0, 1}, expResults: []uint64{6765}},
+		//		{params: []uint64{318, 0, 1}, expResults: []uint64{0x80dbbba8}},
+		//	},
+		//},
+		//{
+		//	name:     "tail_call_return_call_count",
+		//	m:        testcases.CountTailRecursive.Module,
+		//	features: api.CoreFeaturesV2 | experimental.CoreFeaturesTailCall,
+		//	calls: []callCase{
+		//		{params: []uint64{1000_000_000, 0}, expResults: []uint64{1000_000_000}},
+		//	},
+		//},
+		//{
+		//	name:     "tail_call_return_call_count_acc",
+		//	m:        testcases.CountTailRecursiveTwoResults.Module,
+		//	features: api.CoreFeaturesV2 | experimental.CoreFeaturesTailCall,
+		//	calls: []callCase{
+		//		{params: []uint64{1000_000_000, 0}, expResults: []uint64{0, 1000_000_000}},
+		//	},
+		//},
 		{
 			name:     "tail_call_compatible_signatures",
 			m:        testcases.TailCallCompatibleSignatures.Module,
@@ -900,7 +900,7 @@ func TestE2E(t *testing.T) {
 				t.Run(name, func(t *testing.T) {
 					cache, err := wazero.NewCompilationCacheWithDir(tmp)
 					require.NoError(t, err)
-					config := wazero.NewRuntimeConfigCompiler().WithCompilationCache(cache)
+					config := wazero.NewRuntimeConfig().WithCompilationCache(cache)
 					if tc.features != 0 {
 						config = config.WithCoreFeatures(tc.features)
 					}

@@ -273,11 +273,12 @@ func (m *machine) setupEpilogueAfter(cur *instruction) {
 func (m *machine) setupEpilogueAfterTailCall(cur *instruction, tailCallInstr *instruction) {
 	prevNext := cur.next
 
-	// Extract the callee's ABI information from the tail call instruction
-	_, _, _, _, calleeStackSlotSize := backend.ABIInfoFromUint64(tailCallInstr.u2)
-	currentStackSlotSize := int64(m.currentABI.AlignedArgResultStackSlotSize())
+	// Get the callee's stack slot size from the tail call instruction
+	var calleeStackSlotSize uint32
+	if tailCallInstr.u2 != 0 {
+		_, _, _, _, calleeStackSlotSize = backend.ABIInfoFromUint64(tailCallInstr.u2)
+	}
 	
-
 	// We've stored the frame size in the prologue, and now that we are about to return from this function, we won't need it anymore.
 	cur = m.addsAddOrSubStackPointer(cur, spVReg, 16, true)
 
@@ -307,25 +308,34 @@ func (m *machine) setupEpilogueAfterTailCall(cur *instruction, tailCallInstr *in
 		}
 	}
 
-	// Reload the return address (lr).
+	// For tail calls, we need to restore the original caller's LR (return address)
+	// Load the original caller's LR from our stack frame
 	ldr := m.allocateInstr()
 	ldr.asULoad(lrVReg,
 		addressModePreOrPostIndex(m, spVReg, 16 /* stack pointer must be 16-byte aligned. */, false /* increment after loads */), 64)
 	cur = linkInstr(cur, ldr)
-
-	// For tail calls, we need to handle stack slot size differences carefully
-	// The key insight: if callee needs more stack space than current function,
-	// we need to subtract that extra space so return values land in the right place
-	if currentStackSlotSize == 0 && calleeStackSlotSize > 0 {
-		// This is the problematic case: current has no stack args, callee has stack args
-		// Don't add back the callee's stack space - leave SP positioned for callee's return values
-		// No stack adjustment needed - let the callee's return values be placed correctly
-	} else if calleeStackSlotSize > 0 {
-		// Normal case: restore stack using callee's requirements  
-		cur = m.addsAddOrSubStackPointer(cur, spVReg, int64(calleeStackSlotSize), true)
-	} else if currentStackSlotSize > 0 {
-		// Fallback: restore using current function's requirements
-		cur = m.addsAddOrSubStackPointer(cur, spVReg, currentStackSlotSize, true)
+	
+	// CRITICAL: Do NOT restore to the original caller's state.
+	// Instead, set up the stack to match what the callee expects.
+	// The callee's arguments have already been placed in the appropriate stack space,
+	// and the callee's prologue will expect them to be there when it runs.
+	
+	// Calculate the adjustment needed: remove current function's arg space and 
+	// leave the callee's arg space in place
+	currentArgSpace := int64(m.currentABI.AlignedArgResultStackSlotSize())
+	calleeArgSpace := int64(calleeStackSlotSize)
+	
+	// Only adjust if the spaces are different
+	if currentArgSpace != calleeArgSpace {
+		if currentArgSpace > calleeArgSpace {
+			// Shrink stack space (add to SP)
+			diff := currentArgSpace - calleeArgSpace
+			cur = m.addsAddOrSubStackPointer(cur, spVReg, diff, true)
+		} else {
+			// Expand stack space (subtract from SP) 
+			diff := calleeArgSpace - currentArgSpace
+			cur = m.addsAddOrSubStackPointer(cur, spVReg, diff, false)
+		}
 	}
 
 	linkInstr(cur, prevNext)
