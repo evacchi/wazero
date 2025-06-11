@@ -331,15 +331,41 @@ func (m *machine) lowerTailCall(si *ssa.Instruction) {
 		m.callerGenVRegToFunctionArg(calleeABI, i, reg, def, stackSlotSize)
 	}
 
-	if isDirectCall {
+	// We currently support tail calls only when the args are passed via registers
+	// otherwise we fall back to a plain call.
+	isAllRegs := stackSlotSize == 0
+
+	switch {
+	case isDirectCall && isAllRegs:
 		tailJump := m.allocateInstr()
 		tailJump.asTailCall(directCallee, calleeABI)
 		m.insert(tailJump)
-	} else {
+	case !isDirectCall && isAllRegs:
 		ptr := m.compiler.VRegOf(indirectCalleePtr)
 		callInd := m.allocateInstr()
 		callInd.asTailCallIndirect(ptr, calleeABI)
 		m.insert(callInd)
+	case isDirectCall && !isAllRegs:
+		tailJump := m.allocateInstr()
+		tailJump.asCall(directCallee, calleeABI)
+		m.insert(tailJump)
+	case !isDirectCall && !isAllRegs:
+		ptr := m.compiler.VRegOf(indirectCalleePtr)
+		callInd := m.allocateInstr()
+		callInd.asCallIndirect(ptr, calleeABI)
+		m.insert(callInd)
+	}
+
+	var index int
+	r1, rs := si.Returns()
+	if r1.Valid() {
+		m.callerGenFunctionReturnVReg(calleeABI, 0, m.compiler.VRegOf(r1), stackSlotSize)
+		index++
+	}
+
+	for _, r := range rs {
+		m.callerGenFunctionReturnVReg(calleeABI, index, m.compiler.VRegOf(r), stackSlotSize)
+		index++
 	}
 }
 

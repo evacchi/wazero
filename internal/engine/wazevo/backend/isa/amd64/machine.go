@@ -1977,6 +1977,8 @@ func (m *machine) lowerTailCall(si *ssa.Instruction) {
 		m.maxRequiredStackSizeForCalls = stackSlotSize + 16 // 16 == return address + RBP.
 	}
 
+	isAllRegs := stackSlotSize == 0
+
 	// Note: See machine.SetupPrologue for the stack layout.
 	// The stack pointer decrease/increase will be inserted later in the compilation.
 
@@ -1986,10 +1988,11 @@ func (m *machine) lowerTailCall(si *ssa.Instruction) {
 		m.callerGenVRegToFunctionArg(calleeABI, i, reg, def, stackSlotSize)
 	}
 
-	if isDirectCall {
+	switch {
+	case isDirectCall && isAllRegs:
 		call := m.allocateInstr().asTailCallReturnCall(directCallee, calleeABI)
 		m.insert(call)
-	} else {
+	case !isDirectCall && isAllRegs:
 		// In a tail call we insert the epilogue before the jump instruction,
 		// so an arbitrary register might be overwritten while restoring the stack.
 		// So, as compared to a regular indirect call, we ensure the pointer is stored
@@ -1999,6 +2002,25 @@ func (m *machine) lowerTailCall(si *ssa.Instruction) {
 		m.InsertMove(tmpJmp, ptrOp.reg(), ssa.TypeI64)
 		callInd := m.allocateInstr().asTailCallReturnCallIndirect(newOperandReg(tmpJmp), calleeABI)
 		m.insert(callInd)
+	case isDirectCall && !isAllRegs:
+		call := m.allocateInstr().asCall(directCallee, calleeABI)
+		m.insert(call)
+	case !isDirectCall && !isAllRegs:
+		ptrOp := m.getOperand_Mem_Reg(m.c.ValueDefinition(indirectCalleePtr))
+		callInd := m.allocateInstr().asCallIndirect(ptrOp, calleeABI)
+		m.insert(callInd)
+	}
+
+	var index int
+	r1, rs := si.Returns()
+	if r1.Valid() {
+		m.callerGenFunctionReturnVReg(calleeABI, 0, m.c.VRegOf(r1), stackSlotSize)
+		index++
+	}
+
+	for _, r := range rs {
+		m.callerGenFunctionReturnVReg(calleeABI, index, m.c.VRegOf(r), stackSlotSize)
+		index++
 	}
 }
 
