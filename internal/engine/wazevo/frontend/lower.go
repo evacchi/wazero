@@ -3682,18 +3682,6 @@ func (c *Compiler) lowerTailCallReturnCall(fnIndex uint32) {
 		} else {
 			registerBoundary = 9 // AMD64 and others
 		}
-		//// Detect boundary crossing: any case where caller and callee are on different sides
-		//// of the register/stack boundary (one uses only regs, other uses stack args)
-		//callerUsesStack := currentTotalArgs > registerBoundary
-		//calleeUsesStack := calleeTotalArgs > registerBoundary
-		//needsFallback := callerUsesStack != calleeUsesStack
-		//
-		//// Debug: print boundary crossing detection
-		//if  { // Only for our test case
-		//	fmt.Printf("BOUNDARY CHECK: arch=%s, current=%d, callee=%d, boundary=%d, fallback=%v\n",
-		//		runtime.GOARCH, currentTotalArgs, calleeTotalArgs, registerBoundary, needsFallback)
-		//}
-
 		if calleeTotalArgs > registerBoundary {
 			call := builder.AllocateInstruction()
 			call.AsCall(ssa.FuncRef(funcRefOrPtrValue), sig, args)
