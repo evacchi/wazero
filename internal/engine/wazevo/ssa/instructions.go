@@ -2060,7 +2060,6 @@ func (i *Instruction) AsTailCallReturnCall(ref FuncRef, sig *Signature, args Val
 // AsTailCallReturnCallIndirect initializes this instruction as a call-indirect instruction with OpcodeTailCallReturnCallIndirect.
 func (i *Instruction) AsTailCallReturnCallIndirect(funcPtr Value, sig *Signature, args Values) *Instruction {
 	i.opcode = OpcodeTailCallReturnCallIndirect
-	i.typ = TypeF64
 	i.vs = args
 	i.v = funcPtr
 	i.u1 = uint64(sig.ID)

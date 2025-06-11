@@ -2499,6 +2499,124 @@ var (
 			ExportSection: []wasm.Export{{Name: ExportedFunctionName, Type: wasm.ExternTypeFunc, Index: 0}},
 		},
 	}
+
+	// TailCallCompatibleSignatures tests a tail call between functions with compatible but different signatures.
+	// The test includes multiple levels of indirection to thoroughly test tail call behavior.
+	// - entry: (a, b, c, d) -> calls tail_caller(a, b, c + d) with a normal call
+	// - tail_caller: (a, b, c) -> tail calls tail_callee(a + c, b)
+	// - tail_callee: (x, y) -> calls helper(x, y) and returns its result
+	// - helper: (x, y) -> returns x * y
+	TailCallCompatibleSignatures = TestCase{
+		Name: "tail_call_compatible_signatures",
+		Module: &wasm.Module{
+			TypeSection: []wasm.FunctionType{
+				{Params: []wasm.ValueType{i32, i32}, Results: []wasm.ValueType{i32}},           // helper: (i32, i32) -> i32
+				{Params: []wasm.ValueType{i32, i32}, Results: []wasm.ValueType{i32}},           // tail_callee: (i32, i32) -> i32
+				{Params: []wasm.ValueType{i32, i32, i32}, Results: []wasm.ValueType{i32}},      // tail_caller: (i32, i32, i32) -> i32
+				{Params: []wasm.ValueType{i32, i32, i32, i32}, Results: []wasm.ValueType{i32}}, // entry: (i32, i32, i32, i32) -> i32
+			},
+			FunctionSection: []wasm.Index{3, 2, 1, 0}, // entry is index 0, tail_caller is 1, tail_callee is 2, helper is 3
+			CodeSection: []wasm.Code{
+				{ // entry(a, b, c, d) -> tail_caller(a, b, c + d)
+					Body: []byte{
+						wasm.OpcodeLocalGet, 0, // a
+						wasm.OpcodeLocalGet, 1, // b
+						wasm.OpcodeLocalGet, 2, // c
+						wasm.OpcodeLocalGet, 3, // d
+						wasm.OpcodeI32Add,  // c + d
+						wasm.OpcodeCall, 1, // call tail_caller(a, b, c + d)
+						wasm.OpcodeEnd,
+					},
+				},
+				{ // tail_caller(a, b, c) -> tail tail_callee(a + c, b)
+					Body: []byte{
+						wasm.OpcodeLocalGet, 0, // a
+						wasm.OpcodeLocalGet, 2, // c
+						wasm.OpcodeI32Add,      // a + c
+						wasm.OpcodeLocalGet, 1, // b
+						wasm.OpcodeTailCallReturnCall, 2, // tail call tail_callee
+						wasm.OpcodeEnd,
+					},
+				},
+				{ // tail_callee(x, y) -> helper(x, y)
+					Body: []byte{
+						wasm.OpcodeLocalGet, 0, // x
+						wasm.OpcodeLocalGet, 1, // y
+						wasm.OpcodeCall, 3, // call helper(x, y)
+						wasm.OpcodeEnd,
+					},
+				},
+				{ // helper(x, y) -> x * y
+					Body: []byte{
+						wasm.OpcodeLocalGet, 0,
+						wasm.OpcodeLocalGet, 1,
+						wasm.OpcodeI32Mul,
+						wasm.OpcodeEnd,
+					},
+				},
+			},
+			ExportSection: []wasm.Export{{
+				Name:  ExportedFunctionName,
+				Type:  wasm.ExternTypeFunc,
+				Index: 0, // Export entry
+			}},
+		},
+	}
+
+	// TailCallMoreParams tests tail calls where the callee has more parameters than the caller.
+	// - entry: (a, b) -> calls tail_caller(a, b) with a normal call
+	// - tail_caller: (x, y) -> tail calls tail_callee(x, y, 100, 200, 300)
+	// - tail_callee: (a, b, c, d, e) -> returns (a + b) * (c + d + e)
+	TailCallMoreParams = TestCase{
+		Name: "tail_call_more_params",
+		Module: &wasm.Module{
+			TypeSection: []wasm.FunctionType{
+				{Params: []wasm.ValueType{i64, i64}, Results: []wasm.ValueType{i64}},                // type 0: (i64, i64) -> i64
+				{Params: []wasm.ValueType{i64, i64, i64, i64, i64}, Results: []wasm.ValueType{i64}}, // type 1: (i64, i64, i64, i64, i64) -> i64
+			},
+			FunctionSection: []wasm.Index{0, 0, 1}, // entry (type 0), tail_caller (type 0), tail_callee (type 1)
+			CodeSection: []wasm.Code{
+				{ // entry(a, b) -> tail_caller(a, b)
+					Body: []byte{
+						wasm.OpcodeLocalGet, 0, // a
+						wasm.OpcodeLocalGet, 1, // b
+						wasm.OpcodeCall, 1, // call tail_caller(a, b)
+						wasm.OpcodeEnd,
+					},
+				},
+				{ // tail_caller(x, y) -> tail call tail_callee(x, y, 100, 200, 300)
+					Body: []byte{
+						wasm.OpcodeLocalGet, 0, // x
+						wasm.OpcodeLocalGet, 1, // y
+						wasm.OpcodeI64Const, 10,
+						wasm.OpcodeI64Const, 20,
+						wasm.OpcodeI64Const, 30,
+						wasm.OpcodeTailCallReturnCall, 2, // tail call tail_callee(x, y, 10, 20, 30)
+						wasm.OpcodeEnd,
+					},
+				},
+				{ // tail_callee(a, b, c, d, e) -> (a + b) * (c + d + e)
+					Body: []byte{
+						wasm.OpcodeLocalGet, 0, // a
+						wasm.OpcodeLocalGet, 1, // b
+						wasm.OpcodeI64Add,      // a + b
+						wasm.OpcodeLocalGet, 2, // c
+						wasm.OpcodeLocalGet, 3, // d
+						wasm.OpcodeI64Add,      // c + d
+						wasm.OpcodeLocalGet, 4, // e
+						wasm.OpcodeI64Add, // c + d + e
+						wasm.OpcodeI64Mul, // (a + b) * (c + d + e)
+						wasm.OpcodeEnd,
+					},
+				},
+			},
+			ExportSection: []wasm.Export{{
+				Name:  ExportedFunctionName,
+				Type:  wasm.ExternTypeFunc,
+				Index: 0, // entry function
+			}},
+		},
+	}
 )
 
 // VecShuffleWithLane returns a VecShuffle test with a custom 16-bytes immediate (lane indexes).

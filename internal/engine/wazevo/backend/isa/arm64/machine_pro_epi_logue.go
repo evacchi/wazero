@@ -3,6 +3,7 @@ package arm64
 import (
 	"fmt"
 
+	"github.com/tetratelabs/wazero/internal/engine/wazevo/backend"
 	"github.com/tetratelabs/wazero/internal/engine/wazevo/backend/regalloc"
 	"github.com/tetratelabs/wazero/internal/engine/wazevo/wazevoapi"
 )
@@ -196,7 +197,11 @@ func (m *machine) createFrameSizeSlot(cur *instruction, s int64) *instruction {
 func (m *machine) postRegAlloc() {
 	for cur := m.rootInstr; cur != nil; cur = cur.next {
 		switch cur.kind {
-		case tailCall, tailCallInd, ret:
+		case tailCall, tailCallInd:
+			// For tail calls, we need to pass the callee's ABI info to the epilogue setup
+			_, _, _, _, calleeStackSlotSize := backend.ABIInfoFromUint64(cur.u2)
+			m.setupEpilogueAfterTailCall(cur.prev, int64(calleeStackSlotSize))
+		case ret:
 			m.setupEpilogueAfter(cur.prev)
 		case loadConstBlockArg:
 			lc := cur
@@ -320,6 +325,52 @@ func (m *machine) setupEpilogueAfter(cur *instruction) {
 
 	if s := int64(m.currentABI.AlignedArgResultStackSlotSize()); s > 0 {
 		cur = m.addsAddOrSubStackPointer(cur, spVReg, s, true)
+	}
+
+	linkInstr(cur, prevNext)
+}
+
+// setupEpilogueAfterTailCall is like setupEpilogueAfter but uses the callee's stack slot size instead of the current function's.
+func (m *machine) setupEpilogueAfterTailCall(cur *instruction, calleeStackSlotSize int64) {
+	prevNext := cur.next
+
+	// We've stored the frame size in the prologue, and now that we are about to return from this function, we won't need it anymore.
+	cur = m.addsAddOrSubStackPointer(cur, spVReg, 16, true)
+
+	if s := m.spillSlotSize; s > 0 {
+		cur = m.addsAddOrSubStackPointer(cur, spVReg, s, true)
+	}
+
+	// First we need to restore the clobbered registers.
+	if len(m.clobberedRegs) > 0 {
+		l := len(m.clobberedRegs) - 1
+		for i := range m.clobberedRegs {
+			vr := m.clobberedRegs[l-i] // reverse order to restore.
+			load := m.allocateInstr()
+			amode := addressModePreOrPostIndex(m, spVReg,
+				16,    // stack pointer must be 16-byte aligned.
+				false, // Increment after store.
+			)
+			// TODO: pair loads to reduce the number of instructions.
+			switch regTypeToRegisterSizeInBits(vr.RegType()) {
+			case 64: // save int reg.
+				load.asULoad(vr, amode, 64)
+			case 128: // save vector reg.
+				load.asFpuLoad(vr, amode, 128)
+			}
+			cur = linkInstr(cur, load)
+		}
+	}
+
+	// Reload the return address (lr).
+	ldr := m.allocateInstr()
+	ldr.asULoad(lrVReg,
+		addressModePreOrPostIndex(m, spVReg, 16 /* stack pointer must be 16-byte aligned. */, false /* increment after loads */), 64)
+	cur = linkInstr(cur, ldr)
+
+	// For tail calls, use the callee's stack slot size instead of the current function's
+	if calleeStackSlotSize > 0 {
+		cur = m.addsAddOrSubStackPointer(cur, spVReg, calleeStackSlotSize, true)
 	}
 
 	linkInstr(cur, prevNext)

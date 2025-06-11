@@ -866,6 +866,29 @@ func TestE2E(t *testing.T) {
 				{params: []uint64{1000_000_000, 0}, expResults: []uint64{0, 1000_000_000}},
 			},
 		},
+		{
+			name:     "tail_call_compatible_signatures",
+			m:        testcases.TailCallCompatibleSignatures.Module,
+			features: api.CoreFeaturesV2 | experimental.CoreFeaturesTailCall,
+			calls: []callCase{
+				// entry(a, b, c, d) -> tail_caller(a, b, c + d) -> tail_callee(a + (c + d), b) -> helper(a + (c + d), b) -> (a + c + d) * b
+				{params: []uint64{2, 3, 4, 5}, expResults: []uint64{(2 + 4 + 5) * 3}}, // (2 + 4 + 5) * 3 = 33
+				{params: []uint64{5, 2, 3, 4}, expResults: []uint64{(5 + 3 + 4) * 2}}, // (5 + 3 + 4) * 2 = 24
+			},
+		},
+		{
+			name:     "tail_call_more_params",
+			m:        testcases.TailCallMoreParams.Module,
+			features: api.CoreFeaturesV2 | experimental.CoreFeaturesTailCall,
+			calls: []callCase{
+				// entry(a, b) -> tail_caller(a, b) -> tail_callee(a, b, 100, 200, 300)
+				// tail_callee returns (a + b) * (100 + 200 + 300)
+				// For (3,1): (3 + 1) * (10 + 20 + 30) = 4 * 60 = 240
+				// For (5,2): (5 + 2) * (10 + 20 + 30) = 7 * 60 = 420
+				{params: []uint64{3, 1}, expResults: []uint64{240}},
+				{params: []uint64{5, 2}, expResults: []uint64{420}},
+			},
+		},
 	} {
 		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
