@@ -315,26 +315,27 @@ func (m *machine) setupEpilogueAfterTailCall(cur *instruction, tailCallInstr *in
 		addressModePreOrPostIndex(m, spVReg, 16 /* stack pointer must be 16-byte aligned. */, false /* increment after loads */), 64)
 	cur = linkInstr(cur, ldr)
 	
-	// CRITICAL: Do NOT restore to the original caller's state.
-	// Instead, set up the stack to match what the callee expects.
-	// The callee's arguments have already been placed in the appropriate stack space,
-	// and the callee's prologue will expect them to be there when it runs.
+	// CRITICAL: For tail calls, we need to leave the callee's argument space intact
+	// while restoring our own function's state. The callee's arguments were already
+	// placed by the tail call setup, and the callee expects them to be there.
+	//
+	// Stack transformation:
+	// Before: [caller_args][our_frame][callee_args] <- SP
+	// After:  [callee_args] <- SP (ready for callee's prologue)
 	
-	// Calculate the adjustment needed: remove current function's arg space and 
-	// leave the callee's arg space in place
 	currentArgSpace := int64(m.currentABI.AlignedArgResultStackSlotSize())
 	calleeArgSpace := int64(calleeStackSlotSize)
 	
-	// Only adjust if the spaces are different
-	if currentArgSpace != calleeArgSpace {
-		if currentArgSpace > calleeArgSpace {
-			// Shrink stack space (add to SP)
-			diff := currentArgSpace - calleeArgSpace
-			cur = m.addsAddOrSubStackPointer(cur, spVReg, diff, true)
+	// The net adjustment is: restore our arg space but keep callee's arg space
+	netAdjustment := currentArgSpace - calleeArgSpace
+	
+	if netAdjustment != 0 {
+		if netAdjustment > 0 {
+			// We used more space than callee needs - shrink (add to SP)
+			cur = m.addsAddOrSubStackPointer(cur, spVReg, netAdjustment, true)
 		} else {
-			// Expand stack space (subtract from SP) 
-			diff := calleeArgSpace - currentArgSpace
-			cur = m.addsAddOrSubStackPointer(cur, spVReg, diff, false)
+			// Callee needs more space than we used - expand (subtract from SP)
+			cur = m.addsAddOrSubStackPointer(cur, spVReg, -netAdjustment, false)
 		}
 	}
 
