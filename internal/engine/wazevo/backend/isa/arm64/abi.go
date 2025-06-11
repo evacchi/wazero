@@ -325,10 +325,21 @@ func (m *machine) lowerTailCall(si *ssa.Instruction) {
 		m.maxRequiredStackSizeForCalls = stackSlotSize + 16 // return address frame.
 	}
 
+	// For tail calls, we need to account for the stack space adjustment that will
+	// happen in setupEpilogueAfterTailCall. The callee expects its arguments
+	// relative to the final SP, not the current SP.
+	currentArgSpace := int64(m.currentABI.AlignedArgResultStackSlotSize())
+	calleeArgSpace := int64(calleeABI.AlignedArgResultStackSlotSize())
+	
+	// This is the net adjustment that setupEpilogueAfterTailCall will make:
+	// netAdjustment = currentArgSpace - calleeArgSpace
+	// We need to compensate for this when placing arguments.
+	stackAdjustment := currentArgSpace - calleeArgSpace
+
 	for i, arg := range args {
 		reg := m.compiler.VRegOf(arg)
 		def := m.compiler.ValueDefinition(arg)
-		m.callerGenVRegToFunctionArg(calleeABI, i, reg, def, stackSlotSize)
+		m.callerGenVRegToFunctionArgForTailCall(calleeABI, i, reg, def, stackSlotSize, stackAdjustment)
 	}
 
 	if isDirectCall {

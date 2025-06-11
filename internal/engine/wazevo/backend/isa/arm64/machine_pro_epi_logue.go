@@ -278,7 +278,7 @@ func (m *machine) setupEpilogueAfterTailCall(cur *instruction, tailCallInstr *in
 	if tailCallInstr.u2 != 0 {
 		_, _, _, _, calleeStackSlotSize = backend.ABIInfoFromUint64(tailCallInstr.u2)
 	}
-	
+
 	// We've stored the frame size in the prologue, and now that we are about to return from this function, we won't need it anymore.
 	cur = m.addsAddOrSubStackPointer(cur, spVReg, 16, true)
 
@@ -314,7 +314,7 @@ func (m *machine) setupEpilogueAfterTailCall(cur *instruction, tailCallInstr *in
 	ldr.asULoad(lrVReg,
 		addressModePreOrPostIndex(m, spVReg, 16 /* stack pointer must be 16-byte aligned. */, false /* increment after loads */), 64)
 	cur = linkInstr(cur, ldr)
-	
+
 	// CRITICAL: For tail calls, we need to leave the callee's argument space intact
 	// while restoring our own function's state. The callee's arguments were already
 	// placed by the tail call setup, and the callee expects them to be there.
@@ -322,13 +322,13 @@ func (m *machine) setupEpilogueAfterTailCall(cur *instruction, tailCallInstr *in
 	// Stack transformation:
 	// Before: [caller_args][our_frame][callee_args] <- SP
 	// After:  [callee_args] <- SP (ready for callee's prologue)
-	
+
 	currentArgSpace := int64(m.currentABI.AlignedArgResultStackSlotSize())
 	calleeArgSpace := int64(calleeStackSlotSize)
-	
+
 	// The net adjustment is: restore our arg space but keep callee's arg space
 	netAdjustment := currentArgSpace - calleeArgSpace
-	
+
 	if netAdjustment != 0 {
 		if netAdjustment > 0 {
 			// We used more space than callee needs - shrink (add to SP)
