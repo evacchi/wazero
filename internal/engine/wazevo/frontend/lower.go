@@ -3698,6 +3698,22 @@ func (c *Compiler) lowerTailCallReturnCallIndirect(typeIndex, tableIndex uint32)
 	call.AsTailCallReturnCallIndirect(executablePtr, c.signatures[typ], args)
 	builder.InsertInstruction(call)
 
+	first, rest := call.Returns()
+	if first.Valid() {
+		state.push(first)
+	}
+	for _, v := range rest {
+		state.push(v)
+	}
+
+	c.reloadAfterCall()
+
+	results := c.nPeekDup(c.results())
+	instr := builder.AllocateInstruction()
+
+	instr.AsReturn(results)
+	builder.InsertInstruction(instr)
+
 	state.unreachable = true
 }
 

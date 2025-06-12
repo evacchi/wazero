@@ -2340,10 +2340,6 @@ L5 (SSA Block: blk5):
 	movq %rbp, %rsp
 	popq %rbp
 	tailCall f0
-	add $16, %rsp
-	movq %rbp, %rsp
-	popq %rbp
-	ret
 `,
 			afterFinalizeARM64: `
 L0 (SSA Block: blk0):
@@ -2372,9 +2368,6 @@ L5 (SSA Block: blk5):
 	add sp, sp, #0x10
 	ldr x30, [sp], #0x10
 	b f0
-	add sp, sp, #0x10
-	ldr x30, [sp], #0x10
-	ret
 `,
 		},
 	} {
