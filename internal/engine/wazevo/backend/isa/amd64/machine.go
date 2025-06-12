@@ -1888,31 +1888,7 @@ func (m *machine) lowerStore(si *ssa.Instruction) {
 
 func (m *machine) lowerCall(si *ssa.Instruction) {
 	isDirectCall := si.Opcode() == ssa.OpcodeCall
-	var indirectCalleePtr ssa.Value
-	var directCallee ssa.FuncRef
-	var sigID ssa.SignatureID
-	var args []ssa.Value
-	var isMemmove bool
-	if isDirectCall {
-		directCallee, sigID, args = si.CallData()
-	} else {
-		indirectCalleePtr, sigID, args, isMemmove = si.CallIndirectData()
-	}
-	calleeABI := m.c.GetFunctionABI(m.c.SSABuilder().ResolveSignature(sigID))
-
-	stackSlotSize := int64(calleeABI.AlignedArgResultStackSlotSize())
-	if m.maxRequiredStackSizeForCalls < stackSlotSize+16 {
-		m.maxRequiredStackSizeForCalls = stackSlotSize + 16 // 16 == return address + RBP.
-	}
-
-	// Note: See machine.SetupPrologue for the stack layout.
-	// The stack pointer decrease/increase will be inserted later in the compilation.
-
-	for i, arg := range args {
-		reg := m.c.VRegOf(arg)
-		def := m.c.ValueDefinition(arg)
-		m.callerGenVRegToFunctionArg(calleeABI, i, reg, def, stackSlotSize)
-	}
+	indirectCalleePtr, directCallee, isMemmove, calleeABI, stackSlotSize := m.prepareCall(si, isDirectCall)
 
 	if isMemmove {
 		// Go's memmove *might* use all xmm0-xmm15, so we need to release them.
@@ -1942,6 +1918,39 @@ func (m *machine) lowerCall(si *ssa.Instruction) {
 		m.insert(m.allocateInstr().asNopUseReg(regInfo.RealRegToVReg[rdx]))
 	}
 
+	m.insertReturns(si, calleeABI, stackSlotSize)
+}
+
+func (m *machine) prepareCall(si *ssa.Instruction, isDirectCall bool) (ssa.Value, ssa.FuncRef, bool, *backend.FunctionABI, int64) {
+	var indirectCalleePtr ssa.Value
+	var directCallee ssa.FuncRef
+	var sigID ssa.SignatureID
+	var args []ssa.Value
+	var isMemmove bool
+	if isDirectCall {
+		directCallee, sigID, args = si.CallData()
+	} else {
+		indirectCalleePtr, sigID, args, isMemmove = si.CallIndirectData()
+	}
+	calleeABI := m.c.GetFunctionABI(m.c.SSABuilder().ResolveSignature(sigID))
+
+	stackSlotSize := int64(calleeABI.AlignedArgResultStackSlotSize())
+	if m.maxRequiredStackSizeForCalls < stackSlotSize+16 {
+		m.maxRequiredStackSizeForCalls = stackSlotSize + 16 // 16 == return address + RBP.
+	}
+
+	// Note: See machine.SetupPrologue for the stack layout.
+	// The stack pointer decrease/increase will be inserted later in the compilation.
+
+	for i, arg := range args {
+		reg := m.c.VRegOf(arg)
+		def := m.c.ValueDefinition(arg)
+		m.callerGenVRegToFunctionArg(calleeABI, i, reg, def, stackSlotSize)
+	}
+	return indirectCalleePtr, directCallee, isMemmove, calleeABI, stackSlotSize
+}
+
+func (m *machine) insertReturns(si *ssa.Instruction, calleeABI *backend.FunctionABI, stackSlotSize int64) {
 	var index int
 	r1, rs := si.Returns()
 	if r1.Valid() {
@@ -1957,36 +1966,12 @@ func (m *machine) lowerCall(si *ssa.Instruction) {
 
 func (m *machine) lowerTailCall(si *ssa.Instruction) {
 	isDirectCall := si.Opcode() == ssa.OpcodeTailCallReturnCall
-	var indirectCalleePtr ssa.Value
-	var directCallee ssa.FuncRef
-	var sigID ssa.SignatureID
-	var args []ssa.Value
-	var isMemmove bool
-	if isDirectCall {
-		directCallee, sigID, args = si.CallData()
-	} else {
-		indirectCalleePtr, sigID, args, isMemmove = si.CallIndirectData()
-		if isMemmove {
-			panic("invalid: memmove tail call")
-		}
-	}
-	calleeABI := m.c.GetFunctionABI(m.c.SSABuilder().ResolveSignature(sigID))
-
-	stackSlotSize := int64(calleeABI.AlignedArgResultStackSlotSize())
-	if m.maxRequiredStackSizeForCalls < stackSlotSize+16 {
-		m.maxRequiredStackSizeForCalls = stackSlotSize + 16 // 16 == return address + RBP.
+	indirectCalleePtr, directCallee, isMemmove, calleeABI, stackSlotSize := m.prepareCall(si, isDirectCall)
+	if isMemmove {
+		panic("memmove not supported in tail calls")
 	}
 
 	isAllRegs := stackSlotSize == 0
-
-	// Note: See machine.SetupPrologue for the stack layout.
-	// The stack pointer decrease/increase will be inserted later in the compilation.
-
-	for i, arg := range args {
-		reg := m.c.VRegOf(arg)
-		def := m.c.ValueDefinition(arg)
-		m.callerGenVRegToFunctionArg(calleeABI, i, reg, def, stackSlotSize)
-	}
 
 	switch {
 	case isDirectCall && isAllRegs:
@@ -2011,17 +1996,8 @@ func (m *machine) lowerTailCall(si *ssa.Instruction) {
 		m.insert(callInd)
 	}
 
-	var index int
-	r1, rs := si.Returns()
-	if r1.Valid() {
-		m.callerGenFunctionReturnVReg(calleeABI, 0, m.c.VRegOf(r1), stackSlotSize)
-		index++
-	}
-
-	for _, r := range rs {
-		m.callerGenFunctionReturnVReg(calleeABI, index, m.c.VRegOf(r), stackSlotSize)
-		index++
-	}
+	// If this is a proper tail call, returns will be cleared in the postRegAlloc phase.
+	m.insertReturns(si, calleeABI, stackSlotSize)
 }
 
 // callerGenVRegToFunctionArg is the opposite of GenFunctionArgToVReg, which is used to generate the

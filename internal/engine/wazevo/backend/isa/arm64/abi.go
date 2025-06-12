@@ -261,6 +261,23 @@ func (m *machine) resolveAddressModeForOffset(offset int64, dstBits byte, rn reg
 
 func (m *machine) lowerCall(si *ssa.Instruction) {
 	isDirectCall := si.Opcode() == ssa.OpcodeCall
+	indirectCalleePtr, directCallee, calleeABI, stackSlotSize := m.prepareCall(si, isDirectCall)
+
+	if isDirectCall {
+		call := m.allocateInstr()
+		call.asCall(directCallee, calleeABI)
+		m.insert(call)
+	} else {
+		ptr := m.compiler.VRegOf(indirectCalleePtr)
+		callInd := m.allocateInstr()
+		callInd.asCallIndirect(ptr, calleeABI)
+		m.insert(callInd)
+	}
+
+	m.insertReturns(si, calleeABI, stackSlotSize)
+}
+
+func (m *machine) prepareCall(si *ssa.Instruction, isDirectCall bool) (ssa.Value, ssa.FuncRef, *backend.FunctionABI, int64) {
 	var indirectCalleePtr ssa.Value
 	var directCallee ssa.FuncRef
 	var sigID ssa.SignatureID
@@ -282,18 +299,10 @@ func (m *machine) lowerCall(si *ssa.Instruction) {
 		def := m.compiler.ValueDefinition(arg)
 		m.callerGenVRegToFunctionArg(calleeABI, i, reg, def, stackSlotSize)
 	}
+	return indirectCalleePtr, directCallee, calleeABI, stackSlotSize
+}
 
-	if isDirectCall {
-		call := m.allocateInstr()
-		call.asCall(directCallee, calleeABI)
-		m.insert(call)
-	} else {
-		ptr := m.compiler.VRegOf(indirectCalleePtr)
-		callInd := m.allocateInstr()
-		callInd.asCallIndirect(ptr, calleeABI)
-		m.insert(callInd)
-	}
-
+func (m *machine) insertReturns(si *ssa.Instruction, calleeABI *backend.FunctionABI, stackSlotSize int64) {
 	var index int
 	r1, rs := si.Returns()
 	if r1.Valid() {
@@ -309,27 +318,7 @@ func (m *machine) lowerCall(si *ssa.Instruction) {
 
 func (m *machine) lowerTailCall(si *ssa.Instruction) {
 	isDirectCall := si.Opcode() == ssa.OpcodeTailCallReturnCall
-	var indirectCalleePtr ssa.Value
-	var directCallee ssa.FuncRef
-	var sigID ssa.SignatureID
-	var args []ssa.Value
-	if isDirectCall {
-		directCallee, sigID, args = si.CallData()
-	} else {
-		indirectCalleePtr, sigID, args, _ /* on arm64, the calling convention is compatible with the Go runtime */ = si.CallIndirectData()
-	}
-	calleeABI := m.compiler.GetFunctionABI(m.compiler.SSABuilder().ResolveSignature(sigID))
-
-	stackSlotSize := int64(calleeABI.AlignedArgResultStackSlotSize())
-	if m.maxRequiredStackSizeForCalls < stackSlotSize+16 {
-		m.maxRequiredStackSizeForCalls = stackSlotSize + 16 // return address frame.
-	}
-
-	for i, arg := range args {
-		reg := m.compiler.VRegOf(arg)
-		def := m.compiler.ValueDefinition(arg)
-		m.callerGenVRegToFunctionArg(calleeABI, i, reg, def, stackSlotSize)
-	}
+	indirectCalleePtr, directCallee, calleeABI, stackSlotSize := m.prepareCall(si, isDirectCall)
 
 	// We currently support tail calls only when the args are passed via registers
 	// otherwise we fall back to a plain call.
@@ -356,17 +345,8 @@ func (m *machine) lowerTailCall(si *ssa.Instruction) {
 		m.insert(callInd)
 	}
 
-	var index int
-	r1, rs := si.Returns()
-	if r1.Valid() {
-		m.callerGenFunctionReturnVReg(calleeABI, 0, m.compiler.VRegOf(r1), stackSlotSize)
-		index++
-	}
-
-	for _, r := range rs {
-		m.callerGenFunctionReturnVReg(calleeABI, index, m.compiler.VRegOf(r), stackSlotSize)
-		index++
-	}
+	// If this is a proper tail call, returns will be cleared in the postRegAlloc phase.
+	m.insertReturns(si, calleeABI, stackSlotSize)
 }
 
 func (m *machine) insertAddOrSubStackPointer(rd regalloc.VReg, diff int64, add bool) {
