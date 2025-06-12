@@ -658,14 +658,6 @@ func (ce *callEngine) recoverOnCall(ctx context.Context, m *wasm.ModuleInstance,
 }
 
 func (ce *callEngine) callFunction(ctx context.Context, m *wasm.ModuleInstance, f *function) {
-	//typ := f.funcType
-	//paramLen := typ.ParamNumInUint64
-	//stackLen := paramLen
-	//
-	//// Pass the stack elements to the go function.
-	//stack := ce.stack[len(ce.stack)-stackLen:]
-	//
-	//log.Println("callFunction", f.definition().DebugName(), stack)
 	if f.parent.hostFn != nil {
 		ce.callGoFuncWithStack(ctx, m, f)
 	} else if lsn := f.parent.listener; lsn != nil {
@@ -704,8 +696,6 @@ func (ce *callEngine) callGoFunc(ctx context.Context, m *wasm.ModuleInstance, f 
 }
 
 func (ce *callEngine) callNativeFunc(ctx context.Context, m *wasm.ModuleInstance, f *function) {
-	// read the params for the function
-	// log.Printf("call: %s [%v] (%v)", f.definition().DebugName(), f.definition().ParamTypes(), ce.peekValues(f.funcType.ParamNumInUint64))
 	frame := &callFrame{f: f, base: len(ce.stack)}
 	moduleInst := f.moduleInstance
 	functions := moduleInst.Engine.(*moduleEngine).functions
@@ -4411,7 +4401,7 @@ func (ce *callEngine) callNativeFunc(ctx context.Context, m *wasm.ModuleInstance
 
 func (ce *callEngine) dropForTailCall(frame *callFrame, f *function) {
 	base := frame.base - frame.f.funcType.ParamNumInUint64
-	paramCount := int(f.funcType.ParamNumInUint64)
+	paramCount := f.funcType.ParamNumInUint64
 	if len(ce.stack) < base+paramCount {
 		panic(fmt.Sprintf("tail call: stack underflow: have %d, need %d", len(ce.stack)-base, paramCount))
 	}

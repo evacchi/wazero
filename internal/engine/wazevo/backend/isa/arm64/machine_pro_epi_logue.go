@@ -233,11 +233,55 @@ func (m *machine) setupEpilogueAfter(cur *instruction) {
 
 	if s := m.spillSlotSize; s > 0 {
 		// Adjust SP to the original value:
+		//
+		//            (high address)                        (high address)
+		//          +-----------------+                  +-----------------+
+		//          |     .......     |                  |     .......     |
+		//          |      ret Y      |                  |      ret Y      |
+		//          |     .......     |                  |     .......     |
+		//          |      ret 0      |                  |      ret 0      |
+		//          |      arg X      |                  |      arg X      |
+		//          |     .......     |                  |     .......     |
+		//          |      arg 1      |                  |      arg 1      |
+		//          |      arg 0      |                  |      arg 0      |
+		//          |      xxxxx      |                  |      xxxxx      |
+		//          |   ReturnAddress |                  |   ReturnAddress |
+		//          +-----------------+      ====>       +-----------------+
+		//          |    clobbered M  |                  |    clobbered M  |
+		//          |   ............  |                  |   ............  |
+		//          |    clobbered 1  |                  |    clobbered 1  |
+		//          |    clobbered 0  |                  |    clobbered 0  |
+		//          |   spill slot N  |                  +-----------------+ <---- SP
+		//          |   ............  |
+		//          |   spill slot 0  |
+		//   SP---> +-----------------+
+		//             (low address)
+		//
 		cur = m.addsAddOrSubStackPointer(cur, spVReg, s, true)
 	}
 
 	// First we need to restore the clobbered registers.
 	if len(m.clobberedRegs) > 0 {
+		//            (high address)
+		//          +-----------------+                      +-----------------+
+		//          |     .......     |                      |     .......     |
+		//          |      ret Y      |                      |      ret Y      |
+		//          |     .......     |                      |     .......     |
+		//          |      ret 0      |                      |      ret 0      |
+		//          |      arg X      |                      |      arg X      |
+		//          |     .......     |                      |     .......     |
+		//          |      arg 1      |                      |      arg 1      |
+		//          |      arg 0      |                      |      arg 0      |
+		//          |      xxxxx      |                      |      xxxxx      |
+		//          |   ReturnAddress |                      |   ReturnAddress |
+		//          +-----------------+      ========>       +-----------------+ <---- SP
+		//          |   clobbered M   |
+		//          |   ...........   |
+		//          |   clobbered 1   |
+		//          |   clobbered 0   |
+		//   SP---> +-----------------+
+		//             (low address)
+
 		l := len(m.clobberedRegs) - 1
 		for i := range m.clobberedRegs {
 			vr := m.clobberedRegs[l-i] // reverse order to restore.
@@ -258,6 +302,20 @@ func (m *machine) setupEpilogueAfter(cur *instruction) {
 	}
 
 	// Reload the return address (lr).
+	//
+	//            +-----------------+          +-----------------+
+	//            |     .......     |          |     .......     |
+	//            |      ret Y      |          |      ret Y      |
+	//            |     .......     |          |     .......     |
+	//            |      ret 0      |          |      ret 0      |
+	//            |      arg X      |          |      arg X      |
+	//            |     .......     |   ===>   |     .......     |
+	//            |      arg 1      |          |      arg 1      |
+	//            |      arg 0      |          |      arg 0      |
+	//            |      xxxxx      |          +-----------------+ <---- SP
+	//            |  ReturnAddress  |
+	//    SP----> +-----------------+
+
 	ldr := m.allocateInstr()
 	ldr.asULoad(lrVReg,
 		addressModePreOrPostIndex(m, spVReg, 16 /* stack pointer must be 16-byte aligned. */, false /* increment after loads */), 64)
