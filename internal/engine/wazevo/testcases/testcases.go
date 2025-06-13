@@ -2460,7 +2460,7 @@ var (
 			nil,
 		),
 	}
-	// Tail recursive function returning two arguments: (n, acc)
+	// CountTailRecursiveTwoResults is a tail recursive function returning two arguments: (n, acc)
 	CountTailRecursiveTwoResults = TestCase{
 		Name: "tail_recursive_count_two_results",
 		Module: &wasm.Module{
@@ -2501,7 +2501,6 @@ var (
 	}
 
 	// TailCallCompatibleSignatures tests a tail call between functions with compatible but different signatures.
-	// The test includes multiple levels of indirection to thoroughly test tail call behavior.
 	// - entry: (a, b, c, d) -> calls tail_caller(a, b, c + d) with a normal call
 	// - tail_caller: (a, b, c) -> tail calls tail_callee(a + c, b)
 	// - tail_callee: (x, y) -> calls helper(x, y) and returns its result
@@ -2631,11 +2630,9 @@ var (
 		},
 	}
 
-	// TailCallSQLitePattern tests boundary-crossing tail calls that cause stack corruption:
-	// 7-parameter function tail-calling an 8-parameter function, both returning single i32
-	// This triggers boundary crossing on both ARM64 (9→10 total args) and AMD64 (9→10 total args)
-	// ARM64: x0-x7 (8 regs) → 9th+ on stack, AMD64: 9 regs → 10th+ on stack
-	TailCallSQLitePattern = TestCase{
+	// TailCallManyParams is a tail call that uses stack space as well as registers on both
+	// the amd64 and the arm64 ABIs to use. In these cases we fall back to a plain function call.
+	TailCallManyParams = TestCase{
 		Name: "tail_call_sqlite_pattern",
 		Module: &wasm.Module{
 			TypeSection: []wasm.FunctionType{
@@ -2657,6 +2654,7 @@ var (
 						wasm.OpcodeEnd,
 					},
 				},
+				// The following reproduces a similar case found in the SQLite codebase
 				{ // caller(a,b,c,d,e,f,g) -> tail call callee(a,b,c,d|128,0,e,f,g) - mimics SQLite's pattern
 					Body: []byte{
 						wasm.OpcodeLocalGet, 0, // a
@@ -2675,23 +2673,23 @@ var (
 						wasm.OpcodeEnd,
 					},
 				},
-				{ // callee(a,b,c,d,e,f,g,h) -> returns a+b+c+d+e+f+g+h (should be predictable)
+				{ // callee(a,b,c,d,e,f,g,h) -> returns a+b+c+d+e+f+g+h
 					Body: []byte{
-						wasm.OpcodeLocalGet, 0, // a
-						wasm.OpcodeLocalGet, 1, // b
-						wasm.OpcodeI32Add,      // a+b
-						wasm.OpcodeLocalGet, 2, // c
-						wasm.OpcodeI32Add,      // a+b+c
-						wasm.OpcodeLocalGet, 3, // d
-						wasm.OpcodeI32Add,      // a+b+c+d
-						wasm.OpcodeLocalGet, 4, // e
-						wasm.OpcodeI32Add,      // a+b+c+d+e
-						wasm.OpcodeLocalGet, 5, // f
-						wasm.OpcodeI32Add,      // a+b+c+d+e+f
-						wasm.OpcodeLocalGet, 6, // g
-						wasm.OpcodeI32Add,      // a+b+c+d+e+f+g
-						wasm.OpcodeLocalGet, 7, // h
-						wasm.OpcodeI32Add, // a+b+c+d+e+f+g+h
+						wasm.OpcodeLocalGet, 0,
+						wasm.OpcodeLocalGet, 1,
+						wasm.OpcodeI32Add,
+						wasm.OpcodeLocalGet, 2,
+						wasm.OpcodeI32Add,
+						wasm.OpcodeLocalGet, 3,
+						wasm.OpcodeI32Add,
+						wasm.OpcodeLocalGet, 4,
+						wasm.OpcodeI32Add,
+						wasm.OpcodeLocalGet, 5,
+						wasm.OpcodeI32Add,
+						wasm.OpcodeLocalGet, 6,
+						wasm.OpcodeI32Add,
+						wasm.OpcodeLocalGet, 7,
+						wasm.OpcodeI32Add,
 						wasm.OpcodeEnd,
 					},
 				},
