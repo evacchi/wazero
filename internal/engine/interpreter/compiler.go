@@ -3455,7 +3455,7 @@ operatorSwitch:
 
 		functionFrame := c.controlFrames.functionFrame()
 		dropRange := c.getFrameDropRange(functionFrame, false)
-		c.emit(newOperationTailCallReturnCallIndirect(typeIndex, tableIndex, dropRange))
+		c.emit(newOperationTailCallReturnCallIndirect(typeIndex, tableIndex, dropRange, functionFrame.asLabel()))
 
 		// Return operation is stack-polymorphic, and mark the state as unreachable.
 		// That means subsequent instructions in the current control frame are "unreachable"

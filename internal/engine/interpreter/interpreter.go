@@ -472,6 +472,8 @@ func (e *engine) lowerIR(ir *compilationResult, ret *compiledFunction) error {
 				target := op.Us[j]
 				e.setLabelAddress(&op.Us[j], label(target), labelAddressResolutions)
 			}
+		case operationKindTailCallReturnCallIndirect:
+			e.setLabelAddress(&op.Us[1], label(op.Us[1]), labelAddressResolutions)
 		}
 	}
 	return nil
@@ -4372,10 +4374,12 @@ func (ce *callEngine) callNativeFunc(ctx context.Context, m *wasm.ModuleInstance
 			// We are allowing proper tail calls only across functions that belong to the same
 			// module; for indirect calls, we have to enforce it at run-time.
 			if tf.moduleInstance != f.moduleInstance {
-				ce.callFunction(ctx, tf.moduleInstance, tf)
-				frame.pc++
-				ce.drop(op.U3)
-				frame.pc = 0
+				// Revert to a normal call.
+				ce.callFunction(ctx, f.moduleInstance, tf)
+				// Return
+				ce.drop(op.Us[0])
+				// Jump to the function frame (return)
+				frame.pc = op.Us[1]
 				continue
 			}
 
