@@ -124,11 +124,13 @@ pub fn run_nodiff(
     // Enable threads, which is disabled by default.
     config.threads_enabled = true;
 
-    // Enable tail calls, which is disabled by default.
-    config.tail_call_enabled = true;
-
     if check_logging {
         config.reference_types_enabled = false;
+    } else {
+        // Enable tail calls, which is disabled by default,
+        // but skip when check_logging: indentation might be different due to different
+        // stack call depths in the interpreter vs. compiler version.
+        config.tail_call_enabled = true;
     }
 
     // Generate the random module via wasm-smith.
