@@ -273,9 +273,20 @@ func (c commandActionVal) toUint64() (ret uint64) {
 			ret = original + 1
 		}
 	} else if strings.Contains(c.ValType, "32") {
-		ret, _ = strconv.ParseUint(strValue, 10, 32)
+		// wasm-tools may output signed decimals (e.g. "-1"); handle both.
+		if strings.HasPrefix(strValue, "-") {
+			v, _ := strconv.ParseInt(strValue, 10, 32)
+			ret = uint64(uint32(int32(v)))
+		} else {
+			ret, _ = strconv.ParseUint(strValue, 10, 32)
+		}
 	} else {
-		ret, _ = strconv.ParseUint(strValue, 10, 64)
+		if strings.HasPrefix(strValue, "-") {
+			v, _ := strconv.ParseInt(strValue, 10, 64)
+			ret = uint64(v)
+		} else {
+			ret, _ = strconv.ParseUint(strValue, 10, 64)
+		}
 	}
 	return
 }

@@ -216,7 +216,7 @@ build.spectest.exception_handling:
 		&& curl -sSL 'https://api.github.com/repos/WebAssembly/spec/contents/test/core/exceptions?ref=$(spec_version_exception_handling)' \
 		| jq -r '.[]| .download_url' | grep -E ".wast" | xargs -Iurl curl -sJL url -O
 	@cd $(spectest_exception_handling_testdata_dir) && for f in `find . -name '*.wast'`; do \
-		wast2json --enable-exceptions --enable-tail-call --debug-names --no-check $$f || true; \
+		wasm-tools json-from-wast --wasm-dir . -o $$(basename $$f .wast).json $$f || true; \
 	done
 
 .PHONY: test
