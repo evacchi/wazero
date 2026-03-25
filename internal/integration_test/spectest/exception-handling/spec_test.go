@@ -18,7 +18,6 @@ var testcases embed.FS
 const enabledFeatures = api.CoreFeaturesV2 | experimental.CoreFeaturesExceptionHandling | experimental.CoreFeaturesTailCall
 
 func TestCompiler(t *testing.T) {
-	t.Skip("TODO: exception handling not yet implemented in the compiler backend")
 	if !platform.CompilerSupported() {
 		t.Skip()
 	}

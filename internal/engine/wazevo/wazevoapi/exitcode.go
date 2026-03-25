@@ -30,6 +30,14 @@ const (
 	ExitCodeMemoryWait64
 	ExitCodeMemoryNotify
 	ExitCodeUnalignedAtomic
+	// ExitCodeThrow is an exit code for the wasm throw instruction.
+	// The tag index is encoded in the upper bits like ExitCodeCallGoFunction.
+	ExitCodeThrow
+	// ExitCodeThrowRef is an exit code for the wasm throw_ref instruction.
+	// The exnref value is passed on the stack.
+	ExitCodeThrowRef
+	// ExitCodeNullReference is an exit code for a null reference trap (throw_ref with null exnref).
+	ExitCodeNullReference
 	exitCodeMax
 )
 
@@ -86,6 +94,12 @@ func (e ExitCode) String() string {
 		return "memory_wait64"
 	case ExitCodeMemoryNotify:
 		return "memory_notify"
+	case ExitCodeThrow:
+		return "throw"
+	case ExitCodeThrowRef:
+		return "throw_ref"
+	case ExitCodeNullReference:
+		return "null_reference"
 	}
 	panic("TODO")
 }
@@ -105,5 +119,15 @@ func ExitCodeCallGoFunctionWithIndex(index int, withListener bool) ExitCode {
 }
 
 func GoFunctionIndexFromExitCode(exitCode ExitCode) int {
+	return int(exitCode >> 8)
+}
+
+// ExitCodeThrowWithTagIndex encodes a tag index into the ExitCodeThrow exit code.
+func ExitCodeThrowWithTagIndex(tagIndex int) ExitCode {
+	return ExitCodeThrow | ExitCode(tagIndex<<8)
+}
+
+// TagIndexFromExitCode extracts the tag index from a throw exit code.
+func TagIndexFromExitCode(exitCode ExitCode) int {
 	return int(exitCode >> 8)
 }

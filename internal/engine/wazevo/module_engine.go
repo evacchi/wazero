@@ -136,6 +136,14 @@ func (m *moduleEngine) setupOpaque() {
 		}
 	}
 
+	if tagOffset := offsets.TagsBegin; tagOffset >= 0 {
+		for _, tag := range inst.Tags {
+			binary.LittleEndian.PutUint64(opaque[tagOffset:],
+				uint64(uintptr(unsafe.Pointer(tag))))
+			tagOffset += 8
+		}
+	}
+
 	if beforeListenerOffset := offsets.BeforeListenerTrampolines1stElement; beforeListenerOffset >= 0 {
 		binary.LittleEndian.PutUint64(opaque[beforeListenerOffset:], uint64(uintptr(unsafe.Pointer(&m.parent.listenerBeforeTrampolines[0]))))
 	}

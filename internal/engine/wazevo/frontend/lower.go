@@ -65,6 +65,7 @@ const (
 	controlFrameKindIfWithElse
 	controlFrameKindIfWithoutElse
 	controlFrameKindBlock
+	controlFrameKindTryTable
 )
 
 // String implements fmt.Stringer for debugging.
@@ -80,6 +81,8 @@ func (k controlFrameKind) String() string {
 		return "if_without_else"
 	case controlFrameKindBlock:
 		return "block"
+	case controlFrameKindTryTable:
+		return "try_table"
 	default:
 		panic(k)
 	}
@@ -3411,6 +3414,67 @@ func (c *Compiler) lowerCurrentOpcode() {
 		c.lowerTailCallReturnCall(fnIndex)
 		state.unreachable = true
 
+	case wasm.OpcodeThrow:
+		tagIndex := c.readI32u()
+		if state.unreachable {
+			break
+		}
+		// Pop the tag's param values from the stack (not used in Part 1).
+		tagType := c.m.TypeOfTag(tagIndex)
+		if tagType != nil {
+			for range tagType.Params {
+				_ = state.pop()
+			}
+		}
+		// Exit with ExitCodeThrow. In Part 1, this always results in an uncaught exception.
+		exit := builder.AllocateInstruction()
+		exit.AsExitWithCode(c.execCtxPtrValue, wazevoapi.ExitCodeThrow)
+		builder.InsertInstruction(exit)
+		state.unreachable = true
+
+	case wasm.OpcodeThrowRef:
+		if state.unreachable {
+			break
+		}
+		exnref := state.pop()
+		// Check for null exnref.
+		zero := builder.AllocateInstruction().AsIconst64(0).Insert(builder).Return()
+		isNull := builder.AllocateInstruction()
+		isNull.AsIcmp(exnref, zero, ssa.IntegerCmpCondEqual)
+		builder.InsertInstruction(isNull)
+		exitIfNull := builder.AllocateInstruction()
+		exitIfNull.AsExitIfTrueWithCode(c.execCtxPtrValue, isNull.Return(), wazevoapi.ExitCodeNullReference)
+		builder.InsertInstruction(exitIfNull)
+		// Exit with ExitCodeThrowRef. In Part 1, this always results in an uncaught exception.
+		exit := builder.AllocateInstruction()
+		exit.AsExitWithCode(c.execCtxPtrValue, wazevoapi.ExitCodeThrowRef)
+		builder.InsertInstruction(exit)
+		state.unreachable = true
+
+	case wasm.OpcodeTryTable:
+		bt := c.readBlockType()
+
+		if state.unreachable {
+			state.unreachableDepth++
+			// Still need to skip the catch clause bytes in the unreachable case.
+			c.skipTryTableCatchClauses()
+			break
+		}
+
+		// Parse and skip the catch clauses (not wired in Part 1).
+		c.skipTryTableCatchClauses()
+
+		// Lower as a regular block.
+		followingBlk := builder.AllocateBasicBlock()
+		c.addBlockParamsFromWasmTypes(bt.Results, followingBlk)
+
+		state.ctrlPush(controlFrame{
+			kind:                         controlFrameKindTryTable,
+			originalStackLenWithoutParam: len(state.values) - len(bt.Params),
+			followingBlock:               followingBlk,
+			blockType:                    bt,
+		})
+
 	default:
 		panic("TODO: unsupported in wazevo yet: " + wasm.InstructionName(op))
 	}
@@ -4024,6 +4088,34 @@ func (c *Compiler) storeCallerModuleContext() {
 	store.AsStore(ssa.OpcodeStore,
 		c.moduleCtxPtrValue, execCtx, wazevoapi.ExecutionContextOffsetCallerModuleContextPtr.U32())
 	builder.InsertInstruction(store)
+}
+
+// skipTryTableCatchClauses advances the bytecode PC past the catch clauses
+// of a try_table instruction. This is used both in reachable and unreachable states.
+func (c *Compiler) skipTryTableCatchClauses() {
+	c.loweringState.pc++
+	catchCount, catchNum, _ := leb128.LoadUint32(c.wasmFunctionBody[c.loweringState.pc:])
+	c.loweringState.pc += int(catchNum) - 1
+	for i := uint32(0); i < catchCount; i++ {
+		c.loweringState.pc++
+		kind := c.wasmFunctionBody[c.loweringState.pc]
+		switch kind {
+		case wasm.CatchKindCatch, wasm.CatchKindCatchRef:
+			// Read tag index.
+			c.loweringState.pc++
+			_, n, _ := leb128.LoadUint32(c.wasmFunctionBody[c.loweringState.pc:])
+			c.loweringState.pc += int(n) - 1
+			// Read label index.
+			c.loweringState.pc++
+			_, n, _ = leb128.LoadUint32(c.wasmFunctionBody[c.loweringState.pc:])
+			c.loweringState.pc += int(n) - 1
+		case wasm.CatchKindCatchAll, wasm.CatchKindCatchAllRef:
+			// Read label index.
+			c.loweringState.pc++
+			_, n, _ := leb128.LoadUint32(c.wasmFunctionBody[c.loweringState.pc:])
+			c.loweringState.pc += int(n) - 1
+		}
+	}
 }
 
 func (c *Compiler) readByte() byte {

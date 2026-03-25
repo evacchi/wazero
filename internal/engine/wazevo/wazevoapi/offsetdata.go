@@ -66,6 +66,7 @@ type ModuleContextOffsetData struct {
 	GlobalsBegin,
 	TypeIDs1stElement,
 	TablesBegin,
+	TagsBegin,
 	BeforeListenerTrampolines1stElement,
 	AfterListenerTrampolines1stElement,
 	DataInstances1stElement,
@@ -120,6 +121,11 @@ func (m *ModuleContextOffsetData) LocalMemoryLen() Offset {
 // TableOffset returns an offset of the i-th table instance.
 func (m *ModuleContextOffsetData) TableOffset(tableIndex int) Offset {
 	return m.TablesBegin + Offset(tableIndex)*8
+}
+
+// TagOffset returns an offset of the i-th tag instance pointer.
+func (m *ModuleContextOffsetData) TagOffset(tagIndex int) Offset {
+	return m.TagsBegin + Offset(tagIndex)*8
 }
 
 // NewModuleContextOffsetData creates a ModuleContextOffsetData determining the structure of moduleContextOpaque for the given Module.
@@ -183,6 +189,15 @@ func NewModuleContextOffsetData(m *wasm.Module, withListener bool) ModuleContext
 	} else {
 		ret.TypeIDs1stElement = -1
 		ret.TablesBegin = -1
+	}
+
+	if tags := int(m.ImportTagCount) + len(m.TagSection); tags > 0 {
+		offset = align8(offset)
+		ret.TagsBegin = offset
+		// Pointers to *wasm.TagInstance.
+		offset += Offset(tags) * 8
+	} else {
+		ret.TagsBegin = -1
 	}
 
 	if withListener {

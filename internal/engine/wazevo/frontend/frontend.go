@@ -373,7 +373,10 @@ func WasmTypeToSSAType(vt wasm.ValueType) ssa.Type {
 		return ssa.TypeI32
 	case wasm.ValueTypeI64,
 		// Both externref and funcref are represented as I64 since we only support 64-bit platforms.
-		wasm.ValueTypeExternref, wasm.ValueTypeFuncref:
+		wasm.ValueTypeExternref, wasm.ValueTypeFuncref, wasm.ValueTypeNonNullFuncref:
+		return ssa.TypeI64
+	case wasm.ValueTypeExnref:
+		// exnref is represented as an opaque I64 pointer to the Exception struct.
 		return ssa.TypeI64
 	case wasm.ValueTypeF32:
 		return ssa.TypeF32

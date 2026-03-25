@@ -505,6 +505,12 @@ func (c *callEngine) callWithStack(ctx context.Context, paramResultStack []uint6
 			panic(wasmruntime.ErrRuntimeInvalidConversionToInteger)
 		case wazevoapi.ExitCodeUnalignedAtomic:
 			panic(wasmruntime.ErrRuntimeUnalignedAtomic)
+		case wazevoapi.ExitCodeThrow:
+			panic(wasmruntime.ErrRuntimeUncaughtException)
+		case wazevoapi.ExitCodeThrowRef:
+			panic(wasmruntime.ErrRuntimeUncaughtException)
+		case wazevoapi.ExitCodeNullReference:
+			panic(wasmruntime.ErrRuntimeNullReference)
 		default:
 			panic("BUG")
 		}
