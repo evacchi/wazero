@@ -4275,28 +4275,16 @@ type parsedCatchClause struct {
 }
 
 
-// loadExceptionParams loads the exception params from the pending exception
-// stored in the callEngine. Returns SSA values for each param.
+// loadExceptionParams loads the exception params from the executionContext.
+// The dispatch loop writes them to caughtExceptionParams after matching a handler.
 func (c *Compiler) loadExceptionParams(tagType *wasm.FunctionType) []ssa.Value {
-	// The pending exception's params are stored as []uint64 in the Exception object.
-	// We can't easily access Go heap objects from compiled code, so we use
-	// a simpler approach: the dispatch loop puts the params on the Go call stack
-	// starting at offset 8 (offset 0 is the clause index).
 	builder := c.ssaBuilder
-
-	// Load the stack pointer where the dispatch loop placed the values.
-	stackPtr := builder.AllocateInstruction().
-		AsLoad(c.execCtxPtrValue,
-			wazevoapi.ExecutionContextOffsetStackPointerBeforeGoCall.U32(),
-			ssa.TypeI64,
-		).Insert(builder).Return()
 
 	var values []ssa.Value
 	for i, vt := range tagType.Params {
-		// Values are at stackPtr[8 + i*8] (offset 0 is clauseIdx, then params follow).
-		offset := uint32((1 + i) * 8) // skip clauseIdx
+		offset := wazevoapi.ExecutionContextOffsetCaughtExceptionParams.U32() + uint32(i)*8
 		val := builder.AllocateInstruction().
-			AsLoad(stackPtr, offset, WasmTypeToSSAType(vt)).
+			AsLoad(c.execCtxPtrValue, offset, WasmTypeToSSAType(vt)).
 			Insert(builder).Return()
 		values = append(values, val)
 	}

@@ -60,6 +60,9 @@ const (
 	// ExecutionContextOffsetCaughtExceptionClauseIdx is the matched catch clause index
 	// written by handleException and read by compiled handler dispatch code.
 	ExecutionContextOffsetCaughtExceptionClauseIdx Offset = 1216
+	// ExecutionContextOffsetCaughtExceptionParams holds exception parameter values
+	// written by the dispatch loop and read by compiled handler code.
+	ExecutionContextOffsetCaughtExceptionParams Offset = 1224
 )
 
 // ModuleContextOffsetData allows the compilers to get the information about offsets to the fields of wazevo.moduleContextOpaque,

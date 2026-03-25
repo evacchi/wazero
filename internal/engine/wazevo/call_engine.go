@@ -124,6 +124,10 @@ type (
 		// when an exception is caught. Compiled code loads this from execCtx
 		// after the trampoline call to decide which handler to dispatch to.
 		caughtExceptionClauseIdx int64
+		// caughtExceptionParams holds exception parameters written by the
+		// dispatch loop when an exception is caught. Handler blocks load
+		// these from execCtx at known offsets.
+		caughtExceptionParams [4]uint64
 	}
 )
 
@@ -556,9 +560,11 @@ func (c *callEngine) callWithStack(ctx context.Context, paramResultStack []uint6
 			if !c.doHandleException(exn) {
 				panic(wasmruntime.ErrRuntimeUncaughtException)
 			}
-			// doHandleException restored the cloned stack and wrote clauseIdx
-			// to the go call stack. Re-enter native code at the TryTableEnter
-			// trampoline's resume point.
+			// doHandleException restored the cloned stack and set clauseIdx in execCtx.
+			// Write exception params to execCtx so handler code can read them.
+			for i, p := range exn.Params {
+				c.execCtx.caughtExceptionParams[i] = p
+			}
 			c.execCtx.exitCode = wazevoapi.ExitCodeOK
 			afterGoFunctionCallEntrypoint(c.execCtx.goCallReturnAddress, c.execCtxPtr,
 				uintptr(unsafe.Pointer(c.execCtx.stackPointerBeforeGoCall)), c.execCtx.framePointerBeforeGoCall)
@@ -581,7 +587,10 @@ func (c *callEngine) callWithStack(ctx context.Context, paramResultStack []uint6
 		case wazevoapi.ExitCodeTryTableEnter:
 			// Save current state as a try handler checkpoint using stack cloning
 			// (same approach as experimental.Snapshot).
-			catchClauseTableIdx := wazevoapi.TagIndexFromExitCode(ec)
+			// The encoded exit code (with tryTableID in upper bits) is on the
+			// Go call stack as the second trampoline argument, not in execCtx.exitCode.
+			tryTableEnterStack := goCallStackView(c.execCtx.stackPointerBeforeGoCall)
+			catchClauseTableIdx := wazevoapi.TagIndexFromExitCode(wazevoapi.ExitCode(tryTableEnterStack[0]))
 			mod := c.callerModuleInstance()
 			me := mod.Engine.(*moduleEngine)
 			clauses := me.parent.catchClauseTable[catchClauseTableIdx]

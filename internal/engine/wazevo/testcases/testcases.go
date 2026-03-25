@@ -2905,6 +2905,53 @@ var TryTableCatchThrow = TestCase{
 	},
 }
 
+// TryTableCatchParamThrow: try_table with catch $e-i32 where the tag has an i32 parameter.
+// The exception parameter is forwarded to the catch target block.
+//
+//	(module
+//	  (tag $e-i32 (param i32))
+//	  (func (export "f") (param i32) (result i32)
+//	    (block $h (result i32)
+//	      (try_table (result i32) (catch $e-i32 $h)
+//	        (throw $e-i32 (local.get 0))
+//	        (i32.const 2)
+//	      )
+//	      (return)
+//	    )
+//	    (return)
+//	  )
+//	)
+var TryTableCatchParamThrow = TestCase{
+	Name: "try_table_catch_param_throw",
+	Module: &wasm.Module{
+		TypeSection: []wasm.FunctionType{
+			{Params: []wasm.ValueType{i32}},             // type 0: (i32) -> () for tag
+			{Params: []wasm.ValueType{i32}, Results: []wasm.ValueType{i32}}, // type 1: (i32) -> (i32) for func
+		},
+		FunctionSection: []wasm.Index{1},       // func type 1
+		TagSection:      []wasm.Tag{{Type: 0}}, // tag type 0: (i32) -> ()
+		CodeSection: []wasm.Code{{
+			Body: []byte{
+				wasm.OpcodeBlock, 0x7F, // block $h (result i32)  -- label 0
+				wasm.OpcodeTryTable, 0x7F, // try_table (result i32)
+				1,                    // 1 catch clause
+				wasm.CatchKindCatch, // catch
+				0,                   // tag index 0 ($e-i32)
+				0,                   // label 0 ($h)
+				wasm.OpcodeLocalGet, 0, // local.get 0
+				wasm.OpcodeThrow, 0, // throw tag 0
+				wasm.OpcodeI32Const, 2, // (unreachable but needed for type)
+				wasm.OpcodeEnd,      // end try_table
+				wasm.OpcodeReturn,   // return try_table result
+				wasm.OpcodeEnd,      // end block $h
+				wasm.OpcodeReturn,   // return
+				wasm.OpcodeEnd,      // end func
+			},
+		}},
+		ExportSection: []wasm.Export{{Name: ExportedFunctionName, Type: wasm.ExternTypeFunc, Index: 0}},
+	},
+}
+
 type TestCase struct {
 	Name             string
 	Imported, Module *wasm.Module
