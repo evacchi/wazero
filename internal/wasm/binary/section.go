@@ -33,7 +33,7 @@ func decodeImportSection(
 	enabledFeatures api.CoreFeatures,
 ) (result []wasm.Import,
 	perModule map[string][]*wasm.Import,
-	funcCount, globalCount, memoryCount, tableCount wasm.Index, err error,
+	funcCount, globalCount, memoryCount, tableCount, tagCount wasm.Index, err error,
 ) {
 	vs, _, err := leb128.DecodeUint32(r)
 	if err != nil {
@@ -61,6 +61,9 @@ func decodeImportSection(
 		case wasm.ExternTypeTable:
 			imp.IndexPerType = tableCount
 			tableCount++
+		case wasm.ExternTypeTag:
+			imp.IndexPerType = tagCount
+			tagCount++
 		}
 		perModule[imp.Module] = append(perModule[imp.Module], imp)
 	}
@@ -211,6 +214,31 @@ func decodeDataSection(r *bytes.Reader, enabledFeatures api.CoreFeatures) ([]was
 	for i := uint32(0); i < vs; i++ {
 		if err = decodeDataSegment(r, enabledFeatures, &result[i]); err != nil {
 			return nil, fmt.Errorf("read data segment: %w", err)
+		}
+	}
+	return result, nil
+}
+
+func decodeTagSection(r *bytes.Reader) ([]wasm.Tag, error) {
+	vs, _, err := leb128.DecodeUint32(r)
+	if err != nil {
+		return nil, fmt.Errorf("get size of vector: %w", err)
+	}
+
+	result := make([]wasm.Tag, vs)
+	for i := uint32(0); i < vs; i++ {
+		// Read attribute byte (must be 0x00 per spec).
+		attr, err := r.ReadByte()
+		if err != nil {
+			return nil, fmt.Errorf("read tag[%d] attribute: %w", i, err)
+		}
+		if attr != 0x00 {
+			return nil, fmt.Errorf("tag[%d] has invalid attribute: %#x", i, attr)
+		}
+		// Read type index.
+		result[i].Type, _, err = leb128.DecodeUint32(r)
+		if err != nil {
+			return nil, fmt.Errorf("read tag[%d] type index: %w", i, err)
 		}
 	}
 	return result, nil

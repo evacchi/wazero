@@ -94,6 +94,19 @@ type Module struct {
 	// See https://www.w3.org/TR/2019/REC-wasm-core-1-20191205/#memory-section%E2%91%A0
 	MemorySection *Memory
 
+	// TagSection contains each tag defined in this module for exception handling.
+	//
+	// Tag indexes are offset by any imported tags because the tag index begins with imports, followed by
+	// ones defined in this module.
+	//
+	// Note: In the Binary Format, this is SectionIDTag.
+	//
+	// See https://github.com/WebAssembly/exception-handling/blob/main/proposals/exception-handling/Exceptions.md
+	TagSection []Tag
+
+	// ImportTagCount is the cached count of imported tags set during decoding.
+	ImportTagCount Index
+
 	// GlobalSection contains each global defined in this module.
 	//
 	// Global indexes are offset by any imported globals because the global index begins with imports, followed by
@@ -222,6 +235,38 @@ func boolToByte(b bool) (ret byte) {
 	return
 }
 
+// typeOfTag returns the wasm.FunctionType for the given tag space index or nil.
+// Tags use the same index space as the tag section, prefixed by imported tags.
+func (m *Module) TypeOfTag(tagIdx Index) *FunctionType {
+	typeSectionLength := uint32(len(m.TypeSection))
+	if tagIdx < m.ImportTagCount {
+		cur := Index(0)
+		for i := range m.ImportSection {
+			imp := &m.ImportSection[i]
+			if imp.Type != ExternTypeTag {
+				continue
+			}
+			if tagIdx == cur {
+				if imp.DescTag >= typeSectionLength {
+					return nil
+				}
+				return &m.TypeSection[imp.DescTag]
+			}
+			cur++
+		}
+	}
+
+	tagSectionIdx := tagIdx - m.ImportTagCount
+	if tagSectionIdx >= uint32(len(m.TagSection)) {
+		return nil
+	}
+	typeIdx := m.TagSection[tagSectionIdx].Type
+	if typeIdx >= typeSectionLength {
+		return nil
+	}
+	return &m.TypeSection[typeIdx]
+}
+
 // typeOfFunction returns the wasm.FunctionType for the given function space index or nil.
 func (m *Module) typeOfFunction(funcIdx Index) *FunctionType {
 	typeSectionLength, importedFunctionCount := uint32(len(m.TypeSection)), m.ImportFunctionCount
@@ -297,6 +342,23 @@ func (m *Module) Validate(enabledFeatures api.CoreFeatures) error {
 
 	if err = m.validateDataCountSection(); err != nil {
 		return err
+	}
+
+	if err = m.validateTagSection(); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (m *Module) validateTagSection() error {
+	for i, tag := range m.TagSection {
+		if tag.Type >= uint32(len(m.TypeSection)) {
+			return fmt.Errorf("tag[%d] type index out of range", i)
+		}
+		ft := &m.TypeSection[tag.Type]
+		if len(ft.Results) > 0 {
+			return fmt.Errorf("tag[%d] type must have empty results, got %v", i, ft.Results)
+		}
 	}
 	return nil
 }
@@ -506,6 +568,10 @@ func (m *Module) validateImports(enabledFeatures api.CoreFeatures) error {
 			if err := enabledFeatures.RequireEnabled(api.CoreFeatureMutableGlobal); err != nil {
 				return fmt.Errorf("invalid import[%q.%q] global: %w", imp.Module, imp.Name, err)
 			}
+		case ExternTypeTag:
+			if int(imp.DescTag) >= len(m.TypeSection) {
+				return fmt.Errorf("invalid import[%q.%q] tag: type index out of range", imp.Module, imp.Name)
+			}
 		}
 	}
 	return nil
@@ -537,6 +603,11 @@ func (m *Module) validateExports(enabledFeatures api.CoreFeatures, functions []I
 		case ExternTypeTable:
 			if index >= uint32(len(tables)) {
 				return fmt.Errorf("table for export[%q] out of range", exp.Name)
+			}
+		case ExternTypeTag:
+			tagCount := m.ImportTagCount + uint32(len(m.TagSection))
+			if index >= tagCount {
+				return fmt.Errorf("tag for export[%q] out of range", exp.Name)
 			}
 		}
 	}
@@ -574,6 +645,16 @@ func (m *Module) validateDataCountSection() (err error) {
 			*m.DataCountSection, len(m.DataSection))
 	}
 	return
+}
+
+func (m *ModuleInstance) buildTags(module *Module) {
+	for i := range module.TagSection {
+		tag := &module.TagSection[i]
+		t := &TagInstance{
+			Type: &module.TypeSection[tag.Type],
+		}
+		m.Tags[i+int(module.ImportTagCount)] = t
+	}
 }
 
 func (m *ModuleInstance) buildGlobals(module *Module, funcRefResolver func(funcIndex Index) Reference) {
@@ -766,6 +847,8 @@ type Import struct {
 	DescMem *Memory
 	// DescGlobal is the inlined GlobalType when Type equals ExternTypeGlobal
 	DescGlobal GlobalType
+	// DescTag is the type index when Type equals ExternTypeTag
+	DescTag Index
 	// IndexPerType has the index of this import per ExternType.
 	IndexPerType Index
 }
@@ -800,6 +883,13 @@ func (m *Memory) Validate(memoryLimitPages uint32) error {
 			capacity, PagesToUnitOfBytes(capacity), memoryLimitPages, PagesToUnitOfBytes(memoryLimitPages))
 	}
 	return nil
+}
+
+// Tag represents an exception tag defined in the tag section.
+// The Type field is an index into the TypeSection; the referenced function type
+// must have empty results (tags carry parameters but produce no results).
+type Tag struct {
+	Type Index
 }
 
 type GlobalType struct {
@@ -997,6 +1087,11 @@ const (
 	// See https://www.w3.org/TR/2022/WD-wasm-core-2-20220419/binary/modules.html#data-count-section
 	// See https://www.w3.org/TR/2022/WD-wasm-core-2-20220419/appendix/changes.html#bulk-memory-and-table-instructions
 	SectionIDDataCount
+
+	// SectionIDTag is for exception handling tags.
+	//
+	// See https://github.com/WebAssembly/exception-handling/blob/main/proposals/exception-handling/Exceptions.md
+	SectionIDTag SectionID = 13
 )
 
 // SectionIDName returns the canonical name of a module section.
@@ -1029,6 +1124,8 @@ func SectionIDName(sectionID SectionID) string {
 		return "data"
 	case SectionIDDataCount:
 		return "data_count"
+	case SectionIDTag:
+		return "tag"
 	}
 	return "unknown"
 }
@@ -1046,6 +1143,8 @@ const (
 	// TODO: ValueTypeFuncref is not exposed in the api pkg yet.
 	ValueTypeFuncref   ValueType = 0x70
 	ValueTypeExternref           = api.ValueTypeExternref
+	// ValueTypeExnref is the exception reference type used in exception handling.
+	ValueTypeExnref ValueType = 0x69
 )
 
 // ValueTypeName is an alias of api.ValueTypeName defined to simplify imports.
@@ -1054,12 +1153,14 @@ func ValueTypeName(t ValueType) string {
 		return "funcref"
 	} else if t == ValueTypeV128 {
 		return "v128"
+	} else if t == ValueTypeExnref {
+		return "exnref"
 	}
 	return api.ValueTypeName(t)
 }
 
 func isReferenceValueType(vt ValueType) bool {
-	return vt == ValueTypeExternref || vt == ValueTypeFuncref
+	return vt == ValueTypeExternref || vt == ValueTypeFuncref || vt == ValueTypeExnref
 }
 
 // ExternType is an alias of api.ExternType defined to simplify imports.
@@ -1074,9 +1175,14 @@ const (
 	ExternTypeMemoryName = api.ExternTypeMemoryName
 	ExternTypeGlobal     = api.ExternTypeGlobal
 	ExternTypeGlobalName = api.ExternTypeGlobalName
+	ExternTypeTag        = ExternType(0x04)
+	ExternTypeTagName    = "tag"
 )
 
 // ExternTypeName is an alias of api.ExternTypeName defined to simplify imports.
 func ExternTypeName(t ValueType) string {
+	if t == ExternTypeTag {
+		return ExternTypeTagName
+	}
 	return api.ExternTypeName(t)
 }

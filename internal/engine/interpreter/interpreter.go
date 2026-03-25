@@ -134,6 +134,44 @@ func (e *moduleEngine) MemoryGrown() {}
 // function calls originating from the same moduleEngine.Call execution.
 //
 // This implements api.Function.
+// tryHandler represents an active try_table exception handler.
+// It captures a snapshot of the engine state at the point try_table was entered,
+// following the same pattern as the snapshot/restore mechanism (see PR #1808).
+type tryHandler struct {
+	catchCount int
+	clauses    []uint64 // triplets: (kind, tagIndex, targetPC)
+	// Snapshot of state at handler setup, used for restore on catch.
+	savedStack  []uint64
+	savedFrames []*callFrame
+}
+
+// exceptionState is the panic value used for cross-function exception propagation.
+// It follows the same pattern as *snapshot: panic with a typed value,
+// recover at the call site, call doRestore() to resume execution.
+type exceptionState struct {
+	ce *callEngine
+	// Exception being propagated.
+	exception *wasm.Exception
+	// Restore target (set when a matching handler is found).
+	savedStack  []uint64
+	savedFrames []*callFrame
+	targetPC    uint64
+	// Values to push onto the stack after restore (exception params, possibly exnref).
+	values []uint64
+}
+
+func (es *exceptionState) doRestore() {
+	ce := es.ce
+	// Restore the operand stack to the handler's snapshot.
+	ce.stack = es.savedStack
+	// Push catch values onto the restored stack.
+	ce.stack = append(ce.stack, es.values...)
+	// Restore frames to the handler's snapshot level (remove callee frames that panicked).
+	ce.frames = ce.frames[:len(es.savedFrames)]
+	// Set the PC on the handler's frame to the catch target.
+	ce.frames[len(ce.frames)-1].pc = es.targetPC
+}
+
 type callEngine struct {
 	internalapi.WazeroOnlyType
 
@@ -149,6 +187,131 @@ type callEngine struct {
 
 	// stackiterator for Listeners to walk frames and stack.
 	stackIterator stackIterator
+
+	// tryHandlers is a stack of active try_table exception handlers.
+	tryHandlers []tryHandler
+}
+
+func (ce *callEngine) pushTryHandler(h tryHandler) {
+	ce.tryHandlers = append(ce.tryHandlers, h)
+}
+
+func (ce *callEngine) popTryHandler() {
+	ce.tryHandlers = ce.tryHandlers[:len(ce.tryHandlers)-1]
+}
+
+// handleExceptionInCurrentFrame handles an exception thrown within the same
+// callNativeFunc as the try_table handler. Returns true if a handler was found
+// and applied (caller should continue the loop). Returns false if the exception
+// should propagate via panic to parent frames.
+func (ce *callEngine) handleExceptionInCurrentFrame(exn *wasm.Exception, frame *callFrame, body *[]unionOperation, bodyLen *uint64) bool {
+	currentFrameCount := len(ce.frames)
+	for i := len(ce.tryHandlers) - 1; i >= 0; i-- {
+		h := &ce.tryHandlers[i]
+		// Only match handlers that were set up with the same frame depth
+		// (i.e., in the same callNativeFunc invocation).
+		if len(h.savedFrames) != currentFrameCount {
+			continue
+		}
+		for j := 0; j < h.catchCount; j++ {
+			kind := byte(h.clauses[j*3])
+			clauseTagIndex := uint32(h.clauses[j*3+1])
+			targetPC := h.clauses[j*3+2]
+
+			var matched bool
+			var values []uint64
+			switch kind {
+			case wasm.CatchKindCatch:
+				clauseTag := frame.f.moduleInstance.Tags[clauseTagIndex]
+				if exn.Tag == clauseTag {
+					matched = true
+					values = slices.Clone(exn.Params)
+				}
+			case wasm.CatchKindCatchRef:
+				clauseTag := frame.f.moduleInstance.Tags[clauseTagIndex]
+				if exn.Tag == clauseTag {
+					matched = true
+					values = slices.Clone(exn.Params)
+					values = append(values, uint64(uintptr(unsafe.Pointer(exn))))
+				}
+			case wasm.CatchKindCatchAll:
+				matched = true
+			case wasm.CatchKindCatchAllRef:
+				matched = true
+				values = []uint64{uint64(uintptr(unsafe.Pointer(exn)))}
+			}
+
+			if matched {
+				// Restore stack and set PC.
+				ce.stack = h.savedStack
+				ce.stack = append(ce.stack, values...)
+				frame.pc = targetPC
+				// Pop this and any inner handlers.
+				ce.tryHandlers = ce.tryHandlers[:i]
+				*body = frame.f.parent.body
+				*bodyLen = uint64(len(*body))
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// matchException searches the try handler stack (top-down) for a handler
+// that matches the given exception. If found, it pops handlers down to
+// the match and returns an exceptionState ready for doRestore().
+// Returns nil if no handler matches.
+func (ce *callEngine) matchException(exn *wasm.Exception) *exceptionState {
+	for i := len(ce.tryHandlers) - 1; i >= 0; i-- {
+		h := &ce.tryHandlers[i]
+		for j := 0; j < h.catchCount; j++ {
+			kind := byte(h.clauses[j*3])
+			clauseTagIndex := uint32(h.clauses[j*3+1])
+			targetPC := h.clauses[j*3+2]
+
+			var matched bool
+			var values []uint64
+			switch kind {
+			case wasm.CatchKindCatch:
+				// Resolve tag from the module instance in the handler's frame.
+				handlerFrame := h.savedFrames[len(h.savedFrames)-1]
+				clauseTag := handlerFrame.f.moduleInstance.Tags[clauseTagIndex]
+				if exn.Tag == clauseTag {
+					matched = true
+					values = slices.Clone(exn.Params)
+				}
+			case wasm.CatchKindCatchRef:
+				handlerFrame := h.savedFrames[len(h.savedFrames)-1]
+				clauseTag := handlerFrame.f.moduleInstance.Tags[clauseTagIndex]
+				if exn.Tag == clauseTag {
+					matched = true
+					values = slices.Clone(exn.Params)
+					values = append(values, uint64(uintptr(unsafe.Pointer(exn))))
+				}
+			case wasm.CatchKindCatchAll:
+				matched = true
+				// catch_all delivers no values in the current spec
+			case wasm.CatchKindCatchAllRef:
+				matched = true
+				values = []uint64{uint64(uintptr(unsafe.Pointer(exn)))}
+			}
+
+			if matched {
+				es := &exceptionState{
+					ce:          ce,
+					exception:   exn,
+					savedStack:  h.savedStack,
+					savedFrames: h.savedFrames,
+					targetPC:    targetPC,
+					values:      values,
+				}
+				// Pop all handlers at and above this one.
+				ce.tryHandlers = ce.tryHandlers[:i]
+				return es
+			}
+		}
+	}
+	return nil
 }
 
 func (e *moduleEngine) newCallEngine(compiled *function) *callEngine {
@@ -493,6 +656,13 @@ func (e *engine) lowerIR(ir *compilationResult, ret *compiledFunction) error {
 			}
 		case operationKindTailCallReturnCallIndirect:
 			e.setLabelAddress(&op.Us[1], label(op.Us[1]), labelAddressResolutions)
+		case operationKindTryTable:
+			// Resolve catch clause target labels (stored as triplets in Us: kind, tagIndex, targetLabel).
+			catchCount := int(op.U1)
+			for j := 0; j < catchCount; j++ {
+				targetIdx := j*3 + 2
+				e.setLabelAddress(&op.Us[targetIdx], label(op.Us[targetIdx]), labelAddressResolutions)
+			}
 		}
 	}
 	return nil
@@ -644,6 +814,11 @@ func (ce *callEngine) recoverOnCall(ctx context.Context, m *wasm.ModuleInstance,
 		panic(s)
 	}
 
+	// If an exception reached the top level without being caught, convert it to an uncaught exception error.
+	if _, ok := v.(*wasm.Exception); ok {
+		v = wasmruntime.ErrRuntimeUncaughtException
+	}
+
 	builder := wasmdebug.NewErrorBuilder()
 	frameCount := len(ce.frames)
 	functionListeners := make([]functionListenerInvocation, 0, 16)
@@ -674,7 +849,7 @@ func (ce *callEngine) recoverOnCall(ctx context.Context, m *wasm.ModuleInstance,
 	}
 
 	// Allows the reuse of CallEngine.
-	ce.stack, ce.frames = ce.stack[:0], ce.frames[:0]
+	ce.stack, ce.frames, ce.tryHandlers = ce.stack[:0], ce.frames[:0], ce.tryHandlers[:0]
 	return
 }
 
@@ -729,6 +904,7 @@ func (ce *callEngine) callNativeFunc(ctx context.Context, m *wasm.ModuleInstance
 	ce.pushFrame(frame)
 	body := frame.f.parent.body
 	bodyLen := uint64(len(body))
+
 	for frame.pc < bodyLen {
 		op := &body[frame.pc]
 		// TODO: add description of each operation/case
@@ -761,30 +937,71 @@ func (ce *callEngine) callNativeFunc(ctx context.Context, m *wasm.ModuleInstance
 			ce.drop(op.Us[v+1])
 			frame.pc = op.Us[v]
 		case operationKindCall:
+			caught := false
 			func() {
-				if ctx.Value(expctxkeys.EnableSnapshotterKey{}) != nil {
-					defer func() {
-						if r := recover(); r != nil {
-							if s, ok := r.(*snapshot); ok && s.ce == ce {
-								s.doRestore()
+				defer func() {
+					if r := recover(); r != nil {
+						switch v := r.(type) {
+						case *snapshot:
+							if v.ce == ce {
+								v.doRestore()
 								frame = ce.frames[len(ce.frames)-1]
 								body = frame.f.parent.body
 								bodyLen = uint64(len(body))
-							} else {
-								panic(r)
+								return
+							}
+						case *wasm.Exception:
+							// Exception propagating up from a callee.
+							// Try to match against try handlers.
+							if es := ce.matchException(v); es != nil {
+								es.doRestore()
+								frame = ce.frames[len(ce.frames)-1]
+								body = frame.f.parent.body
+								bodyLen = uint64(len(body))
+								caught = true
+								return
 							}
 						}
-					}()
-				}
+						panic(r)
+					}
+				}()
 				ce.callFunction(ctx, f.moduleInstance, &functions[op.U1])
 			}()
+			if caught {
+				continue
+			}
 			frame.pc++
 		case operationKindCallIndirect:
 			offset := ce.popValue()
 			table := tables[op.U2]
 			tf := ce.functionForOffset(table, offset, typeIDs[op.U1])
 
-			ce.callFunction(ctx, f.moduleInstance, tf)
+			if len(ce.tryHandlers) > 0 {
+				caught := false
+				func() {
+					defer func() {
+						if r := recover(); r != nil {
+							if exn, ok := r.(*wasm.Exception); ok {
+								if es := ce.matchException(exn); es != nil {
+									es.doRestore()
+									frame = ce.frames[len(ce.frames)-1]
+									body = frame.f.parent.body
+									bodyLen = uint64(len(body))
+									caught = true
+									return
+								}
+							}
+							panic(r)
+						}
+					}()
+					ce.callFunction(ctx, f.moduleInstance, tf)
+				}()
+				if caught {
+					continue
+				}
+			} else {
+				ce.callFunction(ctx, f.moduleInstance, tf)
+			}
 			frame.pc++
 		case operationKindDrop:
 			ce.drop(op.U1)
@@ -4372,6 +4589,47 @@ func (ce *callEngine) callNativeFunc(ctx context.Context, m *wasm.ModuleInstance
 			memoryInst.Mux.Unlock()
 			ce.pushValue(uint64(old))
 			frame.pc++
+		case operationKindThrow:
+			tagIndex := uint32(op.U1)
+			tag := moduleInst.Tags[tagIndex]
+			paramCount := len(tag.Type.Params)
+			params := make([]uint64, paramCount)
+			for i := paramCount - 1; i >= 0; i-- {
+				params[i] = ce.popValue()
+			}
+			exn := &wasm.Exception{Tag: tag, Params: params}
+			if ce.handleExceptionInCurrentFrame(exn, frame, &body, &bodyLen) {
+				continue
+			}
+			panic(exn)
+
+		case operationKindThrowRef:
+			v := ce.popValue()
+			if v == 0 {
+				panic(wasmruntime.ErrRuntimeUnreachable) // null exnref traps
+			}
+			exn := (*wasm.Exception)(unsafe.Pointer(uintptr(v)))
+			if ce.handleExceptionInCurrentFrame(exn, frame, &body, &bodyLen) {
+				continue
+			}
+			panic(exn)
+
+		case operationKindTryTable:
+			// Capture a snapshot of engine state, following the snapshot/restore
+			// pattern (PR #1808). On catch, we restore to this point.
+			ce.pushTryHandler(tryHandler{
+				catchCount:  int(op.U1),
+				clauses:     op.Us,
+				savedStack:  slices.Clone(ce.stack),
+				savedFrames: slices.Clone(ce.frames),
+			})
+			frame.pc++
+			continue
+
+		case operationKindPopTryHandler:
+			ce.popTryHandler()
+			frame.pc++
+
 		case operationKindTailCallReturnCall:
 			f := &functions[op.U1]
 			ce.dropForTailCall(frame, f)

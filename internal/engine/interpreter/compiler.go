@@ -21,6 +21,7 @@ const (
 	controlFrameKindLoop
 	controlFrameKindIfWithElse
 	controlFrameKindIfWithoutElse
+	controlFrameKindTryTable
 )
 
 type (
@@ -58,6 +59,8 @@ func (c *controlFrame) asLabel() label {
 		return newLabel(labelKindReturn, 0)
 	case controlFrameKindIfWithElse,
 		controlFrameKindIfWithoutElse:
+		return newLabel(labelKindContinuation, c.frameID)
+	case controlFrameKindTryTable:
 		return newLabel(labelKindContinuation, c.frameID)
 	}
 	panic(fmt.Sprintf("unreachable: a bug in interpreterir implementation: %v", c.kind))
@@ -677,6 +680,16 @@ operatorSwitch:
 			c.emit(
 				dropOp,
 			)
+		case controlFrameKindTryTable:
+			// try_table block end: emit drop and pop the try handler.
+			continuationLabel := newLabel(labelKindContinuation, frame.frameID)
+			c.result.LabelCallers[continuationLabel]++
+			c.emit(dropOp)
+			c.emit(newOperationBr(continuationLabel))
+			// The pop-try-handler must be emitted at the continuation label
+			// so it runs both for normal flow and when catch branches reach here.
+			c.emit(newOperationLabel(continuationLabel))
+			c.emit(newOperationPopTryHandler())
 		default:
 			// Should never happen. If so, there's a bug in the translation.
 			panic(fmt.Errorf("bug: invalid control frame Kind: 0x%x", frame.kind))
@@ -800,6 +813,113 @@ operatorSwitch:
 		// That means subsequent instructions in the current control frame are "unreachable"
 		// and can be safely removed.
 		c.markUnreachable()
+	case wasm.OpcodeThrow:
+		if c.unreachableState.on {
+			break operatorSwitch
+		}
+		// Pop the tag's param values from the stack.
+		tagType := c.module.TypeOfTag(index)
+		if tagType != nil {
+			for i := len(tagType.Params) - 1; i >= 0; i-- {
+				c.stackPop()
+			}
+		}
+		c.emit(newOperationThrow(index))
+		c.markUnreachable()
+	case wasm.OpcodeThrowRef:
+		if c.unreachableState.on {
+			break operatorSwitch
+		}
+		// Pop the exnref from the stack.
+		c.stackPop()
+		c.emit(newOperationThrowRef())
+		c.markUnreachable()
+	case wasm.OpcodeTryTable:
+		c.br.Reset(c.body[c.pc+1:])
+		bt, num, err := wasm.DecodeBlockType(c.types, c.br, c.enabledFeatures)
+		if err != nil {
+			return fmt.Errorf("reading block type for try_table instruction: %w", err)
+		}
+		c.pc += num
+
+		if c.unreachableState.on {
+			c.unreachableState.depth++
+			// Still need to skip the catch clause bytes.
+			c.pc++
+			catchCount, catchNum, _ := leb128.LoadUint32(c.body[c.pc:])
+			c.pc += catchNum - 1
+			for i := uint32(0); i < catchCount; i++ {
+				c.pc++
+				kind := c.body[c.pc]
+				switch kind {
+				case wasm.CatchKindCatch, wasm.CatchKindCatchRef:
+					c.pc++
+					_, n, _ := leb128.LoadUint32(c.body[c.pc:])
+					c.pc += n - 1
+					c.pc++
+					_, n, _ = leb128.LoadUint32(c.body[c.pc:])
+					c.pc += n - 1
+				case wasm.CatchKindCatchAll, wasm.CatchKindCatchAllRef:
+					c.pc++
+					_, n, _ := leb128.LoadUint32(c.body[c.pc:])
+					c.pc += n - 1
+				}
+			}
+			break operatorSwitch
+		}
+
+		// Read catch clause count.
+		c.pc++
+		catchCount, catchNum, err := leb128.LoadUint32(c.body[c.pc:])
+		if err != nil {
+			return fmt.Errorf("reading catch count for try_table: %w", err)
+		}
+		c.pc += catchNum - 1
+
+		// Parse catch clauses.
+		var clauses []catchClause
+		for i := uint32(0); i < catchCount; i++ {
+			c.pc++
+			kind := c.body[c.pc]
+			var tagIdx uint32
+			switch kind {
+			case wasm.CatchKindCatch, wasm.CatchKindCatchRef:
+				c.pc++
+				tagIdx, num, err = leb128.LoadUint32(c.body[c.pc:])
+				if err != nil {
+					return fmt.Errorf("reading catch tag index: %w", err)
+				}
+				c.pc += num - 1
+			}
+			c.pc++
+			labelIdx, n, err := leb128.LoadUint32(c.body[c.pc:])
+			if err != nil {
+				return fmt.Errorf("reading catch label index: %w", err)
+			}
+			c.pc += n - 1
+
+			// Resolve the label from the control frame stack.
+			targetFrame := c.controlFrames.get(int(labelIdx))
+			targetLabel := targetFrame.asLabel()
+			c.result.LabelCallers[targetLabel]++
+			clauses = append(clauses, catchClause{
+				kind:     kind,
+				tagIndex: tagIdx,
+				target:   targetLabel,
+			})
+		}
+
+		// Create a control frame for the try_table block.
+		frame := controlFrame{
+			frameID:                            c.nextFrameID(),
+			originalStackLenWithoutParam:       len(c.stack) - len(bt.Params),
+			originalStackLenWithoutParamUint64: c.stackLenInUint64 - bt.ParamNumInUint64,
+			kind:                               controlFrameKindTryTable,
+			blockType:                          bt,
+		}
+		c.controlFrames.push(frame)
+
+		c.emit(newOperationTryTable(clauses))
 	case wasm.OpcodeCall:
 		c.emit(
 			newOperationCall(index),
@@ -3492,7 +3612,9 @@ func (c *compiler) applyToStack(opcode wasm.Opcode) (index uint32, err error) {
 		wasm.OpcodeGlobalSet,
 		// tail-call proposal
 		wasm.OpcodeTailCallReturnCall,
-		wasm.OpcodeTailCallReturnCallIndirect:
+		wasm.OpcodeTailCallReturnCallIndirect,
+		// exception handling - throw reads tag index
+		wasm.OpcodeThrow:
 		// Assumes that we are at the opcode now so skip it before read immediates.
 		v, num, err := leb128.LoadUint32(c.body[c.pc+1:])
 		if err != nil {

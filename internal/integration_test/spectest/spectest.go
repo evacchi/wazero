@@ -305,6 +305,8 @@ func (c command) expectedError() (err error) {
 		err = wasmruntime.ErrRuntimeUnalignedAtomic
 	case "unreachable":
 		err = wasmruntime.ErrRuntimeUnreachable
+	case "uncaught exception":
+		err = wasmruntime.ErrRuntimeUncaughtException
 	default:
 		if strings.HasPrefix(c.Text, "uninitialized") {
 			err = wasmruntime.ErrRuntimeInvalidTableAccess
@@ -495,6 +497,23 @@ func RunCase(t *testing.T, testDataFS embed.FS, f string, ctx context.Context, c
 					require.NoError(t, err, msg)
 					_, err = r.InstantiateWithConfig(ctx, buf, wazero.NewModuleConfig())
 					require.Error(t, err, msg)
+				case "assert_exception":
+					m := lastInstantiatedModule
+					if c.Action.Module != "" {
+						m = modules[c.Action.Module]
+					}
+					switch c.Action.ActionType {
+					case "invoke":
+						args := c.getAssertReturnArgs()
+						msg = fmt.Sprintf("%s invoke %s (%s)", msg, c.Action.Field, c.Action.Args)
+						if c.Action.Module != "" {
+							msg += " in module " + c.Action.Module
+						}
+						_, err := m.ExportedFunction(c.Action.Field).Call(ctx, args...)
+						require.ErrorIs(t, err, wasmruntime.ErrRuntimeUncaughtException, msg)
+					default:
+						t.Fatalf("unsupported action type type: %v", c)
+					}
 				case "assert_uninstantiable":
 					buf, err := testDataFS.ReadFile(testdataPath(c.Filename))
 					require.NoError(t, err, msg)

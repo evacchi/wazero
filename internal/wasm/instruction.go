@@ -20,6 +20,13 @@ const (
 	// OpcodeElse brackets a sequence of instructions enclosed by an OpcodeIf. A branch instruction on a then label
 	// breaks out to after the OpcodeEnd on the enclosing OpcodeIf.
 	OpcodeElse Opcode = 0x05
+	// Exception handling instructions (toggled with CoreFeaturesExceptionHandling)
+
+	// OpcodeThrow throws an exception with the given tag.
+	OpcodeThrow Opcode = 0x08
+	// OpcodeThrowRef re-throws the exception referenced by an exnref value.
+	OpcodeThrowRef Opcode = 0x0a
+
 	// OpcodeEnd terminates a control instruction OpcodeBlock, OpcodeLoop or OpcodeIf.
 	OpcodeEnd Opcode = 0x0b
 
@@ -41,6 +48,9 @@ const (
 	OpcodeReturn       Opcode = 0x0f
 	OpcodeCall         Opcode = 0x10
 	OpcodeCallIndirect Opcode = 0x11
+
+	// OpcodeTryTable brackets a sequence of instructions with catch clauses for exception handling.
+	OpcodeTryTable Opcode = 0x1f
 
 	// parametric instructions
 
@@ -989,6 +999,8 @@ var instructionNames = [256]string{
 	OpcodeLoop:              OpcodeLoopName,
 	OpcodeIf:                OpcodeIfName,
 	OpcodeElse:              OpcodeElseName,
+	OpcodeThrow:             OpcodeThrowName,
+	OpcodeThrowRef:          OpcodeThrowRefName,
 	OpcodeEnd:               OpcodeEndName,
 	OpcodeBr:                OpcodeBrName,
 	OpcodeBrIf:              OpcodeBrIfName,
@@ -996,6 +1008,7 @@ var instructionNames = [256]string{
 	OpcodeReturn:            OpcodeReturnName,
 	OpcodeCall:              OpcodeCallName,
 	OpcodeCallIndirect:      OpcodeCallIndirectName,
+	OpcodeTryTable:          OpcodeTryTableName,
 	OpcodeDrop:              OpcodeDropName,
 	OpcodeSelect:            OpcodeSelectName,
 	OpcodeTypedSelect:       OpcodeTypedSelectName,
@@ -1889,3 +1902,17 @@ var tailCallInstructionName = map[OpcodeTailCall]string{
 func TailCallInstructionName(oc OpcodeTailCall) (ret string) {
 	return tailCallInstructionName[oc]
 }
+
+// Catch clause kinds used within try_table encoding.
+const (
+	CatchKindCatch       byte = 0x00
+	CatchKindCatchRef    byte = 0x01
+	CatchKindCatchAll    byte = 0x02
+	CatchKindCatchAllRef byte = 0x03
+)
+
+const (
+	OpcodeThrowName    = "throw"
+	OpcodeThrowRefName = "throw_ref"
+	OpcodeTryTableName = "try_table"
+)

@@ -449,6 +449,14 @@ func (o operationKind) String() (ret string) {
 		ret = "operationKindTailCallReturnCall"
 	case operationKindTailCallReturnCallIndirect:
 		ret = "operationKindTailCallReturnCallIndirect"
+	case operationKindThrow:
+		ret = "Throw"
+	case operationKindThrowRef:
+		ret = "ThrowRef"
+	case operationKindTryTable:
+		ret = "TryTable"
+	case operationKindPopTryHandler:
+		ret = "PopTryHandler"
 	default:
 		panic(fmt.Errorf("unknown operation %d", o))
 	}
@@ -776,6 +784,15 @@ const (
 	operationKindTailCallReturnCall
 	// operationKindTailCallReturnCallIndirect is the Kind for newOperationKindTailCallReturnCallIndirect.
 	operationKindTailCallReturnCallIndirect
+
+	// operationKindThrow is the Kind for throw instruction.
+	operationKindThrow
+	// operationKindThrowRef is the Kind for throw_ref instruction.
+	operationKindThrowRef
+	// operationKindTryTable is the Kind for try_table instruction.
+	operationKindTryTable
+	// operationKindPopTryHandler pops the top try handler at try_table block end.
+	operationKindPopTryHandler
 
 	// operationKindEnd is always placed at the bottom of this iota definition to be used in the test.
 	operationKindEnd
@@ -1111,6 +1128,18 @@ func (o unionOperation) String() string {
 
 	case operationKindTailCallReturnCallIndirect:
 		return fmt.Sprintf("%s %d %d", o.Kind, o.U1, o.U2)
+
+	case operationKindThrow:
+		return fmt.Sprintf("%s %d", o.Kind, o.U1)
+
+	case operationKindThrowRef:
+		return o.Kind.String()
+
+	case operationKindTryTable:
+		return fmt.Sprintf("%s (catchCount=%d)", o.Kind, o.U1)
+
+	case operationKindPopTryHandler:
+		return o.Kind.String()
 
 	default:
 		panic(fmt.Sprintf("TODO: %v", o.Kind))
@@ -2842,4 +2871,38 @@ func newOperationTailCallReturnCall(functionIndex uint32) unionOperation {
 //	wasm.OpcodeTailCallReturnCallIndirect.
 func newOperationTailCallReturnCallIndirect(typeIndex, tableIndex uint32, dropDepth inclusiveRange, l label) unionOperation {
 	return unionOperation{Kind: operationKindTailCallReturnCallIndirect, U1: uint64(typeIndex), U2: uint64(tableIndex), Us: []uint64{dropDepth.AsU64(), uint64(l)}}
+}
+
+// catchClause represents a catch clause within a try_table instruction.
+type catchClause struct {
+	kind     byte   // CatchKindCatch, CatchKindCatchRef, CatchKindCatchAll, CatchKindCatchAllRef
+	tagIndex uint32 // tag index for catch/catch_ref (unused for catch_all variants)
+	target   label  // label to branch to on match
+}
+
+// newOperationPopTryHandler is a constructor for unionOperation with operationKindPopTryHandler.
+func newOperationPopTryHandler() unionOperation {
+	return unionOperation{Kind: operationKindPopTryHandler}
+}
+
+// newOperationThrow is a constructor for unionOperation with operationKindThrow.
+// U1 stores the tag index.
+func newOperationThrow(tagIndex uint32) unionOperation {
+	return unionOperation{Kind: operationKindThrow, U1: uint64(tagIndex)}
+}
+
+// newOperationThrowRef is a constructor for unionOperation with operationKindThrowRef.
+func newOperationThrowRef() unionOperation {
+	return unionOperation{Kind: operationKindThrowRef}
+}
+
+// newOperationTryTable is a constructor for unionOperation with operationKindTryTable.
+// U1 stores the number of catch clauses.
+// Us stores catch clauses encoded as triplets: (kind, tagIndex, targetLabel).
+func newOperationTryTable(catchClauses []catchClause) unionOperation {
+	us := make([]uint64, 0, len(catchClauses)*3)
+	for _, cc := range catchClauses {
+		us = append(us, uint64(cc.kind), uint64(cc.tagIndex), uint64(cc.target))
+	}
+	return unionOperation{Kind: operationKindTryTable, U1: uint64(len(catchClauses)), Us: us}
 }
