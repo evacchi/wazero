@@ -270,20 +270,24 @@ func (c *callEngine) callWithStack(ctx context.Context, paramResultStack []uint6
 
 			var listeners []listenerForAbort
 			builder := wasmdebug.NewErrorBuilder()
-			def, lsn := c.addFrame(builder, uintptr(unsafe.Pointer(c.execCtx.goCallReturnAddress)))
-			if lsn != nil {
-				listeners = append(listeners, listenerForAbort{def, lsn})
-			}
-			returnAddrs := unwindStack(
-				uintptr(unsafe.Pointer(c.execCtx.stackPointerBeforeGoCall)),
-				c.execCtx.framePointerBeforeGoCall,
-				c.stackTop,
-				nil,
-			)
-			for _, retAddr := range returnAddrs[:len(returnAddrs)-1] { // the last return addr is the trampoline, so we skip it.
-				def, lsn = c.addFrame(builder, retAddr)
+			if c.execCtx.stackPointerBeforeGoCall != nil {
+				def, lsn := c.addFrame(builder, uintptr(unsafe.Pointer(c.execCtx.goCallReturnAddress)))
 				if lsn != nil {
 					listeners = append(listeners, listenerForAbort{def, lsn})
+				}
+				returnAddrs := unwindStack(
+					uintptr(unsafe.Pointer(c.execCtx.stackPointerBeforeGoCall)),
+					c.execCtx.framePointerBeforeGoCall,
+					c.stackTop,
+					nil,
+				)
+				if len(returnAddrs) > 1 {
+					for _, retAddr := range returnAddrs[:len(returnAddrs)-1] { // the last return addr is the trampoline, so we skip it.
+						def, lsn = c.addFrame(builder, retAddr)
+						if lsn != nil {
+							listeners = append(listeners, listenerForAbort{def, lsn})
+						}
+					}
 				}
 			}
 			err = builder.FromRecovered(r)

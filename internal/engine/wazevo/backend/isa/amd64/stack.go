@@ -25,7 +25,8 @@ func stackView(rbp, top uintptr) []byte {
 func UnwindStack(_, rbp, top uintptr, returnAddresses []uintptr) []uintptr {
 	stackBuf := stackView(rbp, top)
 
-	for i := uint64(0); i < uint64(len(stackBuf)); {
+	l := uint64(len(stackBuf))
+	for i := uint64(0); i < l; {
 		//       (high address)
 		//    +-----------------+
 		//    |     .......     |
@@ -51,10 +52,17 @@ func UnwindStack(_, rbp, top uintptr, returnAddresses []uintptr) []uintptr {
 		//    +-----------------+ <---- RBP
 		//       (low address)
 
+		if i+16 > l {
+			break
+		}
 		callerRBP := binary.LittleEndian.Uint64(stackBuf[i:])
 		retAddr := binary.LittleEndian.Uint64(stackBuf[i+8:])
 		returnAddresses = append(returnAddresses, uintptr(retAddr))
-		i = callerRBP - uint64(rbp)
+		nextI := callerRBP - uint64(rbp)
+		if nextI <= i || nextI >= l {
+			break
+		}
+		i = nextI
 		if len(returnAddresses) == wasmdebug.MaxFrames {
 			break
 		}
