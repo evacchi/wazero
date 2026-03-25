@@ -896,6 +896,25 @@ func TestE2E(t *testing.T) {
 				{params: []uint64{1, 2, 3, 4, 5, 6, 7}, expResults: []uint64{156}},
 			},
 		},
+		// ---- Exception Handling ----
+		{
+			name:     "throw_only",
+			m:        testcases.ThrowOnly.Module,
+			features: api.CoreFeaturesV2 | experimental.CoreFeaturesExceptionHandling,
+			calls:    []callCase{{expErr: "uncaught exception"}},
+		},
+		{
+			name:     "throw_with_param",
+			m:        testcases.ThrowWithParam.Module,
+			features: api.CoreFeaturesV2 | experimental.CoreFeaturesExceptionHandling,
+			calls:    []callCase{{params: []uint64{42}, expErr: "uncaught exception"}},
+		},
+		{
+			name:     "try_table_catch_all_empty",
+			m:        testcases.TryTableCatchAllEmpty.Module,
+			features: api.CoreFeaturesV2 | experimental.CoreFeaturesExceptionHandling,
+			calls:    []callCase{{expResults: []uint64{42}}},
+		},
 	} {
 		tc := tc
 		t.Run(tc.name, func(t *testing.T) {

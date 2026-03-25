@@ -38,6 +38,13 @@ const (
 	ExitCodeThrowRef
 	// ExitCodeNullReference is an exit code for a null reference trap (throw_ref with null exnref).
 	ExitCodeNullReference
+	// ExitCodeTryTableEnter is an exit code for entering a try_table block.
+	// The catch clause info is encoded in the upper bits. The dispatch loop
+	// saves the current SP/FP/returnAddress as a try handler checkpoint.
+	ExitCodeTryTableEnter
+	// ExitCodeTryTableLeave is an exit code for leaving a try_table block.
+	// The dispatch loop pops the most recent try handler.
+	ExitCodeTryTableLeave
 	exitCodeMax
 )
 
@@ -100,6 +107,10 @@ func (e ExitCode) String() string {
 		return "throw_ref"
 	case ExitCodeNullReference:
 		return "null_reference"
+	case ExitCodeTryTableEnter:
+		return "try_table_enter"
+	case ExitCodeTryTableLeave:
+		return "try_table_leave"
 	}
 	panic("TODO")
 }
@@ -130,4 +141,10 @@ func ExitCodeThrowWithTagIndex(tagIndex int) ExitCode {
 // TagIndexFromExitCode extracts the tag index from a throw exit code.
 func TagIndexFromExitCode(exitCode ExitCode) int {
 	return int(exitCode >> 8)
+}
+
+// CatchClauseInstance is a runtime catch clause with resolved tag index.
+type CatchClauseInstance struct {
+	Kind     byte   // wasm.CatchKindCatch, etc.
+	TagIndex uint32 // module-local tag index
 }

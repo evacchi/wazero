@@ -216,6 +216,10 @@ func (m *moduleEngine) NewFunction(index wasm.Index) api.Function {
 	ce.execCtx.memoryWait32TrampolineAddress = sharedFunctions.memoryWait32Address
 	ce.execCtx.memoryWait64TrampolineAddress = sharedFunctions.memoryWait64Address
 	ce.execCtx.memoryNotifyTrampolineAddress = sharedFunctions.memoryNotifyAddress
+	ce.execCtx.throwTrampolineAddress = sharedFunctions.throwTrampolineAddress
+	ce.execCtx.throwRefTrampolineAddress = sharedFunctions.throwRefTrampolineAddress
+	ce.execCtx.tryTableEnterTrampolineAddress = sharedFunctions.tryTableEnterAddress
+	ce.execCtx.tryTableLeaveTrampolineAddress = sharedFunctions.tryTableLeaveAddress
 	ce.execCtx.memmoveAddress = memmovPtr
 	ce.init()
 	return ce

@@ -52,7 +52,11 @@ const (
 	ExecutionContextOffsetFramePointerBeforeGoCall      Offset = 1152
 	ExecutionContextOffsetMemoryWait32TrampolineAddress Offset = 1160
 	ExecutionContextOffsetMemoryWait64TrampolineAddress Offset = 1168
-	ExecutionContextOffsetMemoryNotifyTrampolineAddress Offset = 1176
+	ExecutionContextOffsetMemoryNotifyTrampolineAddress    Offset = 1176
+	ExecutionContextOffsetThrowTrampolineAddress         Offset = 1184
+	ExecutionContextOffsetThrowRefTrampolineAddress      Offset = 1192
+	ExecutionContextOffsetTryTableEnterTrampolineAddress Offset = 1200
+	ExecutionContextOffsetTryTableLeaveTrampolineAddress Offset = 1208
 )
 
 // ModuleContextOffsetData allows the compilers to get the information about offsets to the fields of wazevo.moduleContextOpaque,

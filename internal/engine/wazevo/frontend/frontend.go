@@ -62,6 +62,18 @@ type Compiler struct {
 
 	execCtxPtrValue, moduleCtxPtrValue ssa.Value
 
+	// throwSig is the signature for the throw trampoline.
+	throwSig ssa.Signature
+	// throwRefSig is the signature for the throw_ref trampoline.
+	throwRefSig ssa.Signature
+	// tryTableEnterSig is the signature for the try_table enter trampoline.
+	tryTableEnterSig ssa.Signature
+	// tryTableLeaveSig is the signature for the try_table leave trampoline.
+	tryTableLeaveSig ssa.Signature
+	// CatchClauseTable accumulates catch clause info for each try_table during compilation.
+	// The engine reads this after compilation.
+	CatchClauseTable [][]wazevoapi.CatchClauseInstance
+
 	// Following are reused for the known safe bounds analysis.
 
 	pointers []int
@@ -194,6 +206,34 @@ func (c *Compiler) declareSignatures(listenerOn bool) {
 		Results: []ssa.Type{ssa.TypeI32},
 	}
 	c.ssaBuilder.DeclareSignature(&c.memoryNotifySig)
+
+	c.throwSig = ssa.Signature{
+		ID:      c.memoryNotifySig.ID + 1,
+		Params:  []ssa.Type{ssa.TypeI64 /* exec context */, ssa.TypeI64 /* tag index */, ssa.TypeI64, ssa.TypeI64, ssa.TypeI64, ssa.TypeI64},
+		Results: []ssa.Type{},
+	}
+	c.ssaBuilder.DeclareSignature(&c.throwSig)
+
+	c.throwRefSig = ssa.Signature{
+		ID:      c.throwSig.ID + 1,
+		Params:  []ssa.Type{ssa.TypeI64 /* exec context */, ssa.TypeI64 /* exnref */},
+		Results: []ssa.Type{},
+	}
+	c.ssaBuilder.DeclareSignature(&c.throwRefSig)
+
+	c.tryTableEnterSig = ssa.Signature{
+		ID:      c.throwRefSig.ID + 1,
+		Params:  []ssa.Type{ssa.TypeI64 /* exec context */, ssa.TypeI64 /* encoded exit code */},
+		Results: []ssa.Type{ssa.TypeI64 /* clause index or -1 */},
+	}
+	c.ssaBuilder.DeclareSignature(&c.tryTableEnterSig)
+
+	c.tryTableLeaveSig = ssa.Signature{
+		ID:      c.tryTableEnterSig.ID + 1,
+		Params:  []ssa.Type{ssa.TypeI64 /* exec context */},
+		Results: []ssa.Type{ssa.TypeI64},
+	}
+	c.ssaBuilder.DeclareSignature(&c.tryTableLeaveSig)
 }
 
 // SignatureForWasmFunctionType returns the ssa.Signature for the given wasm.FunctionType.

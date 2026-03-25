@@ -2723,6 +2723,105 @@ func VecShuffleWithLane(lane ...byte) *wasm.Module {
 	}
 }
 
+// Exception Handling test cases.
+
+// ThrowOnly: a function that always throws tag 0 (no params).
+// Expected: uncaught exception trap.
+//
+//	(module
+//	  (tag $e)
+//	  (func (export "f") (throw $e))
+//	)
+var ThrowOnly = TestCase{
+	Name: "throw_only",
+	Module: &wasm.Module{
+		TypeSection:     []wasm.FunctionType{vv},
+		FunctionSection: []wasm.Index{0},
+		TagSection:      []wasm.Tag{{Type: 0}},
+		CodeSection: []wasm.Code{{
+			Body: []byte{
+				wasm.OpcodeThrow, 0, // throw $e (tag index 0)
+				wasm.OpcodeEnd,
+			},
+		}},
+		ExportSection: []wasm.Export{{Name: ExportedFunctionName, Type: wasm.ExternTypeFunc, Index: 0}},
+	},
+}
+
+// ThrowWithParam: throws tag 0 (i32 param) with the function's i32 parameter.
+// Expected: uncaught exception trap.
+//
+//	(module
+//	  (tag $e (param i32))
+//	  (func (export "f") (param i32) (local.get 0) (throw $e))
+//	)
+var ThrowWithParam = TestCase{
+	Name: "throw_with_param",
+	Module: &wasm.Module{
+		TypeSection: []wasm.FunctionType{
+			{Params: []wasm.ValueType{i32}},         // type 0: tag type (i32) -> ()
+			{Params: []wasm.ValueType{i32}},          // type 1: func type (i32) -> ()
+		},
+		FunctionSection: []wasm.Index{1},
+		TagSection:      []wasm.Tag{{Type: 0}},
+		CodeSection: []wasm.Code{{
+			Body: []byte{
+				wasm.OpcodeLocalGet, 0,
+				wasm.OpcodeThrow, 0, // throw $e (tag index 0)
+				wasm.OpcodeEnd,
+			},
+		}},
+		ExportSection: []wasm.Export{{Name: ExportedFunctionName, Type: wasm.ExternTypeFunc, Index: 0}},
+	},
+}
+
+// TryTableCatchAllEmpty: try_table with catch_all where the body does not throw.
+// The try_table body pushes 42 and returns. catch_all is never triggered.
+//
+//	(module
+//	  (func (export "f") (result i32)
+//	    (block $caught              ;; catch_all target, expects 0 values
+//	      (try_table (catch_all $caught)
+//	        (i32.const 42)
+//	        (return)
+//	      )
+//	      (i32.const 99)
+//	      (return)
+//	    )
+//	    (i32.const 0)
+//	  )
+//	)
+var TryTableCatchAllEmpty = TestCase{
+	Name: "try_table_catch_all_empty",
+	Module: &wasm.Module{
+		TypeSection:     []wasm.FunctionType{{Results: []wasm.ValueType{i32}}},
+		FunctionSection: []wasm.Index{0},
+		CodeSection: []wasm.Code{{
+			Body: []byte{
+				// block $caught -- void block (catch_all delivers 0 values)
+				wasm.OpcodeBlock, blockSignature_vv,
+				// try_table (catch_all $caught) -- void block
+				wasm.OpcodeTryTable, blockSignature_vv,
+				1,                      // catch clause count = 1
+				wasm.CatchKindCatchAll, // catch_all
+				0,                      // label index 0 = $caught (try_table not yet on stack)
+				// body: return 42 directly
+				wasm.OpcodeI32Const, 42,
+				wasm.OpcodeReturn,
+				wasm.OpcodeEnd, // end try_table
+				// After try_table (catch_all path): return 99
+				wasm.OpcodeI32Const, 99,
+				wasm.OpcodeReturn,
+				wasm.OpcodeEnd, // end block $caught
+				// Should not reach here.
+				wasm.OpcodeI32Const, 0,
+				wasm.OpcodeEnd, // end function
+			},
+		}},
+		ExportSection: []wasm.Export{{Name: ExportedFunctionName, Type: wasm.ExternTypeFunc, Index: 0}},
+	},
+}
+
 type TestCase struct {
 	Name             string
 	Imported, Module *wasm.Module

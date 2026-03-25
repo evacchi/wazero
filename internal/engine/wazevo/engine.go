@@ -67,7 +67,15 @@ type (
 		memoryWait64Address *byte
 		// memoryNotifyAddress is the address of memory.notify builtin function
 		memoryNotifyAddress *byte
-		listenerTrampolines listenerTrampolines
+		// throwTrampolineAddress is the address of the throw trampoline function.
+		throwTrampolineAddress *byte
+		// throwRefTrampolineAddress is the address of the throw_ref trampoline function.
+		throwRefTrampolineAddress *byte
+		// tryTableEnterAddress is the address of try_table enter trampoline.
+		tryTableEnterAddress *byte
+		// tryTableLeaveAddress is the address of try_table leave trampoline.
+		tryTableLeaveAddress *byte
+		listenerTrampolines  listenerTrampolines
 	}
 
 	listenerTrampolines = map[*wasm.FunctionType]struct {
@@ -93,6 +101,9 @@ type (
 		offsets         wazevoapi.ModuleContextOffsetData
 		sharedFunctions *sharedFunctions
 		sourceMap       sourceMap
+		// catchClauseTable stores catch clause info for each try_table,
+		// indexed by a try_table ID assigned during compilation.
+		catchClauseTable [][]wazevoapi.CatchClauseInstance
 	}
 
 	executables struct {
@@ -269,6 +280,7 @@ func (e *engine) compileModule(ctx context.Context, module *wasm.Module, listene
 
 			relocator.appendFunction(fctx, module, cm, i, fidx, body, relsPerFunc, be.SourceOffsetInfo())
 		}
+		cm.catchClauseTable = fe.CatchClauseTable
 	} else {
 		// Compile with N worker goroutines.
 		// Collect compiled functions across workers in a slice,
@@ -733,7 +745,7 @@ func (e *engine) NewModuleEngine(m *wasm.Module, mi *wasm.ModuleInstance) (wasm.
 }
 
 func (e *engine) compileSharedFunctions() {
-	var sizes [8]int
+	var sizes [12]int
 	var trampolines []byte
 
 	addTrampoline := func(i int, buf []byte) {
@@ -801,6 +813,39 @@ func (e *engine) compileSharedFunctions() {
 			Results: []ssa.Type{ssa.TypeI32},
 		}, false))
 
+	e.be.Init()
+	addTrampoline(8,
+		e.machine.CompileGoFunctionTrampoline(wazevoapi.ExitCodeThrow, &ssa.Signature{
+			// exec context, tag index, up to 4 exception params
+			Params:  []ssa.Type{ssa.TypeI64, ssa.TypeI64, ssa.TypeI64, ssa.TypeI64, ssa.TypeI64, ssa.TypeI64},
+			Results: []ssa.Type{},
+		}, false))
+
+	e.be.Init()
+	addTrampoline(9,
+		e.machine.CompileGoFunctionTrampoline(wazevoapi.ExitCodeThrowRef, &ssa.Signature{
+			// exec context, exnref pointer
+			Params:  []ssa.Type{ssa.TypeI64, ssa.TypeI64},
+			Results: []ssa.Type{},
+		}, false))
+
+	e.be.Init()
+	addTrampoline(10,
+		e.machine.CompileGoFunctionTrampoline(wazevoapi.ExitCodeTryTableEnter, &ssa.Signature{
+			// exec context, catch clause info (encoded)
+			Params: []ssa.Type{ssa.TypeI64, ssa.TypeI64},
+			// Returns the clause index (-1 = no exception, 0+ = caught clause index).
+			Results: []ssa.Type{ssa.TypeI64},
+		}, false))
+
+	e.be.Init()
+	addTrampoline(11,
+		e.machine.CompileGoFunctionTrampoline(wazevoapi.ExitCodeTryTableLeave, &ssa.Signature{
+			// exec context
+			Params:  []ssa.Type{ssa.TypeI64},
+			Results: []ssa.Type{ssa.TypeI64},
+		}, false))
+
 	fns := &sharedFunctions{
 		executable:          mmapExecutable(trampolines),
 		listenerTrampolines: make(listenerTrampolines),
@@ -823,6 +868,14 @@ func (e *engine) compileSharedFunctions() {
 	fns.memoryWait64Address = &fns.executable[offset]
 	offset += sizes[6]
 	fns.memoryNotifyAddress = &fns.executable[offset]
+	offset += sizes[7]
+	fns.throwTrampolineAddress = &fns.executable[offset]
+	offset += sizes[8]
+	fns.throwRefTrampolineAddress = &fns.executable[offset]
+	offset += sizes[9]
+	fns.tryTableEnterAddress = &fns.executable[offset]
+	offset += sizes[10]
+	fns.tryTableLeaveAddress = &fns.executable[offset]
 
 	if wazevoapi.PerfMapEnabled {
 		wazevoapi.PerfMap.AddEntry(uintptr(unsafe.Pointer(fns.memoryGrowAddress)), uint64(sizes[0]), "memory_grow_trampoline")
