@@ -139,10 +139,12 @@ func (e *moduleEngine) MemoryGrown() {}
 // following the same pattern as the snapshot/restore mechanism (see PR #1808).
 type tryHandler struct {
 	catchCount int
-	clauses    []uint64 // triplets: (kind, tagIndex, targetPC)
-	// Snapshot of state at handler setup, used for restore on catch.
-	savedStack  []uint64
-	savedFrames []*callFrame
+	clauses    []uint64 // quadruplets: (kind, tagIndex, targetPC, stackDropSize)
+	// savedStackLen is the length of ce.stack at handler setup.
+	// On restore we truncate to this length (adjusted by stackDropSize) rather than
+	// replacing the stack, so that local variable mutations are preserved.
+	savedStackLen int
+	savedFrames   []*callFrame
 }
 
 // exceptionState is the panic value used for cross-function exception propagation.
@@ -153,21 +155,21 @@ type exceptionState struct {
 	// Exception being propagated.
 	exception *wasm.Exception
 	// Restore target (set when a matching handler is found).
-	savedStack    []uint64
+	savedStackLen int // stack length at try_table entry
 	savedFrames   []*callFrame
 	targetPC      uint64
-	stackDropSize int // number of uint64 slots to drop from savedStack
+	stackDropSize int // number of uint64 slots to drop from savedStackLen
 	// Values to push onto the stack after restore (exception params, possibly exnref).
 	values []uint64
 }
 
 func (es *exceptionState) doRestore() {
 	ce := es.ce
-	// Restore the operand stack to the target block's stack depth.
-	// Drop stackDropSize slots from the saved stack to reach the target block level.
-	keepLen := len(es.savedStack) - es.stackDropSize
-	ce.stack = es.savedStack[:keepLen]
-	// Push catch values onto the restored stack.
+	// Truncate the operand stack to the target block's depth.
+	// We truncate rather than replace, preserving local variable mutations.
+	keepLen := es.savedStackLen - es.stackDropSize
+	ce.stack = ce.stack[:keepLen]
+	// Push catch values onto the stack.
 	ce.stack = append(ce.stack, es.values...)
 	// Restore frames to the handler's snapshot level (remove callee frames that panicked).
 	ce.frames = ce.frames[:len(es.savedFrames)]
@@ -246,9 +248,9 @@ func (ce *callEngine) handleExceptionInCurrentFrame(exn *wasm.Exception, frame *
 			}
 
 			if matched {
-				// Restore stack: drop stackDropSize slots from saved stack to reach target block level.
-				keepLen := len(h.savedStack) - stackDropSize
-				ce.stack = h.savedStack[:keepLen]
+				// Truncate stack to the target block's depth, preserving local mutations.
+				keepLen := h.savedStackLen - stackDropSize
+				ce.stack = ce.stack[:keepLen]
 				ce.stack = append(ce.stack, values...)
 				frame.pc = targetPC
 				// Pop this and any inner handlers.
@@ -304,7 +306,7 @@ func (ce *callEngine) matchException(exn *wasm.Exception) *exceptionState {
 				es := &exceptionState{
 					ce:            ce,
 					exception:     exn,
-					savedStack:    h.savedStack,
+					savedStackLen: h.savedStackLen,
 					savedFrames:   h.savedFrames,
 					targetPC:      targetPC,
 					stackDropSize: stackDropSize,
@@ -4623,10 +4625,10 @@ func (ce *callEngine) callNativeFunc(ctx context.Context, m *wasm.ModuleInstance
 			// Capture a snapshot of engine state, following the snapshot/restore
 			// pattern (PR #1808). On catch, we restore to this point.
 			ce.pushTryHandler(tryHandler{
-				catchCount:  int(op.U1),
-				clauses:     op.Us,
-				savedStack:  slices.Clone(ce.stack),
-				savedFrames: slices.Clone(ce.frames),
+				catchCount:    int(op.U1),
+				clauses:       op.Us,
+				savedStackLen: len(ce.stack),
+				savedFrames:   slices.Clone(ce.frames),
 			})
 			frame.pc++
 			continue
