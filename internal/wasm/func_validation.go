@@ -629,7 +629,7 @@ func (m *Module) validateFunctionWithMaxStackValues(
 						return fmt.Errorf("catch clause type mismatch: catch delivers %d values but label expects %d", len(catchTypes), len(expectedTypes))
 					}
 					for j := range catchTypes {
-						if catchTypes[j] != expectedTypes[j] {
+						if !isStrictRefSubtypeOf(catchTypes[j], expectedTypes[j]) {
 							return fmt.Errorf("catch clause type mismatch at index %d", j)
 						}
 					}
@@ -1022,7 +1022,8 @@ func (m *Module) validateFunctionWithMaxStackValues(
 					return fmt.Errorf("undeclared function index %d for ref.func", index)
 				}
 				pc += num - 1
-				valueTypeStack.push(ValueTypeFuncref)
+				// ref.func always produces a non-null reference.
+				valueTypeStack.push(ValueTypeNonNullFuncref)
 			}
 		} else if op == OpcodeTableGet || op == OpcodeTableSet {
 			if err := enabledFeatures.RequireEnabled(api.CoreFeatureReferenceTypes); err != nil {
@@ -2262,7 +2263,7 @@ func (s *valueTypeStack) popAndVerifyType(expected ValueType) error {
 	if !ok {
 		return fmt.Errorf("%s missing", ValueTypeName(expected))
 	}
-	if have != expected && have != valueTypeUnknown && expected != valueTypeUnknown {
+	if have != expected && have != valueTypeUnknown && expected != valueTypeUnknown && !isRefSubtypeOf(have, expected) {
 		return fmt.Errorf("type mismatch: expected %s, but was %s", ValueTypeName(expected), ValueTypeName(have))
 	}
 	return nil
@@ -2344,7 +2345,7 @@ func (s *valueTypeStack) requireStackValues(
 	// Finally, check the types of the values:
 	for i, v := range s.requireStackValuesTmp {
 		nextWant := want[countWanted-i-1] // have is in reverse order (stack)
-		if v != nextWant && v != valueTypeUnknown && nextWant != valueTypeUnknown {
+		if v != nextWant && v != valueTypeUnknown && nextWant != valueTypeUnknown && !isRefSubtypeOf(v, nextWant) {
 			return typeMismatchError(isParam, context, v, nextWant, i)
 		}
 	}
@@ -2475,8 +2476,7 @@ func DecodeBlockType(types []FunctionType, r *bytes.Reader, enabledFeatures api.
 		ret = blockType_v_externref
 	case -23: // 0x69 in original byte = exnref
 		ret = blockType_v_exnref
-	case -28, -29: // 0x63 = ref, 0x64 = ref null — GC proposal shorthand
-		// Read the heap type to determine the result type.
+	case -29: // 0x63 = ref null (nullable) — GC proposal
 		ht, htNum, err := leb128.DecodeInt33AsInt64(r)
 		if err != nil {
 			return nil, 0, fmt.Errorf("read ref heap type in block: %w", err)
@@ -2489,8 +2489,20 @@ func DecodeBlockType(types []FunctionType, r *bytes.Reader, enabledFeatures api.
 			ret = blockType_v_funcref
 		case -17: // extern
 			ret = blockType_v_externref
-		default: // concrete type index or other — treat as funcref
+		default: // concrete type index — treat as nullable funcref
 			ret = blockType_v_funcref
+		}
+	case -28: // 0x64 = ref (non-nullable) — GC proposal
+		ht, htNum, err := leb128.DecodeInt33AsInt64(r)
+		if err != nil {
+			return nil, 0, fmt.Errorf("read ref heap type in block: %w", err)
+		}
+		num += htNum
+		switch ht {
+		case -23: // exn
+			ret = blockType_v_exnref // TODO: non-null exnref
+		default:
+			ret = blockType_v_nonnullfuncref
 		}
 	default:
 		if err = enabledFeatures.RequireEnabled(api.CoreFeatureMultiValue); err != nil {
@@ -2514,7 +2526,8 @@ var (
 	blockType_v_v128      = &FunctionType{Results: []ValueType{ValueTypeV128}, ResultNumInUint64: 2}
 	blockType_v_funcref   = &FunctionType{Results: []ValueType{ValueTypeFuncref}, ResultNumInUint64: 1}
 	blockType_v_externref = &FunctionType{Results: []ValueType{ValueTypeExternref}, ResultNumInUint64: 1}
-	blockType_v_exnref   = &FunctionType{Results: []ValueType{ValueTypeExnref}, ResultNumInUint64: 1}
+	blockType_v_exnref         = &FunctionType{Results: []ValueType{ValueTypeExnref}, ResultNumInUint64: 1}
+	blockType_v_nonnullfuncref = &FunctionType{Results: []ValueType{ValueTypeNonNullFuncref}, ResultNumInUint64: 1}
 )
 
 // SplitCallStack returns the input stack resliced to the count of params and

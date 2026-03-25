@@ -34,6 +34,8 @@ func decodeTypeSection(enabledFeatures api.CoreFeatures, r *bytes.Reader) ([]was
 				if err = decodeFunctionType(enabledFeatures, r, &ft); err != nil {
 					return nil, fmt.Errorf("read %d-th type in rec group: %v", j, err)
 				}
+				ft.RecGroupSize = int(recCount)
+				ft.RecGroupPosition = int(j)
 				result = append(result, ft)
 			}
 		} else {

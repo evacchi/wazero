@@ -27,24 +27,31 @@ func decodeValueTypes(r *bytes.Reader, num uint32) ([]wasm.ValueType, error) {
 			wasm.ValueTypeExternref, wasm.ValueTypeFuncref, wasm.ValueTypeV128,
 			wasm.ValueTypeExnref:
 			ret = append(ret, b)
-		case 0x63, 0x64:
-			// GC proposal: (ref <heaptype>) or (ref null <heaptype>).
-			// heaptype is an s33: negative = abstract heap type, non-negative = type index.
+		case 0x63: // GC proposal: (ref null <heaptype>) — nullable.
 			ht, _, err := leb128.DecodeInt33AsInt64(r)
 			if err != nil {
 				return nil, fmt.Errorf("read ref heap type: %w", err)
 			}
-			// Map to existing value types for interpreter-level representation.
 			switch ht {
-			case -23: // 0x69 = exn
+			case -23: // exn
 				ret = append(ret, wasm.ValueTypeExnref)
-			case -16: // 0x70 = func
+			case -16: // func
 				ret = append(ret, wasm.ValueTypeFuncref)
-			case -17: // 0x6f = extern
+			case -17: // extern
 				ret = append(ret, wasm.ValueTypeExternref)
-			default:
-				// Concrete type index or other abstract type — treat as funcref.
+			default: // concrete type index — treat as nullable funcref
 				ret = append(ret, wasm.ValueTypeFuncref)
+			}
+		case 0x64: // GC proposal: (ref <heaptype>) — non-nullable.
+			ht, _, err := leb128.DecodeInt33AsInt64(r)
+			if err != nil {
+				return nil, fmt.Errorf("read ref heap type: %w", err)
+			}
+			switch ht {
+			case -23: // exn
+				ret = append(ret, wasm.ValueTypeExnref) // TODO: non-null exnref
+			default:
+				ret = append(ret, wasm.ValueTypeNonNullFuncref)
 			}
 		default:
 			return nil, fmt.Errorf("invalid value type: %d", b)

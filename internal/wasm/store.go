@@ -515,7 +515,7 @@ func (m *ModuleInstance) resolveImports(ctx context.Context, module *Module) (er
 			case ExternTypeTag:
 				expected := &module.TypeSection[i.DescTag]
 				importedTag := importedModule.Tags[imported.Index]
-				if !importedTag.Type.EqualsSignature(expected.Params, expected.Results) {
+				if !importedTag.Type.EqualsType(expected) {
 					err = errorInvalidImport(i, fmt.Errorf("tag type mismatch"))
 					return
 				}

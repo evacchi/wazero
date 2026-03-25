@@ -775,6 +775,13 @@ type FunctionType struct {
 
 	// ResultsNumInUint64 is the number of uint64 values requires to represent the Wasm result type.
 	ResultNumInUint64 int
+
+	// RecGroupSize is the size of the rec group this type belongs to.
+	// Standalone types (not in an explicit rec group) have RecGroupSize 1.
+	RecGroupSize int
+
+	// RecGroupPosition is the 0-based position of this type within its rec group.
+	RecGroupPosition int
 }
 
 func (f *FunctionType) CacheNumInUint64() {
@@ -802,6 +809,15 @@ func (f *FunctionType) EqualsSignature(params []ValueType, results []ValueType) 
 	return bytes.Equal(f.Params, params) && bytes.Equal(f.Results, results)
 }
 
+// EqualsType returns true if the function types are structurally equal AND
+// belong to the same rec group position/size (GC proposal type identity).
+func (f *FunctionType) EqualsType(other *FunctionType) bool {
+	if !f.EqualsSignature(other.Params, other.Results) {
+		return false
+	}
+	return f.RecGroupSize == other.RecGroupSize && f.RecGroupPosition == other.RecGroupPosition
+}
+
 // key gets or generates the key for Store.typeIDs. e.g. "i32_v" for one i32 parameter and no (void) result.
 func (f *FunctionType) key() string {
 	if f.string != "" {
@@ -821,6 +837,9 @@ func (f *FunctionType) key() string {
 	}
 	if len(f.Results) == 0 {
 		ret += "v"
+	}
+	if f.RecGroupSize > 1 {
+		ret += fmt.Sprintf("|rec%d/%d", f.RecGroupPosition, f.RecGroupSize)
 	}
 	f.string = ret
 	return ret
@@ -1145,6 +1164,10 @@ const (
 	ValueTypeExternref           = api.ValueTypeExternref
 	// ValueTypeExnref is the exception reference type used in exception handling.
 	ValueTypeExnref ValueType = 0x69
+	// ValueTypeNonNullFuncref is a non-nullable typed function reference (ref $t).
+	// At runtime it behaves identically to funcref; the distinction matters only at validation.
+	// Uses 0x64 which is the binary encoding byte for non-nullable ref.
+	ValueTypeNonNullFuncref ValueType = 0x64
 )
 
 // ValueTypeName is an alias of api.ValueTypeName defined to simplify imports.
@@ -1155,12 +1178,41 @@ func ValueTypeName(t ValueType) string {
 		return "v128"
 	} else if t == ValueTypeExnref {
 		return "exnref"
+	} else if t == ValueTypeNonNullFuncref {
+		return "ref func"
 	}
 	return api.ValueTypeName(t)
 }
 
 func isReferenceValueType(vt ValueType) bool {
-	return vt == ValueTypeExternref || vt == ValueTypeFuncref || vt == ValueTypeExnref
+	return vt == ValueTypeExternref || vt == ValueTypeFuncref || vt == ValueTypeExnref || vt == ValueTypeNonNullFuncref
+}
+
+// isRefSubtypeOf returns true if actual is assignment-compatible with expected.
+// Treats funcref and NonNullFuncref as interchangeable for general validation
+// since we don't track nullability through the value stack.
+func isRefSubtypeOf(actual, expected ValueType) bool {
+	if actual == expected {
+		return true
+	}
+	if (actual == ValueTypeNonNullFuncref && expected == ValueTypeFuncref) ||
+		(actual == ValueTypeFuncref && expected == ValueTypeNonNullFuncref) {
+		return true
+	}
+	return false
+}
+
+// isStrictRefSubtypeOf returns true if actual is a strict subtype of expected.
+// Non-nullable ref IS a subtype of nullable, but NOT vice versa.
+// Used in catch clause validation where the direction matters.
+func isStrictRefSubtypeOf(actual, expected ValueType) bool {
+	if actual == expected {
+		return true
+	}
+	if actual == ValueTypeNonNullFuncref && expected == ValueTypeFuncref {
+		return true
+	}
+	return false
 }
 
 // ExternType is an alias of api.ExternType defined to simplify imports.

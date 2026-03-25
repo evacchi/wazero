@@ -704,7 +704,7 @@ func wasmValueTypeTounsignedType(vt wasm.ValueType) unsignedType {
 	case wasm.ValueTypeI64,
 		// From interpreterir layer, ref type values are opaque 64-bit pointers.
 		wasm.ValueTypeExternref, wasm.ValueTypeFuncref,
-		wasm.ValueTypeExnref:
+		wasm.ValueTypeExnref, wasm.ValueTypeNonNullFuncref:
 		return unsignedTypeI64
 	case wasm.ValueTypeF32:
 		return unsignedTypeF32
@@ -723,7 +723,7 @@ func wasmValueTypeToUnsignedOutSignature(vt wasm.ValueType) *signature {
 	case wasm.ValueTypeI64,
 		// From interpreterir layer, ref type values are opaque 64-bit pointers.
 		wasm.ValueTypeExternref, wasm.ValueTypeFuncref,
-		wasm.ValueTypeExnref:
+		wasm.ValueTypeExnref, wasm.ValueTypeNonNullFuncref:
 		return signature_None_I64
 	case wasm.ValueTypeF32:
 		return signature_None_F32
@@ -742,7 +742,7 @@ func wasmValueTypeToUnsignedInSignature(vt wasm.ValueType) *signature {
 	case wasm.ValueTypeI64,
 		// From interpreterir layer, ref type values are opaque 64-bit pointers.
 		wasm.ValueTypeExternref, wasm.ValueTypeFuncref,
-		wasm.ValueTypeExnref:
+		wasm.ValueTypeExnref, wasm.ValueTypeNonNullFuncref:
 		return signature_I64_None
 	case wasm.ValueTypeF32:
 		return signature_F32_None
