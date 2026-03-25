@@ -49,17 +49,20 @@ type (
 		// pendingException holds the most recently caught exception, so handler
 		// code can read its params after re-entry.
 		pendingException *wasm.Exception
+		// pendingClauseIdx holds the matched catch clause index (-1 if none).
+		// Set by handleException, read by compiled handler dispatch code.
+		pendingClauseIdx int
 	}
 
 	// tryHandler records the state at a try_table entry for exception handling.
-	// On match, we restore SP/FP/returnAddress to resume at the handler code.
+	// On match, we restore the stack to the checkpoint state and re-enter at returnAddress.
 	tryHandler struct {
-		// Saved native stack state at the try_table entry trampoline call.
-		sp            uintptr
-		fp            uintptr
-		returnAddress *byte
-		// savedRegisters holds the saved register state at the try_table entry.
+		// Cloned stack and state from the try_table entry checkpoint,
+		// using the same approach as experimental.Snapshot.
+		sp, fp, top    uintptr
+		returnAddress  *byte
 		savedRegisters [64][2]uint64
+		stack          []byte // cloned stack
 		// catchClauses describes what exceptions this handler catches.
 		catchClauses []wazevoapi.CatchClauseInstance
 	}
@@ -117,6 +120,10 @@ type (
 		tryTableEnterTrampolineAddress *byte
 		// tryTableLeaveTrampolineAddress holds the address of the try_table leave trampoline function.
 		tryTableLeaveTrampolineAddress *byte
+		// caughtExceptionClauseIdx is set by handleException to the matched clause
+		// index (0+) or -1 for no exception. The compiled handler dispatch code
+		// loads this via a known offset to avoid register-value conflicts.
+		caughtExceptionClauseIdx int64
 	}
 )
 
@@ -534,6 +541,7 @@ func (c *callEngine) callWithStack(ctx context.Context, paramResultStack []uint6
 			panic(wasmruntime.ErrRuntimeUnalignedAtomic)
 		case wazevoapi.ExitCodeThrow:
 			// The throw trampoline passes: (execCtx, tagIndex, p0, p1, p2, p3)
+			// Read params BEFORE handleException, which may change stackPointerBeforeGoCall.
 			s := goCallStackView(c.execCtx.stackPointerBeforeGoCall)
 			tagIndex := int(s[0])
 			mod := c.callerModuleInstance()
@@ -543,6 +551,8 @@ func (c *callEngine) callWithStack(ctx context.Context, paramResultStack []uint6
 			copy(params, s[1:1+nParams])
 			exn := &wasm.Exception{Tag: tag, Params: params}
 			if c.handleException(exn) {
+				// handleException restored the cloned stack and set goCallReturnAddress
+				// to the try_table enter trampoline's resume point.
 				afterGoFunctionCallEntrypoint(c.execCtx.goCallReturnAddress, c.execCtxPtr,
 					uintptr(unsafe.Pointer(c.execCtx.stackPointerBeforeGoCall)), c.execCtx.framePointerBeforeGoCall)
 			} else {
@@ -565,22 +575,28 @@ func (c *callEngine) callWithStack(ctx context.Context, paramResultStack []uint6
 		case wazevoapi.ExitCodeNullReference:
 			panic(wasmruntime.ErrRuntimeNullReference)
 		case wazevoapi.ExitCodeTryTableEnter:
-			// Save current state as a try handler checkpoint.
-			// The catch clause info is encoded in the upper bits of the exit code.
+			// Save current state as a try handler checkpoint using stack cloning
+			// (same approach as experimental.Snapshot).
 			catchClauseTableIdx := wazevoapi.TagIndexFromExitCode(ec)
 			mod := c.callerModuleInstance()
 			me := mod.Engine.(*moduleEngine)
 			clauses := me.parent.catchClauseTable[catchClauseTableIdx]
+			returnAddress := c.execCtx.goCallReturnAddress
+			oldTop, oldSp := c.stackTop, uintptr(unsafe.Pointer(c.execCtx.stackPointerBeforeGoCall))
+			newSP, newFP, newTop, newStack := c.cloneStack(uintptr(len(c.stack)) + 16)
+			adjustClonedStack(oldSp, oldTop, newSP, newFP, newTop)
 			c.tryHandlers = append(c.tryHandlers, tryHandler{
-				sp:             uintptr(unsafe.Pointer(c.execCtx.stackPointerBeforeGoCall)),
-				fp:             c.execCtx.framePointerBeforeGoCall,
-				returnAddress:  c.execCtx.goCallReturnAddress,
+				sp:             newSP,
+				fp:             newFP,
+				top:            newTop,
+				returnAddress:  returnAddress,
 				savedRegisters: c.execCtx.savedRegisters,
+				stack:          newStack,
 				catchClauses:   clauses,
 			})
-			// Set return value to -1 (sentinel: no exception, continue body).
+			// Write -1 (no exception) as the trampoline return value.
 			s := goCallStackView(c.execCtx.stackPointerBeforeGoCall)
-			s[0] = ^uint64(0) // -1 as uint64
+			s[0] = ^uint64(0) // -1
 			c.execCtx.exitCode = wazevoapi.ExitCodeOK
 			afterGoFunctionCallEntrypoint(c.execCtx.goCallReturnAddress, c.execCtxPtr,
 				uintptr(unsafe.Pointer(c.execCtx.stackPointerBeforeGoCall)), c.execCtx.framePointerBeforeGoCall)
@@ -625,22 +641,22 @@ func (c *callEngine) handleException(exn *wasm.Exception) bool {
 				// Store the caught exception so handler code can read params.
 				c.pendingException = exn
 
-				// Restore execution state to the handler's checkpoint.
+				// Restore the cloned stack (like snapshot.doRestore).
+				spp := *(**uint64)(unsafe.Pointer(&h.sp))
+				c.stack = h.stack
+				c.stackTop = h.top
 				ec := &c.execCtx
+				ec.stackBottomPtr = &c.stack[0]
+				ec.stackPointerBeforeGoCall = spp
+				ec.framePointerBeforeGoCall = h.fp
 				ec.goCallReturnAddress = h.returnAddress
 				ec.savedRegisters = h.savedRegisters
 
-				// Put the matched clause index + exception params on the Go call stack.
-				spp := *(**uint64)(unsafe.Pointer(&h.sp))
-				view := goCallStackView(spp)
-				view[0] = uint64(clauseIdx)
-				// Put exception params starting at offset 1.
-				if clause.Kind == wasm.CatchKindCatch || clause.Kind == wasm.CatchKindCatchRef {
-					copy(view[1:], exn.Params)
-				}
+				// Write the matched clause index to the cloned stack's go call
+				// stack. The trampoline epilogue will load this as the return value.
+				clonedView := goCallStackView(spp)
+				clonedView[0] = uint64(clauseIdx)
 
-				ec.stackPointerBeforeGoCall = spp
-				ec.framePointerBeforeGoCall = h.fp
 				return true
 			}
 		}

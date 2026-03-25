@@ -2822,6 +2822,46 @@ var TryTableCatchAllEmpty = TestCase{
 	},
 }
 
+// TryTableCatchAllThrow: try_table with catch_all where the body throws.
+// The catch_all catches the exception, falls through, and returns 42.
+//
+//	(module
+//	  (tag $e)
+//	  (func (export "f") (result i32)
+//	    (block $caught
+//	      (try_table (catch_all $caught)
+//	        (throw $e)
+//	      )
+//	      (unreachable)
+//	    )
+//	    (i32.const 42)
+//	  )
+//	)
+var TryTableCatchAllThrow = TestCase{
+	Name: "try_table_catch_all_throw",
+	Module: &wasm.Module{
+		TypeSection:     []wasm.FunctionType{vv, {Results: []wasm.ValueType{i32}}},
+		FunctionSection: []wasm.Index{1},       // func type 1: () -> i32
+		TagSection:      []wasm.Tag{{Type: 0}}, // tag type 0: () -> ()
+		CodeSection: []wasm.Code{{
+			Body: []byte{
+				wasm.OpcodeBlock, blockSignature_vv, // block $caught
+				wasm.OpcodeTryTable, blockSignature_vv, // try_table
+				1,                      // 1 catch clause
+				wasm.CatchKindCatchAll, // catch_all
+				0,                      // label 0 = $caught
+				wasm.OpcodeThrow, 0,    // throw tag 0
+				wasm.OpcodeEnd,         // end try_table
+				wasm.OpcodeUnreachable, // after try_table (unreachable)
+				wasm.OpcodeEnd,         // end block $caught
+				wasm.OpcodeI32Const, 42,
+				wasm.OpcodeEnd, // end func
+			},
+		}},
+		ExportSection: []wasm.Export{{Name: ExportedFunctionName, Type: wasm.ExternTypeFunc, Index: 0}},
+	},
+}
+
 type TestCase struct {
 	Name             string
 	Imported, Module *wasm.Module

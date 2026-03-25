@@ -915,6 +915,12 @@ func TestE2E(t *testing.T) {
 			features: api.CoreFeaturesV2 | experimental.CoreFeaturesExceptionHandling,
 			calls:    []callCase{{expResults: []uint64{42}}},
 		},
+		{
+			name:     "try_table_catch_all_throw",
+			m:        testcases.TryTableCatchAllThrow.Module,
+			features: api.CoreFeaturesV2 | experimental.CoreFeaturesExceptionHandling,
+			calls:    []callCase{{expResults: []uint64{42}}},
+		},
 	} {
 		tc := tc
 		t.Run(tc.name, func(t *testing.T) {

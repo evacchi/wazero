@@ -2370,6 +2370,14 @@ L5 (SSA Block: blk5):
 	b f0
 `,
 		},
+		{
+			name: "try_table_catch_all_empty", m: testcases.TryTableCatchAllEmpty.Module,
+			afterLoweringARM64: "x",
+		},
+		{
+			name: "try_table_catch_all_throw", m: testcases.TryTableCatchAllThrow.Module,
+			afterFinalizeARM64: "x",
+		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			var exp string
@@ -2386,7 +2394,7 @@ L5 (SSA Block: blk5):
 				t.Fail()
 			}
 
-			err := tc.m.Validate(api.CoreFeaturesV2 | experimental.CoreFeaturesThreads | experimental.CoreFeaturesTailCall)
+			err := tc.m.Validate(api.CoreFeaturesV2 | experimental.CoreFeaturesThreads | experimental.CoreFeaturesTailCall | experimental.CoreFeaturesExceptionHandling)
 			require.NoError(t, err)
 
 			ssab := ssa.NewBuilder()

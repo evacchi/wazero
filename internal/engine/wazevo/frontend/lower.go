@@ -3545,10 +3545,12 @@ func (c *Compiler) lowerCurrentOpcode() {
 		tryTableID := len(c.CatchClauseTable)
 		c.CatchClauseTable = append(c.CatchClauseTable, clauseInstances)
 
-		// Store the caller module context for the trampoline.
+		// Store the caller module context so the dispatch loop can find the module.
 		c.storeCallerModuleContext()
 
-		// Call the try_table enter trampoline.
+		// Call the try_table enter trampoline. This exits to the dispatch loop,
+		// which clones the stack as a checkpoint and sets caughtExceptionClauseIdx = -1.
+		// The trampoline saves/restores callee-saved registers so they survive the round-trip.
 		tryTableEnterPtr := builder.AllocateInstruction().
 			AsLoad(c.execCtxPtrValue,
 				wazevoapi.ExecutionContextOffsetTryTableEnterTrampolineAddress.U32(),
@@ -3558,9 +3560,9 @@ func (c *Compiler) lowerCurrentOpcode() {
 		tryTableIDVal := builder.AllocateInstruction().AsIconst64(uint64(
 			wazevoapi.ExitCodeTryTableEnter | wazevoapi.ExitCode(tryTableID<<8),
 		)).Insert(builder).Return()
-		// Disguise the exit code as a regular i64 param.
-		// The trampoline signature is (execCtx i64, info i64) -> (clauseIdx i64).
 		args := c.allocateVarLengthValues(2, c.execCtxPtrValue, tryTableIDVal)
+		// The trampoline returns the clauseIdx as its return value.
+		// -1 = no exception (normal path), 0+ = caught clause index.
 		clauseIdxVal := builder.AllocateInstruction().
 			AsCallIndirect(tryTableEnterPtr, &c.tryTableEnterSig, args).
 			Insert(builder).Return()
@@ -4226,7 +4228,7 @@ func (c *Compiler) storeCallerModuleContext() {
 	builder.InsertInstruction(store)
 }
 
-// emitTryTableLeave emits the try_table leave trampoline call to pop the handler.
+// emitTryTableLeave emits a trampoline call to pop the try handler in the dispatch loop.
 func (c *Compiler) emitTryTableLeave() {
 	builder := c.ssaBuilder
 	c.storeCallerModuleContext()
@@ -4283,12 +4285,27 @@ func (c *Compiler) lowerTryTableCatchDispatch(catchClauses []parsedCatchClause, 
 		// Resolve the wasm target label.
 		targetBlk, _ := state.brTargetArgNumFor(cc.labelIdx)
 
-		// TODO: Load exception params and jump to target.
-		// For now, just exit with unreachable to verify the structure works.
-		_ = targetBlk
-		exitInstr := builder.AllocateInstruction()
-		exitInstr.AsExitWithCode(c.execCtxPtrValue, wazevoapi.ExitCodeUnreachable)
-		builder.InsertInstruction(exitInstr)
+		// Load exception params and jump to wasm target.
+		var brArgs []ssa.Value
+		tagType := c.m.TypeOfTag(cc.tagIndex)
+		switch cc.kind {
+		case wasm.CatchKindCatch:
+			if tagType != nil {
+				brArgs = c.loadExceptionParams(tagType)
+			}
+		case wasm.CatchKindCatchRef:
+			if tagType != nil {
+				brArgs = c.loadExceptionParams(tagType)
+			}
+			brArgs = append(brArgs, c.loadExnRef())
+		case wasm.CatchKindCatchAll:
+			// No values.
+		case wasm.CatchKindCatchAllRef:
+			brArgs = append(brArgs, c.loadExnRef())
+		}
+
+		args := c.allocateVarLengthValues(len(brArgs), brArgs...)
+		c.insertJumpToBlock(args, targetBlk)
 
 		// Continue with the next check block.
 		builder.Seal(nextCheckBlk)

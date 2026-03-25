@@ -57,6 +57,9 @@ const (
 	ExecutionContextOffsetThrowRefTrampolineAddress      Offset = 1192
 	ExecutionContextOffsetTryTableEnterTrampolineAddress Offset = 1200
 	ExecutionContextOffsetTryTableLeaveTrampolineAddress Offset = 1208
+	// ExecutionContextOffsetCaughtExceptionClauseIdx is the matched catch clause index
+	// written by handleException and read by compiled handler dispatch code.
+	ExecutionContextOffsetCaughtExceptionClauseIdx Offset = 1216
 )
 
 // ModuleContextOffsetData allows the compilers to get the information about offsets to the fields of wazevo.moduleContextOpaque,
