@@ -62,6 +62,10 @@ type (
 		stack          []byte // cloned stack
 		// catchClauses describes what exceptions this handler catches.
 		catchClauses []wazevoapi.CatchClauseInstance
+		// moduleInstance is the module that set up this try handler.
+		// Used for tag matching in doHandleException (the tag index in
+		// catch clauses is relative to this module's tag index space).
+		moduleInstance *wasm.ModuleInstance
 	}
 
 
@@ -615,6 +619,7 @@ func (c *callEngine) callWithStack(ctx context.Context, paramResultStack []uint6
 				savedRegisters: c.execCtx.savedRegisters,
 				stack:          newStack,
 				catchClauses:   clauses,
+				moduleInstance: mod,
 			})
 			// Set clauseIdx = -1 (no exception) in execCtx for the compiled code
 			// to read after the trampoline returns.
@@ -645,7 +650,9 @@ func (c *callEngine) doHandleException(exn *wasm.Exception) bool {
 	for i := len(c.tryHandlers) - 1; i >= 0; i-- {
 		h := &c.tryHandlers[i]
 		for clauseIdx, clause := range h.catchClauses {
-			mod := c.callerModuleInstance()
+			// Use the module that set up the handler (not the one that threw)
+			// because clause.TagIndex is relative to that module's tag space.
+			mod := h.moduleInstance
 			matched := false
 			switch clause.Kind {
 			case wasm.CatchKindCatch:
