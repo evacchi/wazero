@@ -205,6 +205,21 @@ func (ce *callEngine) popTryHandler() {
 	ce.tryHandlers = ce.tryHandlers[:len(ce.tryHandlers)-1]
 }
 
+// popTryHandlersForFrame pops all try handlers that belong to the current
+// call frame (i.e., whose savedFrames length equals the current frame count).
+// Used before return_call to ensure the callee's exceptions are not caught
+// by the caller's try_table handlers.
+func (ce *callEngine) popTryHandlersForFrame() {
+	currentFrameCount := len(ce.frames)
+	for len(ce.tryHandlers) > 0 {
+		h := &ce.tryHandlers[len(ce.tryHandlers)-1]
+		if len(h.savedFrames) != currentFrameCount {
+			break
+		}
+		ce.tryHandlers = ce.tryHandlers[:len(ce.tryHandlers)-1]
+	}
+}
+
 // handleExceptionInCurrentFrame handles an exception thrown within the same
 // callNativeFunc as the try_table handler. Returns true if a handler was found
 // and applied (caller should continue the loop). Returns false if the exception
@@ -4638,11 +4653,15 @@ func (ce *callEngine) callNativeFunc(ctx context.Context, m *wasm.ModuleInstance
 			frame.pc++
 
 		case operationKindTailCallReturnCall:
+			// Pop any try handlers belonging to the current function before tail call.
+			// return_call exits the function, so its try_table handlers no longer apply.
+			ce.popTryHandlersForFrame()
 			f := &functions[op.U1]
 			ce.dropForTailCall(frame, f)
 			body, bodyLen = ce.resetPc(frame, f)
 
 		case operationKindTailCallReturnCallIndirect:
+			ce.popTryHandlersForFrame()
 			offset := ce.popValue()
 			table := tables[op.U2]
 			tf := ce.functionForOffset(table, offset, typeIDs[op.U1])

@@ -2475,6 +2475,23 @@ func DecodeBlockType(types []FunctionType, r *bytes.Reader, enabledFeatures api.
 		ret = blockType_v_externref
 	case -23: // 0x69 in original byte = exnref
 		ret = blockType_v_exnref
+	case -28, -29: // 0x63 = ref, 0x64 = ref null — GC proposal shorthand
+		// Read the heap type to determine the result type.
+		ht, htNum, err := leb128.DecodeInt33AsInt64(r)
+		if err != nil {
+			return nil, 0, fmt.Errorf("read ref heap type in block: %w", err)
+		}
+		num += htNum
+		switch ht {
+		case -23: // exn
+			ret = blockType_v_exnref
+		case -16: // func
+			ret = blockType_v_funcref
+		case -17: // extern
+			ret = blockType_v_externref
+		default: // concrete type index or other — treat as funcref
+			ret = blockType_v_funcref
+		}
 	default:
 		if err = enabledFeatures.RequireEnabled(api.CoreFeatureMultiValue); err != nil {
 			return nil, num, fmt.Errorf("block with function type return invalid as %v", err)

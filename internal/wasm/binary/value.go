@@ -16,19 +16,38 @@ func decodeValueTypes(r *bytes.Reader, num uint32) ([]wasm.ValueType, error) {
 		return nil, nil
 	}
 
-	ret := make([]wasm.ValueType, num)
-	_, err := io.ReadFull(r, ret)
-	if err != nil {
-		return nil, err
-	}
-
-	for _, v := range ret {
-		switch v {
+	ret := make([]wasm.ValueType, 0, num)
+	for i := uint32(0); i < num; i++ {
+		b, err := r.ReadByte()
+		if err != nil {
+			return nil, err
+		}
+		switch b {
 		case wasm.ValueTypeI32, wasm.ValueTypeF32, wasm.ValueTypeI64, wasm.ValueTypeF64,
 			wasm.ValueTypeExternref, wasm.ValueTypeFuncref, wasm.ValueTypeV128,
 			wasm.ValueTypeExnref:
+			ret = append(ret, b)
+		case 0x63, 0x64:
+			// GC proposal: (ref <heaptype>) or (ref null <heaptype>).
+			// heaptype is an s33: negative = abstract heap type, non-negative = type index.
+			ht, _, err := leb128.DecodeInt33AsInt64(r)
+			if err != nil {
+				return nil, fmt.Errorf("read ref heap type: %w", err)
+			}
+			// Map to existing value types for interpreter-level representation.
+			switch ht {
+			case -23: // 0x69 = exn
+				ret = append(ret, wasm.ValueTypeExnref)
+			case -16: // 0x70 = func
+				ret = append(ret, wasm.ValueTypeFuncref)
+			case -17: // 0x6f = extern
+				ret = append(ret, wasm.ValueTypeExternref)
+			default:
+				// Concrete type index or other abstract type — treat as funcref.
+				ret = append(ret, wasm.ValueTypeFuncref)
+			}
 		default:
-			return nil, fmt.Errorf("invalid value type: %d", v)
+			return nil, fmt.Errorf("invalid value type: %d", b)
 		}
 	}
 	return ret, nil

@@ -437,12 +437,17 @@ func RunCase(t *testing.T, testDataFS embed.FS, f string, ctx context.Context, c
 						require.NoError(t, err, msg)
 						require.Equal(t, len(exps), len(results), msg)
 						laneTypes := map[int]string{}
+						skipIndices := map[int]bool{}
 						for i, expV := range c.Exps {
 							if expV.ValType == "v128" {
 								laneTypes[i] = expV.LaneType
 							}
+							// When value is nil for ref types, it means "any ref" — skip comparison.
+							if expV.Value == nil && (expV.ValType == "funcref" || expV.ValType == "externref" || expV.ValType == "exnref") {
+								skipIndices[i] = true
+							}
 						}
-						matched, valuesMsg := valuesEq(results, exps, fn.Definition().ResultTypes(), laneTypes)
+						matched, valuesMsg := valuesEq(results, exps, fn.Definition().ResultTypes(), laneTypes, skipIndices)
 						require.True(t, matched, msg+"\n"+valuesMsg)
 					case "get":
 						_, exps := c.getAssertReturnArgsExps()
@@ -574,12 +579,23 @@ func testdataPath(filename string) string {
 //   - laneTypes maps the index of valueTypes to laneType if valueTypes[i] == wasm.ValueTypeV128.
 //
 // Also, if matched == false this returns non-empty valuesMsg which can be used to augment the test failure message.
-func valuesEq(actual, exps []uint64, valTypes []wasm.ValueType, laneTypes map[int]laneType) (matched bool, valuesMsg string) {
+func valuesEq(actual, exps []uint64, valTypes []wasm.ValueType, laneTypes map[int]laneType, skipIndices map[int]bool) (matched bool, valuesMsg string) {
 	matched = true
 
 	var msgExpValuesStrs, msgActualValuesStrs []string
 	var uint64RepPos int // the index to actual and exps slice.
 	for i, tp := range valTypes {
+		if skipIndices[i] {
+			// Skip comparison for this result (e.g., "any funcref").
+			if tp == wasm.ValueTypeV128 {
+				uint64RepPos += 2
+			} else {
+				uint64RepPos++
+			}
+			msgExpValuesStrs = append(msgExpValuesStrs, "*")
+			msgActualValuesStrs = append(msgActualValuesStrs, "*")
+			continue
+		}
 		switch tp {
 		case wasm.ValueTypeI32:
 			msgExpValuesStrs = append(msgExpValuesStrs, fmt.Sprintf("%d", uint32(exps[uint64RepPos])))
