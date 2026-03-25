@@ -128,6 +128,9 @@ type (
 		// dispatch loop when an exception is caught. Handler blocks load
 		// these from execCtx at known offsets.
 		caughtExceptionParams [4]uint64
+		// caughtExceptionExnRef holds the pointer to the caught Exception
+		// struct, used by catch_ref/catch_all_ref handlers.
+		caughtExceptionExnRef uint64
 	}
 )
 
@@ -561,10 +564,11 @@ func (c *callEngine) callWithStack(ctx context.Context, paramResultStack []uint6
 				panic(wasmruntime.ErrRuntimeUncaughtException)
 			}
 			// doHandleException restored the cloned stack and set clauseIdx in execCtx.
-			// Write exception params to execCtx so handler code can read them.
+			// Write exception params and exnref to execCtx so handler code can read them.
 			for i, p := range exn.Params {
 				c.execCtx.caughtExceptionParams[i] = p
 			}
+			c.execCtx.caughtExceptionExnRef = uint64(uintptr(unsafe.Pointer(exn)))
 			c.execCtx.exitCode = wazevoapi.ExitCodeOK
 			afterGoFunctionCallEntrypoint(c.execCtx.goCallReturnAddress, c.execCtxPtr,
 				uintptr(unsafe.Pointer(c.execCtx.stackPointerBeforeGoCall)), c.execCtx.framePointerBeforeGoCall)
@@ -579,6 +583,11 @@ func (c *callEngine) callWithStack(ctx context.Context, paramResultStack []uint6
 			if !c.doHandleException(exn) {
 				panic(wasmruntime.ErrRuntimeUncaughtException)
 			}
+			// Write exception params and exnref to execCtx so handler code can read them.
+			for i, p := range exn.Params {
+				c.execCtx.caughtExceptionParams[i] = p
+			}
+			c.execCtx.caughtExceptionExnRef = uint64(uintptr(unsafe.Pointer(exn)))
 			c.execCtx.exitCode = wazevoapi.ExitCodeOK
 			afterGoFunctionCallEntrypoint(c.execCtx.goCallReturnAddress, c.execCtxPtr,
 				uintptr(unsafe.Pointer(c.execCtx.stackPointerBeforeGoCall)), c.execCtx.framePointerBeforeGoCall)

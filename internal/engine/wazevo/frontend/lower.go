@@ -3407,6 +3407,9 @@ func (c *Compiler) lowerCurrentOpcode() {
 		if state.unreachable {
 			break
 		}
+		// Per spec, return_call leaves the current frame, so all enclosing
+		// try_table handlers must be popped before the tail call.
+		c.emitTryTableLeavesForReturn()
 		_, _ = typeIndex, tableIndex
 		c.lowerTailCallReturnCallIndirect(typeIndex, tableIndex)
 		state.unreachable = true
@@ -3416,6 +3419,9 @@ func (c *Compiler) lowerCurrentOpcode() {
 		if state.unreachable {
 			break
 		}
+		// Per spec, return_call leaves the current frame, so all enclosing
+		// try_table handlers must be popped before the tail call.
+		c.emitTryTableLeavesForReturn()
 		c.lowerTailCallReturnCall(fnIndex)
 		state.unreachable = true
 
@@ -4275,6 +4281,18 @@ func (c *Compiler) emitTryTableLeave() {
 		Insert(builder)
 }
 
+// emitTryTableLeavesForReturn emits TryTableLeave calls for all enclosing
+// try_table control frames. This is needed before return_call (tail call)
+// instructions so that try handlers are popped before the frame is replaced.
+func (c *Compiler) emitTryTableLeavesForReturn() {
+	state := c.state()
+	for i := len(state.controlFrames) - 1; i >= 0; i-- {
+		if state.controlFrames[i].kind == controlFrameKindTryTable {
+			c.emitTryTableLeave()
+		}
+	}
+}
+
 // parsedCatchClause holds a parsed catch clause from a try_table instruction.
 type parsedCatchClause struct {
 	kind     byte
@@ -4319,15 +4337,15 @@ func (c *Compiler) loadExceptionParams(tagType *wasm.FunctionType) []ssa.Value {
 	return values
 }
 
-// loadExnRef loads the exnref (pointer to Exception) from the Go call stack.
+// loadExnRef loads the exnref (pointer to Exception) from the executionContext.
+// The dispatch loop writes it to caughtExceptionExnRef after matching a handler.
 func (c *Compiler) loadExnRef() ssa.Value {
 	builder := c.ssaBuilder
-	// The exnref is stored in a fixed location. For simplicity, store it
-	// as the last value after the exception params. But we don't know the
-	// param count here... use a fixed offset from the execution context instead.
-	// Actually, the dispatch loop stores the exnref at a known position.
-	// For now, return 0 (null exnref) as a placeholder — we'll fix this for _ref variants.
-	return builder.AllocateInstruction().AsIconst64(0).Insert(builder).Return()
+	return builder.AllocateInstruction().
+		AsLoad(c.execCtxPtrValue,
+			wazevoapi.ExecutionContextOffsetCaughtExceptionExnRef.U32(),
+			ssa.TypeI64,
+		).Insert(builder).Return()
 }
 
 // skipTryTableCatchClauses advances the bytecode PC past the catch clauses

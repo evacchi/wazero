@@ -63,6 +63,9 @@ const (
 	// ExecutionContextOffsetCaughtExceptionParams holds exception parameter values
 	// written by the dispatch loop and read by compiled handler code.
 	ExecutionContextOffsetCaughtExceptionParams Offset = 1224
+	// ExecutionContextOffsetCaughtExceptionExnRef holds the pointer to the
+	// caught Exception struct for catch_ref/catch_all_ref handlers.
+	ExecutionContextOffsetCaughtExceptionExnRef Offset = 1256
 )
 
 // ModuleContextOffsetData allows the compilers to get the information about offsets to the fields of wazevo.moduleContextOpaque,
