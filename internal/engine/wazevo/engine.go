@@ -833,9 +833,8 @@ func (e *engine) compileSharedFunctions() {
 	addTrampoline(10,
 		e.machine.CompileGoFunctionTrampoline(wazevoapi.ExitCodeTryTableEnter, &ssa.Signature{
 			// exec context, catch clause info (encoded)
-			Params: []ssa.Type{ssa.TypeI64, ssa.TypeI64},
-			// Returns the clause index (-1 = no exception, 0+ = caught clause index).
-			Results: []ssa.Type{ssa.TypeI64},
+			Params:  []ssa.Type{ssa.TypeI64, ssa.TypeI64},
+			Results: []ssa.Type{},
 		}, false))
 
 	e.be.Init()

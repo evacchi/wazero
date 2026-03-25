@@ -2862,6 +2862,49 @@ var TryTableCatchAllThrow = TestCase{
 	},
 }
 
+// TryTableCatchThrow: try_table with catch $e0 (specific tag, no params) where
+// the body throws. The catch dispatches to the enclosing block.
+//
+//	(module
+//	  (tag $e0)
+//	  (func (export "f") (result i32)
+//	    (block $h                           ;; label 0
+//	      (try_table (result i32) (catch $e0 $h)
+//	        (throw $e0)
+//	        (i32.const 42)
+//	      )
+//	      (return)
+//	    )
+//	    (i32.const 23)
+//	  )
+//	)
+var TryTableCatchThrow = TestCase{
+	Name: "try_table_catch_throw",
+	Module: &wasm.Module{
+		TypeSection:     []wasm.FunctionType{vv, {Results: []wasm.ValueType{i32}}},
+		FunctionSection: []wasm.Index{1},       // func type 1: () -> i32
+		TagSection:      []wasm.Tag{{Type: 0}}, // tag type 0: () -> ()
+		CodeSection: []wasm.Code{{
+			Body: []byte{
+				wasm.OpcodeBlock, blockSignature_vv, // block $h (label 0)
+				wasm.OpcodeTryTable, 0x7F, // try_table (result i32)
+				1,                    // 1 catch clause
+				wasm.CatchKindCatch, // catch
+				0,                   // tag index 0 ($e0)
+				0,                   // label 0 ($h)
+				wasm.OpcodeThrow, 0, // throw tag 0
+				wasm.OpcodeI32Const, 42, // (unreachable but needed for type)
+				wasm.OpcodeEnd,      // end try_table
+				wasm.OpcodeReturn,   // return try_table result
+				wasm.OpcodeEnd,      // end block $h
+				wasm.OpcodeI32Const, 23,
+				wasm.OpcodeEnd, // end func
+			},
+		}},
+		ExportSection: []wasm.Export{{Name: ExportedFunctionName, Type: wasm.ExternTypeFunc, Index: 0}},
+	},
+}
+
 type TestCase struct {
 	Name             string
 	Imported, Module *wasm.Module

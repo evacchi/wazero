@@ -2378,6 +2378,10 @@ L5 (SSA Block: blk5):
 			name: "try_table_catch_all_throw", m: testcases.TryTableCatchAllThrow.Module,
 			afterFinalizeARM64: "x",
 		},
+		{
+			name: "try_table_catch_throw", m: testcases.TryTableCatchThrow.Module,
+			afterFinalizeARM64: "x",
+		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			var exp string

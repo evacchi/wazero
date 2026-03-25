@@ -49,9 +49,6 @@ type (
 		// pendingException holds the most recently caught exception, so handler
 		// code can read its params after re-entry.
 		pendingException *wasm.Exception
-		// pendingClauseIdx holds the matched catch clause index (-1 if none).
-		// Set by handleException, read by compiled handler dispatch code.
-		pendingClauseIdx int
 	}
 
 	// tryHandler records the state at a try_table entry for exception handling.
@@ -66,6 +63,8 @@ type (
 		// catchClauses describes what exceptions this handler catches.
 		catchClauses []wazevoapi.CatchClauseInstance
 	}
+
+
 
 	// executionContext is the struct to be read/written by assembly functions.
 	executionContext struct {
@@ -120,9 +119,10 @@ type (
 		tryTableEnterTrampolineAddress *byte
 		// tryTableLeaveTrampolineAddress holds the address of the try_table leave trampoline function.
 		tryTableLeaveTrampolineAddress *byte
-		// caughtExceptionClauseIdx is set by handleException to the matched clause
-		// index (0+) or -1 for no exception. The compiled handler dispatch code
-		// loads this via a known offset to avoid register-value conflicts.
+		// caughtExceptionClauseIdx is set by the dispatch loop to -1 on
+		// TryTableEnter (normal path) or to the matched catch clause index
+		// when an exception is caught. Compiled code loads this from execCtx
+		// after the trampoline call to decide which handler to dispatch to.
 		caughtExceptionClauseIdx int64
 	}
 )
@@ -541,7 +541,6 @@ func (c *callEngine) callWithStack(ctx context.Context, paramResultStack []uint6
 			panic(wasmruntime.ErrRuntimeUnalignedAtomic)
 		case wazevoapi.ExitCodeThrow:
 			// The throw trampoline passes: (execCtx, tagIndex, p0, p1, p2, p3)
-			// Read params BEFORE handleException, which may change stackPointerBeforeGoCall.
 			s := goCallStackView(c.execCtx.stackPointerBeforeGoCall)
 			tagIndex := int(s[0])
 			mod := c.callerModuleInstance()
@@ -550,14 +549,15 @@ func (c *callEngine) callWithStack(ctx context.Context, paramResultStack []uint6
 			params := make([]uint64, nParams)
 			copy(params, s[1:1+nParams])
 			exn := &wasm.Exception{Tag: tag, Params: params}
-			if c.handleException(exn) {
-				// handleException restored the cloned stack and set goCallReturnAddress
-				// to the try_table enter trampoline's resume point.
-				afterGoFunctionCallEntrypoint(c.execCtx.goCallReturnAddress, c.execCtxPtr,
-					uintptr(unsafe.Pointer(c.execCtx.stackPointerBeforeGoCall)), c.execCtx.framePointerBeforeGoCall)
-			} else {
+			if !c.doHandleException(exn) {
 				panic(wasmruntime.ErrRuntimeUncaughtException)
 			}
+			// doHandleException restored the cloned stack and wrote clauseIdx
+			// to the go call stack. Re-enter native code at the TryTableEnter
+			// trampoline's resume point.
+			c.execCtx.exitCode = wazevoapi.ExitCodeOK
+			afterGoFunctionCallEntrypoint(c.execCtx.goCallReturnAddress, c.execCtxPtr,
+				uintptr(unsafe.Pointer(c.execCtx.stackPointerBeforeGoCall)), c.execCtx.framePointerBeforeGoCall)
 		case wazevoapi.ExitCodeThrowRef:
 			// The throw_ref trampoline passes: (execCtx, exnref)
 			s := goCallStackView(c.execCtx.stackPointerBeforeGoCall)
@@ -566,12 +566,12 @@ func (c *callEngine) callWithStack(ctx context.Context, paramResultStack []uint6
 				panic(wasmruntime.ErrRuntimeNullReference)
 			}
 			exn := (*wasm.Exception)(unsafe.Pointer(exnRefPtr))
-			if c.handleException(exn) {
-				afterGoFunctionCallEntrypoint(c.execCtx.goCallReturnAddress, c.execCtxPtr,
-					uintptr(unsafe.Pointer(c.execCtx.stackPointerBeforeGoCall)), c.execCtx.framePointerBeforeGoCall)
-			} else {
+			if !c.doHandleException(exn) {
 				panic(wasmruntime.ErrRuntimeUncaughtException)
 			}
+			c.execCtx.exitCode = wazevoapi.ExitCodeOK
+			afterGoFunctionCallEntrypoint(c.execCtx.goCallReturnAddress, c.execCtxPtr,
+				uintptr(unsafe.Pointer(c.execCtx.stackPointerBeforeGoCall)), c.execCtx.framePointerBeforeGoCall)
 		case wazevoapi.ExitCodeNullReference:
 			panic(wasmruntime.ErrRuntimeNullReference)
 		case wazevoapi.ExitCodeTryTableEnter:
@@ -594,9 +594,9 @@ func (c *callEngine) callWithStack(ctx context.Context, paramResultStack []uint6
 				stack:          newStack,
 				catchClauses:   clauses,
 			})
-			// Write -1 (no exception) as the trampoline return value.
-			s := goCallStackView(c.execCtx.stackPointerBeforeGoCall)
-			s[0] = ^uint64(0) // -1
+			// Set clauseIdx = -1 (no exception) in execCtx for the compiled code
+			// to read after the trampoline returns.
+			c.execCtx.caughtExceptionClauseIdx = -1
 			c.execCtx.exitCode = wazevoapi.ExitCodeOK
 			afterGoFunctionCallEntrypoint(c.execCtx.goCallReturnAddress, c.execCtxPtr,
 				uintptr(unsafe.Pointer(c.execCtx.stackPointerBeforeGoCall)), c.execCtx.framePointerBeforeGoCall)
@@ -614,10 +614,11 @@ func (c *callEngine) callWithStack(ctx context.Context, paramResultStack []uint6
 	}
 }
 
-// handleException tries to match the given exception against active try handlers.
+// doHandleException tries to match the given exception against active try handlers.
 // If a match is found, it restores the execution state to the handler's checkpoint
-// and puts the caught values on the Go call stack. Returns true if handled.
-func (c *callEngine) handleException(exn *wasm.Exception) bool {
+// (like snapshot.doRestore) and writes the matched clause index as the trampoline
+// return value. Returns true if handled.
+func (c *callEngine) doHandleException(exn *wasm.Exception) bool {
 	// Search try handlers from innermost (last) to outermost (first).
 	for i := len(c.tryHandlers) - 1; i >= 0; i-- {
 		h := &c.tryHandlers[i]
@@ -652,11 +653,8 @@ func (c *callEngine) handleException(exn *wasm.Exception) bool {
 				ec.goCallReturnAddress = h.returnAddress
 				ec.savedRegisters = h.savedRegisters
 
-				// Write the matched clause index to the cloned stack's go call
-				// stack. The trampoline epilogue will load this as the return value.
-				clonedView := goCallStackView(spp)
-				clonedView[0] = uint64(clauseIdx)
-
+				// Set the matched clause index in execCtx for compiled code to read.
+				ec.caughtExceptionClauseIdx = int64(clauseIdx)
 				return true
 			}
 		}

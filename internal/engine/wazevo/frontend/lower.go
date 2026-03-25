@@ -3545,65 +3545,87 @@ func (c *Compiler) lowerCurrentOpcode() {
 		tryTableID := len(c.CatchClauseTable)
 		c.CatchClauseTable = append(c.CatchClauseTable, clauseInstances)
 
-		// Store the caller module context so the dispatch loop can find the module.
-		c.storeCallerModuleContext()
-
-		// Call the try_table enter trampoline. This exits to the dispatch loop,
-		// which clones the stack as a checkpoint and sets caughtExceptionClauseIdx = -1.
-		// The trampoline saves/restores callee-saved registers so they survive the round-trip.
-		tryTableEnterPtr := builder.AllocateInstruction().
-			AsLoad(c.execCtxPtrValue,
-				wazevoapi.ExecutionContextOffsetTryTableEnterTrampolineAddress.U32(),
-				ssa.TypeI64,
-			).Insert(builder).Return()
-
-		tryTableIDVal := builder.AllocateInstruction().AsIconst64(uint64(
-			wazevoapi.ExitCodeTryTableEnter | wazevoapi.ExitCode(tryTableID<<8),
-		)).Insert(builder).Return()
-		args := c.allocateVarLengthValues(2, c.execCtxPtrValue, tryTableIDVal)
-		// The trampoline returns the clauseIdx as its return value.
-		// -1 = no exception (normal path), 0+ = caught clause index.
-		clauseIdxVal := builder.AllocateInstruction().
-			AsCallIndirect(tryTableEnterPtr, &c.tryTableEnterSig, args).
-			Insert(builder).Return()
-
-		c.reloadAfterCall()
-
 		// Allocate the following block (after try_table end) and body block.
 		followingBlk := builder.AllocateBasicBlock()
 		c.addBlockParamsFromWasmTypes(bt.Results, followingBlk)
 		bodyBlk := builder.AllocateBasicBlock()
 
-		// Check if an exception was caught: clauseIdx == -1 means no exception.
-		negOne := builder.AllocateInstruction().AsIconst64(^uint64(0)).Insert(builder).Return()
-		isNormal := builder.AllocateInstruction()
-		isNormal.AsIcmp(clauseIdxVal, negOne, ssa.IntegerCmpCondEqual)
-		builder.InsertInstruction(isNormal)
-
-		// If normal (no exception), jump to body.
-		brnz := builder.AllocateInstruction()
-		brnz.AsBrnz(isNormal.Return(), ssa.ValuesNil, bodyBlk)
-		builder.InsertInstruction(brnz)
-
-		// Dispatch to the appropriate catch handler.
-		// NOTE: catch clause label indices do NOT include the try_table itself
-		// (the try_table is pushed onto the control stack after the catch clauses
-		// are processed, per the spec). So we resolve labels BEFORE pushing.
 		if len(catchClauses) > 0 {
-			dispatchBlk := builder.AllocateBasicBlock()
-			dispatchBlk.AddParam(builder, ssa.TypeI64)
-			dispatchArgs := c.allocateVarLengthValues(1, clauseIdxVal)
-			c.insertJumpToBlock(dispatchArgs, dispatchBlk)
-			builder.Seal(dispatchBlk)
-			builder.SetCurrentBlock(dispatchBlk)
-			dispatchClauseIdx := dispatchBlk.Param(0)
-			c.lowerTryTableCatchDispatch(catchClauses, dispatchClauseIdx)
+			// Store the caller module context so the dispatch loop can find the module.
+			c.storeCallerModuleContext()
+
+			// For each catch clause, create a handler block that loads exception
+			// params and jumps to the wasm target label.
+			// NOTE: catch clause label indices do NOT include the try_table itself
+			// (the try_table is pushed onto the control stack after the catch clauses
+			// are processed, per the spec). So we resolve labels BEFORE pushing.
+			varPool := builder.VarLengthPool()
+			targets := varPool.Allocate(len(catchClauses) + 1) // +1 for bodyBlk
+
+			currentBlk := builder.CurrentBlock()
+			for _, cc := range catchClauses {
+				handlerBlk := builder.AllocateBasicBlock()
+				builder.SetCurrentBlock(handlerBlk)
+				c.reloadAfterCall()
+
+				// Resolve the wasm target label.
+				targetBlk, _ := state.brTargetArgNumFor(cc.labelIdx)
+
+				// Load exception params and jump to wasm target.
+				var brArgs []ssa.Value
+				tagType := c.m.TypeOfTag(cc.tagIndex)
+				switch cc.kind {
+				case wasm.CatchKindCatch:
+					if tagType != nil {
+						brArgs = c.loadExceptionParams(tagType)
+					}
+				case wasm.CatchKindCatchRef:
+					if tagType != nil {
+						brArgs = c.loadExceptionParams(tagType)
+					}
+					brArgs = append(brArgs, c.loadExnRef())
+				case wasm.CatchKindCatchAll:
+					// No values.
+				case wasm.CatchKindCatchAllRef:
+					brArgs = append(brArgs, c.loadExnRef())
+				}
+
+				jmpArgs := c.allocateVarLengthValues(len(brArgs), brArgs...)
+				c.insertJumpToBlock(jmpArgs, targetBlk)
+
+				targets = targets.Append(varPool, ssa.Value(handlerBlk.ID()))
+			}
+			// Last target is the body block (default for clauseIdx == -1 / out of range).
+			targets = targets.Append(varPool, ssa.Value(bodyBlk.ID()))
+
+			// Back to the original block: emit the TryTableDispatch meta-instruction.
+			builder.SetCurrentBlock(currentBlk)
+			encodedExitCode := uint64(wazevoapi.ExitCodeTryTableEnter | wazevoapi.ExitCode(tryTableID<<8))
+			dispatch := builder.AllocateInstruction()
+			dispatch.AsTryTableDispatch(c.execCtxPtrValue, encodedExitCode, c.tryTableEnterSig.ID, targets)
+			builder.InsertInstruction(dispatch)
+
+			// Seal handler blocks after TryTableDispatch is inserted (so predecessors are registered).
+			for _, targetID := range targets.View() {
+				blk := builder.BasicBlock(ssa.BasicBlockID(targetID))
+				if !blk.Sealed() {
+					builder.Seal(blk)
+				}
+			}
 		} else {
+			// No catch clauses — try_table acts as a plain block.
+			// Jump directly to body without entering exception handling.
 			c.insertJumpToBlock(ssa.ValuesNil, bodyBlk)
 		}
 
-		builder.Seal(bodyBlk)
+		if !bodyBlk.Sealed() {
+			builder.Seal(bodyBlk)
+		}
 		builder.SetCurrentBlock(bodyBlk)
+		if len(catchClauses) > 0 {
+			// Body block is entered after the trampoline call, so we need to reload.
+			c.reloadAfterCall()
+		}
 
 		// Push the try_table control frame AFTER resolving catch labels.
 		state.ctrlPush(controlFrame{
@@ -4252,70 +4274,6 @@ type parsedCatchClause struct {
 	labelIdx uint32
 }
 
-// lowerTryTableCatchDispatch emits dispatch code for catch clauses.
-// When an exception is caught, clauseIdxVal holds the matched clause index.
-// This function creates blocks that load exception params and branch to the wasm target.
-func (c *Compiler) lowerTryTableCatchDispatch(catchClauses []parsedCatchClause, clauseIdxVal ssa.Value) {
-	builder := c.ssaBuilder
-	state := c.state()
-
-	// For each catch clause, create a handler block and chain them with comparisons.
-	// Each check is its own SSA block: if match, jump to handler; else, jump to next check.
-	for i, cc := range catchClauses {
-		handlerBlk := builder.AllocateBasicBlock()
-		nextCheckBlk := builder.AllocateBasicBlock()
-
-		// Check if clauseIdx == i.
-		idxConst := builder.AllocateInstruction().AsIconst64(uint64(i)).Insert(builder).Return()
-		cmp := builder.AllocateInstruction()
-		cmp.AsIcmp(clauseIdxVal, idxConst, ssa.IntegerCmpCondEqual)
-		builder.InsertInstruction(cmp)
-
-		brnz := builder.AllocateInstruction()
-		brnz.AsBrnz(cmp.Return(), ssa.ValuesNil, handlerBlk)
-		builder.InsertInstruction(brnz)
-
-		// Fall through to next check block.
-		c.insertJumpToBlock(ssa.ValuesNil, nextCheckBlk)
-
-		// Emit handler block: load exception params and branch to wasm target.
-		builder.SetCurrentBlock(handlerBlk)
-		builder.Seal(handlerBlk)
-
-		// Resolve the wasm target label.
-		targetBlk, _ := state.brTargetArgNumFor(cc.labelIdx)
-
-		// Load exception params and jump to wasm target.
-		var brArgs []ssa.Value
-		tagType := c.m.TypeOfTag(cc.tagIndex)
-		switch cc.kind {
-		case wasm.CatchKindCatch:
-			if tagType != nil {
-				brArgs = c.loadExceptionParams(tagType)
-			}
-		case wasm.CatchKindCatchRef:
-			if tagType != nil {
-				brArgs = c.loadExceptionParams(tagType)
-			}
-			brArgs = append(brArgs, c.loadExnRef())
-		case wasm.CatchKindCatchAll:
-			// No values.
-		case wasm.CatchKindCatchAllRef:
-			brArgs = append(brArgs, c.loadExnRef())
-		}
-
-		args := c.allocateVarLengthValues(len(brArgs), brArgs...)
-		c.insertJumpToBlock(args, targetBlk)
-
-		// Continue with the next check block.
-		builder.Seal(nextCheckBlk)
-		builder.SetCurrentBlock(nextCheckBlk)
-	}
-	// After all checks, this is unreachable (the dispatch loop guarantees a valid clauseIdx).
-	exit := builder.AllocateInstruction()
-	exit.AsExitWithCode(c.execCtxPtrValue, wazevoapi.ExitCodeUnreachable)
-	builder.InsertInstruction(exit)
-}
 
 // loadExceptionParams loads the exception params from the pending exception
 // stored in the callEngine. Returns SSA values for each param.

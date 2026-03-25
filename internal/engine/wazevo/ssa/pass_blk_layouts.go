@@ -63,8 +63,8 @@ func passLayoutBlocks(b *builder) {
 		if len(blk.success) < 2 {
 			// There won't be critical edge originating from this block.
 			continue
-		} else if blk.currentInstr.opcode == OpcodeBrTable {
-			// We don't split critical edges here, because at the construction site of BrTable, we already split the edges.
+		} else if blk.currentInstr.opcode == OpcodeBrTable || blk.currentInstr.opcode == OpcodeTryTableDispatch {
+			// We don't split critical edges here, because at the construction site of BrTable/TryTableDispatch, we already split the edges.
 			continue
 		}
 
@@ -170,7 +170,7 @@ func (b *builder) markFallthroughJumps() {
 // Returns true if the branch is inverted for testing purpose.
 func maybeInvertBranches(b *builder, now *basicBlock, nextInRPO *basicBlock) bool {
 	fallthroughBranch := now.currentInstr
-	if fallthroughBranch.opcode == OpcodeBrTable {
+	if fallthroughBranch.opcode == OpcodeBrTable || fallthroughBranch.opcode == OpcodeTryTableDispatch {
 		return false
 	}
 

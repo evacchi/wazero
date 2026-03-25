@@ -444,6 +444,15 @@ func TestMachine_CompileGoFunctionTrampoline(t *testing.T) {
 	ret
 `,
 		},
+		{
+			name:     "try_table_enter",
+			exitCode: wazevoapi.ExitCodeTryTableEnter,
+			sig: &ssa.Signature{
+				Params:  []ssa.Type{ssa.TypeI64, ssa.TypeI64},
+				Results: []ssa.Type{ssa.TypeI64},
+			},
+			exp: "x",
+		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			_, _, m := newSetupWithMockContext()

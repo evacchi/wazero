@@ -220,7 +220,7 @@ func (bb *basicBlock) insertInstruction(b *builder, next *Instruction) {
 	case OpcodeJump, OpcodeBrz, OpcodeBrnz:
 		target := BasicBlockID(next.rValue)
 		b.basicBlock(target).addPred(bb, next)
-	case OpcodeBrTable:
+	case OpcodeBrTable, OpcodeTryTableDispatch:
 		for _, _target := range next.rValues.View() {
 			target := BasicBlockID(_target)
 			b.basicBlock(target).addPred(bb, next)
@@ -291,9 +291,9 @@ func (bb *basicBlock) addPred(blk BasicBlock, branch *Instruction) {
 	for i := range bb.preds {
 		existingPred := &bb.preds[i]
 		if existingPred.blk == pred && existingPred.branch != branch {
-			// If the target is already added, then this must come from the same BrTable,
+			// If the target is already added, then this must come from the same BrTable or TryTableDispatch,
 			// otherwise such redundant branch should be eliminated by the frontend. (which should be simpler).
-			panic(fmt.Sprintf("BUG: redundant non BrTable jumps in %s whose targes are the same", bb.Name()))
+			panic(fmt.Sprintf("BUG: redundant non BrTable/TryTableDispatch jumps in %s whose targets are the same", bb.Name()))
 		}
 	}
 
@@ -335,7 +335,7 @@ func (bb *basicBlock) validate(b *builder) {
 	}
 	if len(bb.preds) > 0 {
 		for _, pred := range bb.preds {
-			if pred.branch.opcode != OpcodeBrTable {
+			if pred.branch.opcode != OpcodeBrTable && pred.branch.opcode != OpcodeTryTableDispatch {
 				blockID := int(pred.branch.rValue)
 				target := b.basicBlocksPool.View(blockID)
 				if target != bb {
@@ -344,19 +344,22 @@ func (bb *basicBlock) validate(b *builder) {
 				}
 			}
 
-			var exp int
-			if bb.ReturnBlock() {
-				exp = len(b.currentSignature.Results)
-			} else {
-				exp = len(bb.params.View())
-			}
+			// TryTableDispatch targets don't pass block arguments through vs.
+			if pred.branch.opcode != OpcodeTryTableDispatch {
+				var exp int
+				if bb.ReturnBlock() {
+					exp = len(b.currentSignature.Results)
+				} else {
+					exp = len(bb.params.View())
+				}
 
-			if len(pred.branch.vs.View()) != exp {
-				panic(fmt.Sprintf(
-					"BUG: len(argument at %s) != len(params at %s): %d != %d: %s",
-					pred.blk.Name(), bb.Name(),
-					len(pred.branch.vs.View()), len(bb.params.View()), pred.branch.Format(b),
-				))
+				if len(pred.branch.vs.View()) != exp {
+					panic(fmt.Sprintf(
+						"BUG: len(argument at %s) != len(params at %s): %d != %d: %s",
+						pred.blk.Name(), bb.Name(),
+						len(pred.branch.vs.View()), len(bb.params.View()), pred.branch.Format(b),
+					))
+				}
 			}
 
 		}

@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"math"
 
+	"github.com/tetratelabs/wazero/internal/engine/wazevo/backend"
 	"github.com/tetratelabs/wazero/internal/engine/wazevo/backend/regalloc"
 	"github.com/tetratelabs/wazero/internal/engine/wazevo/ssa"
 	"github.com/tetratelabs/wazero/internal/engine/wazevo/wazevoapi"
@@ -33,9 +34,84 @@ func (m *machine) LowerSingleBranch(br *ssa.Instruction) {
 		m.insert(b)
 	case ssa.OpcodeBrTable:
 		m.lowerBrTable(br)
+	case ssa.OpcodeTryTableDispatch:
+		m.lowerTryTableDispatch(br)
 	default:
 		panic("BUG: unexpected branch opcode" + br.Opcode().String())
 	}
+}
+
+func (m *machine) lowerTryTableDispatch(br *ssa.Instruction) {
+	execCtx, exitCode, sigID, targets := br.TryTableDispatchData()
+	targetBlockIDs := targets
+	targetBlockCount := len(targetBlockIDs.View())
+
+	// Copy execCtx to a VReg that survives the call.
+	execCtxVReg := m.compiler.VRegOf(execCtx)
+
+	// Step 1: Load trampoline address from execCtx + TryTableEnterTrampolineAddress offset.
+	trampolineAddr := m.compiler.AllocateVReg(ssa.TypeI64)
+	amode := m.resolveAddressModeForOffset(
+		int64(wazevoapi.ExecutionContextOffsetTryTableEnterTrampolineAddress), 64, execCtxVReg, false,
+	)
+	loadTrampoline := m.allocateInstr()
+	loadTrampoline.asULoad(trampolineAddr, amode, 64)
+	m.insert(loadTrampoline)
+
+	// Step 2: Set up call args and call trampoline.
+	sig := m.compiler.SSABuilder().ResolveSignature(sigID)
+	calleeABI := m.compiler.GetFunctionABI(sig)
+
+	stackSlotSize := int64(calleeABI.AlignedArgResultStackSlotSize())
+	if m.maxRequiredStackSizeForCalls < stackSlotSize+16 {
+		m.maxRequiredStackSizeForCalls = stackSlotSize + 16
+	}
+
+	// Arg 0: execCtx (i64)
+	arg0 := &calleeABI.Args[0]
+	if arg0.Kind == backend.ABIArgKindReg {
+		m.InsertMove(arg0.Reg, execCtxVReg, arg0.Type)
+	}
+
+	// Arg 1: encoded exit code (i64)
+	exitCodeReg := m.compiler.AllocateVReg(ssa.TypeI64)
+	m.lowerConstantI64(exitCodeReg, int64(exitCode))
+	arg1 := &calleeABI.Args[1]
+	if arg1.Kind == backend.ABIArgKindReg {
+		m.InsertMove(arg1.Reg, exitCodeReg, arg1.Type)
+	}
+
+	// Emit the indirect call.
+	callInd := m.allocateInstr()
+	callInd.asCallIndirect(trampolineAddr, calleeABI)
+	m.insert(callInd)
+
+	// Step 3: Load caughtExceptionClauseIdx from execCtx + offset 1216.
+	clauseIdxReg := m.compiler.AllocateVReg(ssa.TypeI64)
+	amodeClause := m.resolveAddressModeForOffset(
+		int64(wazevoapi.ExecutionContextOffsetCaughtExceptionClauseIdx), 64, execCtxVReg, false,
+	)
+	loadClause := m.allocateInstr()
+	loadClause.asULoad(clauseIdxReg, amodeClause, 64)
+	m.insert(loadClause)
+
+	// Step 4: Jump-table dispatch (same pattern as lowerBrTable).
+	// clauseIdx 0..N-2 → handler blocks, out-of-range (including -1/MAX_UINT64) → bodyBlk (last target).
+	indexOperand := operandNR(clauseIdxReg)
+	maxIndexReg := m.compiler.AllocateVReg(ssa.TypeI32)
+	m.lowerConstantI32(maxIndexReg, int32(targetBlockCount-1))
+	subs := m.allocateInstr()
+	subs.asALU(aluOpSubS, xzrVReg, indexOperand, operandNR(maxIndexReg), false)
+	m.insert(subs)
+	csel := m.allocateInstr()
+	adjustedIndex := m.compiler.AllocateVReg(ssa.TypeI32)
+	csel.asCSel(adjustedIndex, operandNR(maxIndexReg), indexOperand, hs, false)
+	m.insert(csel)
+
+	brSequence := m.allocateInstr()
+	tableIndex := m.addJmpTableTarget(targetBlockIDs)
+	brSequence.asBrTableSequence(adjustedIndex, tableIndex, targetBlockCount)
+	m.insert(brSequence)
 }
 
 func (m *machine) lowerBrTable(i *ssa.Instruction) {
@@ -156,7 +232,7 @@ func (m *machine) LowerInstr(instr *ssa.Instruction) {
 	}
 
 	switch op := instr.Opcode(); op {
-	case ssa.OpcodeBrz, ssa.OpcodeBrnz, ssa.OpcodeJump, ssa.OpcodeBrTable:
+	case ssa.OpcodeBrz, ssa.OpcodeBrnz, ssa.OpcodeJump, ssa.OpcodeBrTable, ssa.OpcodeTryTableDispatch:
 		panic("BUG: branching instructions are handled by LowerBranches")
 	case ssa.OpcodeReturn:
 		panic("BUG: return must be handled by backend.Compiler")
