@@ -114,6 +114,8 @@ func (c commandActionVal) String() string {
 	case "funcref":
 		// All the in and out funcref params are null in spectest (cannot represent non-null as it depends on runtime impl).
 		v = "null"
+	case "exnref":
+		v = "null"
 	case "v128":
 		simdValues, ok := c.Value.([]interface{})
 		if !ok {
@@ -260,6 +262,9 @@ func getNaNBits(strValue string, is32bit bool) (ret uint64) {
 }
 
 func (c commandActionVal) toUint64() (ret uint64) {
+	if c.Value == nil || c.Value == "null" {
+		return 0
+	}
 	strValue := c.Value.(string)
 	if strings.Contains(strValue, "nan") {
 		ret = getNaNBits(strValue, c.ValType == "f32")

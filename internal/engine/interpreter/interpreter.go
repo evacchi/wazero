@@ -153,17 +153,20 @@ type exceptionState struct {
 	// Exception being propagated.
 	exception *wasm.Exception
 	// Restore target (set when a matching handler is found).
-	savedStack  []uint64
-	savedFrames []*callFrame
-	targetPC    uint64
+	savedStack    []uint64
+	savedFrames   []*callFrame
+	targetPC      uint64
+	stackDropSize int // number of uint64 slots to drop from savedStack
 	// Values to push onto the stack after restore (exception params, possibly exnref).
 	values []uint64
 }
 
 func (es *exceptionState) doRestore() {
 	ce := es.ce
-	// Restore the operand stack to the handler's snapshot.
-	ce.stack = es.savedStack
+	// Restore the operand stack to the target block's stack depth.
+	// Drop stackDropSize slots from the saved stack to reach the target block level.
+	keepLen := len(es.savedStack) - es.stackDropSize
+	ce.stack = es.savedStack[:keepLen]
 	// Push catch values onto the restored stack.
 	ce.stack = append(ce.stack, es.values...)
 	// Restore frames to the handler's snapshot level (remove callee frames that panicked).
@@ -214,9 +217,10 @@ func (ce *callEngine) handleExceptionInCurrentFrame(exn *wasm.Exception, frame *
 			continue
 		}
 		for j := 0; j < h.catchCount; j++ {
-			kind := byte(h.clauses[j*3])
-			clauseTagIndex := uint32(h.clauses[j*3+1])
-			targetPC := h.clauses[j*3+2]
+			kind := byte(h.clauses[j*4])
+			clauseTagIndex := uint32(h.clauses[j*4+1])
+			targetPC := h.clauses[j*4+2]
+			stackDropSize := int(h.clauses[j*4+3])
 
 			var matched bool
 			var values []uint64
@@ -242,8 +246,9 @@ func (ce *callEngine) handleExceptionInCurrentFrame(exn *wasm.Exception, frame *
 			}
 
 			if matched {
-				// Restore stack and set PC.
-				ce.stack = h.savedStack
+				// Restore stack: drop stackDropSize slots from saved stack to reach target block level.
+				keepLen := len(h.savedStack) - stackDropSize
+				ce.stack = h.savedStack[:keepLen]
 				ce.stack = append(ce.stack, values...)
 				frame.pc = targetPC
 				// Pop this and any inner handlers.
@@ -265,15 +270,15 @@ func (ce *callEngine) matchException(exn *wasm.Exception) *exceptionState {
 	for i := len(ce.tryHandlers) - 1; i >= 0; i-- {
 		h := &ce.tryHandlers[i]
 		for j := 0; j < h.catchCount; j++ {
-			kind := byte(h.clauses[j*3])
-			clauseTagIndex := uint32(h.clauses[j*3+1])
-			targetPC := h.clauses[j*3+2]
+			kind := byte(h.clauses[j*4])
+			clauseTagIndex := uint32(h.clauses[j*4+1])
+			targetPC := h.clauses[j*4+2]
+			stackDropSize := int(h.clauses[j*4+3])
 
 			var matched bool
 			var values []uint64
 			switch kind {
 			case wasm.CatchKindCatch:
-				// Resolve tag from the module instance in the handler's frame.
 				handlerFrame := h.savedFrames[len(h.savedFrames)-1]
 				clauseTag := handlerFrame.f.moduleInstance.Tags[clauseTagIndex]
 				if exn.Tag == clauseTag {
@@ -290,7 +295,6 @@ func (ce *callEngine) matchException(exn *wasm.Exception) *exceptionState {
 				}
 			case wasm.CatchKindCatchAll:
 				matched = true
-				// catch_all delivers no values in the current spec
 			case wasm.CatchKindCatchAllRef:
 				matched = true
 				values = []uint64{uint64(uintptr(unsafe.Pointer(exn)))}
@@ -298,12 +302,13 @@ func (ce *callEngine) matchException(exn *wasm.Exception) *exceptionState {
 
 			if matched {
 				es := &exceptionState{
-					ce:          ce,
-					exception:   exn,
-					savedStack:  h.savedStack,
-					savedFrames: h.savedFrames,
-					targetPC:    targetPC,
-					values:      values,
+					ce:            ce,
+					exception:     exn,
+					savedStack:    h.savedStack,
+					savedFrames:   h.savedFrames,
+					targetPC:      targetPC,
+					stackDropSize: stackDropSize,
+					values:        values,
 				}
 				// Pop all handlers at and above this one.
 				ce.tryHandlers = ce.tryHandlers[:i]
@@ -657,10 +662,10 @@ func (e *engine) lowerIR(ir *compilationResult, ret *compiledFunction) error {
 		case operationKindTailCallReturnCallIndirect:
 			e.setLabelAddress(&op.Us[1], label(op.Us[1]), labelAddressResolutions)
 		case operationKindTryTable:
-			// Resolve catch clause target labels (stored as triplets in Us: kind, tagIndex, targetLabel).
+			// Resolve catch clause target labels (stored as quadruplets in Us: kind, tagIndex, targetLabel, targetStackDepth).
 			catchCount := int(op.U1)
 			for j := 0; j < catchCount; j++ {
-				targetIdx := j*3 + 2
+				targetIdx := j*4 + 2
 				e.setLabelAddress(&op.Us[targetIdx], label(op.Us[targetIdx]), labelAddressResolutions)
 			}
 		}

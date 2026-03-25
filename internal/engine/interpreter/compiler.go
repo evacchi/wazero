@@ -900,12 +900,17 @@ operatorSwitch:
 
 			// Resolve the label from the control frame stack.
 			targetFrame := c.controlFrames.get(int(labelIdx))
+			targetFrame.ensureContinuation()
 			targetLabel := targetFrame.asLabel()
 			c.result.LabelCallers[targetLabel]++
+			// Compute how many stack slots to drop from the try_table's saved stack
+			// to reach the target block's stack level.
+			stackDropSize := c.stackLenInUint64 - targetFrame.originalStackLenWithoutParamUint64
 			clauses = append(clauses, catchClause{
-				kind:     kind,
-				tagIndex: tagIdx,
-				target:   targetLabel,
+				kind:          kind,
+				tagIndex:      tagIdx,
+				target:        targetLabel,
+				stackDropSize: stackDropSize,
 			})
 		}
 

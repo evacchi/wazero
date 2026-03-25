@@ -2875,9 +2875,10 @@ func newOperationTailCallReturnCallIndirect(typeIndex, tableIndex uint32, dropDe
 
 // catchClause represents a catch clause within a try_table instruction.
 type catchClause struct {
-	kind     byte   // CatchKindCatch, CatchKindCatchRef, CatchKindCatchAll, CatchKindCatchAllRef
-	tagIndex uint32 // tag index for catch/catch_ref (unused for catch_all variants)
-	target   label  // label to branch to on match
+	kind          byte   // CatchKindCatch, CatchKindCatchRef, CatchKindCatchAll, CatchKindCatchAllRef
+	tagIndex      uint32 // tag index for catch/catch_ref (unused for catch_all variants)
+	target        label  // label to branch to on match
+	stackDropSize int    // number of uint64 slots to drop from savedStack to reach target block level
 }
 
 // newOperationPopTryHandler is a constructor for unionOperation with operationKindPopTryHandler.
@@ -2898,11 +2899,11 @@ func newOperationThrowRef() unionOperation {
 
 // newOperationTryTable is a constructor for unionOperation with operationKindTryTable.
 // U1 stores the number of catch clauses.
-// Us stores catch clauses encoded as triplets: (kind, tagIndex, targetLabel).
+// Us stores catch clauses encoded as quadruplets: (kind, tagIndex, targetLabel, targetStackDepth).
 func newOperationTryTable(catchClauses []catchClause) unionOperation {
-	us := make([]uint64, 0, len(catchClauses)*3)
+	us := make([]uint64, 0, len(catchClauses)*4)
 	for _, cc := range catchClauses {
-		us = append(us, uint64(cc.kind), uint64(cc.tagIndex), uint64(cc.target))
+		us = append(us, uint64(cc.kind), uint64(cc.tagIndex), uint64(cc.target), uint64(cc.stackDropSize))
 	}
 	return unionOperation{Kind: operationKindTryTable, U1: uint64(len(catchClauses)), Us: us}
 }
