@@ -3444,11 +3444,19 @@ func (c *Compiler) lowerCurrentOpcode() {
 			).Insert(builder).Return()
 
 		tagIdxVal := builder.AllocateInstruction().AsIconst64(uint64(tagIndex)).Insert(builder).Return()
-		// Pad with zeros up to 4 params.
+		// Pad with zeros up to 4 params. Float values must be bitcast to
+		// integers since the throw trampoline signature is all i64.
 		paddedParams := make([]ssa.Value, 4)
 		for i := range paddedParams {
 			if i < len(throwParams) {
-				paddedParams[i] = throwParams[i]
+				v := throwParams[i]
+				switch v.Type() {
+				case ssa.TypeF32:
+					v = builder.AllocateInstruction().AsBitcast(v, ssa.TypeI32).Insert(builder).Return()
+				case ssa.TypeF64:
+					v = builder.AllocateInstruction().AsBitcast(v, ssa.TypeI64).Insert(builder).Return()
+				}
+				paddedParams[i] = v
 			} else {
 				paddedParams[i] = builder.AllocateInstruction().AsIconst64(0).Insert(builder).Return()
 			}
@@ -4277,16 +4285,36 @@ type parsedCatchClause struct {
 
 // loadExceptionParams loads the exception params from the executionContext.
 // The dispatch loop writes them to caughtExceptionParams after matching a handler.
+// Float values were bitcast to integers by the throw site, so we load as
+// integer and bitcast back to the original type.
 func (c *Compiler) loadExceptionParams(tagType *wasm.FunctionType) []ssa.Value {
 	builder := c.ssaBuilder
 
 	var values []ssa.Value
 	for i, vt := range tagType.Params {
 		offset := wazevoapi.ExecutionContextOffsetCaughtExceptionParams.U32() + uint32(i)*8
-		val := builder.AllocateInstruction().
-			AsLoad(c.execCtxPtrValue, offset, WasmTypeToSSAType(vt)).
-			Insert(builder).Return()
-		values = append(values, val)
+		ssaType := WasmTypeToSSAType(vt)
+		switch ssaType {
+		case ssa.TypeF32:
+			// Load as i32 then bitcast to f32.
+			raw := builder.AllocateInstruction().
+				AsLoad(c.execCtxPtrValue, offset, ssa.TypeI32).
+				Insert(builder).Return()
+			val := builder.AllocateInstruction().AsBitcast(raw, ssa.TypeF32).Insert(builder).Return()
+			values = append(values, val)
+		case ssa.TypeF64:
+			// Load as i64 then bitcast to f64.
+			raw := builder.AllocateInstruction().
+				AsLoad(c.execCtxPtrValue, offset, ssa.TypeI64).
+				Insert(builder).Return()
+			val := builder.AllocateInstruction().AsBitcast(raw, ssa.TypeF64).Insert(builder).Return()
+			values = append(values, val)
+		default:
+			val := builder.AllocateInstruction().
+				AsLoad(c.execCtxPtrValue, offset, ssaType).
+				Insert(builder).Return()
+			values = append(values, val)
+		}
 	}
 	return values
 }
