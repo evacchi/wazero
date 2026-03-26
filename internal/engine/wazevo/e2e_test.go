@@ -933,6 +933,15 @@ func TestE2E(t *testing.T) {
 			features: api.CoreFeaturesV2 | experimental.CoreFeaturesExceptionHandling,
 			calls:    []callCase{{params: []uint64{42}, expResults: []uint64{42}}},
 		},
+		{
+			// Exercises tags with more than 4 parameters. The 5th param exposes the
+			// hardcoded caughtExceptionParams [4]uint64 limit: it will be silently
+			// dropped until that limit is increased or made dynamic.
+			name:     "try_table_catch_many_param_throw",
+			m:        testcases.TryTableCatchManyParamThrow.Module,
+			features: api.CoreFeaturesV2 | experimental.CoreFeaturesExceptionHandling,
+			calls:    []callCase{{params: []uint64{1, 2, 3, 4, 5}, expResults: []uint64{1, 2, 3, 4, 5}}},
+		},
 	} {
 		tc := tc
 		t.Run(tc.name, func(t *testing.T) {

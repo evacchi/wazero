@@ -2952,6 +2952,69 @@ var TryTableCatchParamThrow = TestCase{
 	},
 }
 
+// TryTableCatchManyParamThrow: try_table with catch $e where the tag has 5 i32 parameters.
+// This exercises tags with more than 4 parameters, exposing the hardcoded 4-param limit in
+// caughtExceptionParams [4]uint64. The 5th (and beyond) parameter will be silently dropped
+// under the current implementation.
+//
+//	(module
+//	  (tag $e (param i32 i32 i32 i32 i32))
+//	  (func (export "f") (param i32 i32 i32 i32 i32) (result i32 i32 i32 i32 i32)
+//	    (block $h (result i32 i32 i32 i32 i32)
+//	      (try_table (result i32 i32 i32 i32 i32) (catch $e $h)
+//	        (local.get 0)
+//	        (local.get 1)
+//	        (local.get 2)
+//	        (local.get 3)
+//	        (local.get 4)
+//	        (throw $e)
+//	        (i32.const 0) (i32.const 0) (i32.const 0) (i32.const 0) (i32.const 0)
+//	      )
+//	      (return)
+//	    )
+//	    (return)
+//	  )
+//	)
+var TryTableCatchManyParamThrow = TestCase{
+	Name: "try_table_catch_many_param_throw",
+	Module: &wasm.Module{
+		TypeSection: []wasm.FunctionType{
+			{Params: []wasm.ValueType{i32, i32, i32, i32, i32}},                                                                       // type 0: (i32x5) -> () for tag
+			{Params: []wasm.ValueType{i32, i32, i32, i32, i32}, Results: []wasm.ValueType{i32, i32, i32, i32, i32}},                   // type 1: (i32x5) -> (i32x5) for func
+			{Results: []wasm.ValueType{i32, i32, i32, i32, i32}},                                                                      // type 2: () -> (i32x5) for block/try_table
+		},
+		FunctionSection: []wasm.Index{1},       // func type 1
+		TagSection:      []wasm.Tag{{Type: 0}}, // tag type 0: (i32x5) -> ()
+		CodeSection: []wasm.Code{{
+			Body: []byte{
+				wasm.OpcodeBlock, 0x02,     // block $h (result i32 i32 i32 i32 i32) -- type index 2
+				wasm.OpcodeTryTable, 0x02,  // try_table (result i32 i32 i32 i32 i32) -- type index 2
+				1,                          // 1 catch clause
+				wasm.CatchKindCatch,        // catch
+				0,                          // tag index 0 ($e)
+				0,                          // label 0 ($h)
+				wasm.OpcodeLocalGet, 0,     // local.get 0
+				wasm.OpcodeLocalGet, 1,     // local.get 1
+				wasm.OpcodeLocalGet, 2,     // local.get 2
+				wasm.OpcodeLocalGet, 3,     // local.get 3
+				wasm.OpcodeLocalGet, 4,     // local.get 4
+				wasm.OpcodeThrow, 0,        // throw tag 0
+				wasm.OpcodeI32Const, 0,     // unreachable dummy results
+				wasm.OpcodeI32Const, 0,
+				wasm.OpcodeI32Const, 0,
+				wasm.OpcodeI32Const, 0,
+				wasm.OpcodeI32Const, 0,
+				wasm.OpcodeEnd,             // end try_table
+				wasm.OpcodeReturn,          // return try_table result
+				wasm.OpcodeEnd,             // end block $h
+				wasm.OpcodeReturn,          // return
+				wasm.OpcodeEnd,             // end func
+			},
+		}},
+		ExportSection: []wasm.Export{{Name: ExportedFunctionName, Type: wasm.ExternTypeFunc, Index: 0}},
+	},
+}
+
 type TestCase struct {
 	Name             string
 	Imported, Module *wasm.Module
