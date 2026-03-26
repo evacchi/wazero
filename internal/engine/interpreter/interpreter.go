@@ -4630,7 +4630,9 @@ func (ce *callEngine) callNativeFunc(ctx context.Context, m *wasm.ModuleInstance
 			if v == 0 {
 				panic(wasmruntime.ErrRuntimeUnreachable) // null exnref traps
 			}
-			exn := (*wasm.Exception)(unsafe.Pointer(uintptr(v)))
+			// Read the Exception pointer directly from the uint64 value to avoid
+			// uintptr→unsafe.Pointer conversion which triggers checkptr.
+			exn := *(**wasm.Exception)(unsafe.Pointer(&v))
 			if ce.handleExceptionInCurrentFrame(exn, frame, &body, &bodyLen) {
 				continue
 			}
