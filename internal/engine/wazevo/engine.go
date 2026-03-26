@@ -748,7 +748,7 @@ func (e *engine) NewModuleEngine(m *wasm.Module, mi *wasm.ModuleInstance) (wasm.
 }
 
 func (e *engine) compileSharedFunctions() {
-	var sizes [12]int
+	var sizes [13]int
 	var trampolines []byte
 
 	addTrampoline := func(i int, buf []byte) {

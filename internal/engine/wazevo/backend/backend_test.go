@@ -2371,8 +2371,38 @@ L5 (SSA Block: blk5):
 `,
 		},
 		{
-			name:               "try_table_catch_all_empty", m: testcases.TryTableCatchAllEmpty.Module,
-			afterFinalizeARM64: ``,
+			name: "try_table_catch_all_empty", m: testcases.TryTableCatchAllEmpty.Module,
+			afterFinalizeARM64: `
+L0 (SSA Block: blk0):
+	stp x30, xzr, [sp, #-0x10]!
+	sub sp, sp, #0x10
+	orr x27, xzr, #0x10
+	str x27, [sp, #-0x10]!
+	str x0, [sp, #0x10]
+	str x1, [x0, #0x8]
+	ldr x8, [x0, #0x4b0]
+	orr x1, xzr, #0x1c
+	bl x8
+	ldr x8, [sp, #0x10]
+	ldr x8, [x8, #0x4c8]
+	orr w9, wzr, #0x1
+	subs wzr, w8, w9
+	csel w8, w9, w8, hs
+	br_table_sequence x8, table_index=0
+L4 (SSA Block: blk4):
+L1 (SSA Block: blk1):
+	mov x0, xzr
+	add sp, sp, #0x10
+	add sp, sp, #0x10
+	ldr x30, [sp], #0x10
+	ret
+L3 (SSA Block: blk3):
+	movz w0, #0x2a, lsl 0
+	add sp, sp, #0x10
+	add sp, sp, #0x10
+	ldr x30, [sp], #0x10
+	ret
+`,
 			afterLoweringARM64: `
 L0 (SSA Block: blk0):
 	mov x128?, x0
@@ -2450,16 +2480,16 @@ L3 (SSA Block: blk3):
 `,
 		},
 		{
-			// Exercises tags with more than 4 parameters (5 i32s). The 5th param
-			// exposes the hardcoded caughtExceptionParams [4]uint64 limit: the
-			// frontend emits a load at offset 0x4e8 (caughtExceptionExnRef field)
-			// instead of a 5th param slot, so the 5th caught value will be wrong.
+			// Exercises tags with 5 i32 parameters: verifies that the two-phase
+			// throw (throwAlloc + throw) correctly passes all 5 params through the
+			// Exception heap object, and the catch handler reads all 5 via the
+			// caughtExceptionParamsPtr pointer.
 			name: "try_table_catch_many_param_throw", m: testcases.TryTableCatchManyParamThrow.Module,
 			afterFinalizeARM64: `
 L0 (SSA Block: blk0):
 	stp x30, xzr, [sp, #-0x10]!
-	sub sp, sp, #0x20
-	orr x27, xzr, #0x20
+	sub sp, sp, #0x30
+	orr x27, xzr, #0x30
 	str x27, [sp, #-0x10]!
 	str x0, [sp, #0x10]
 	str x1, [sp, #0x18]
@@ -2467,23 +2497,25 @@ L0 (SSA Block: blk0):
 	str w3, [sp, #0x24]
 	str w4, [sp, #0x28]
 	str w5, [sp, #0x2c]
+	str w6, [sp, #0x30]
 	str x1, [x0, #0x8]
 	ldr x8, [x0, #0x4b0]
-	movz x9, #0x1b, lsl 0
+	orr x9, xzr, #0x1c
 	mov x1, x9
 	bl x8
 	ldr x8, [sp, #0x10]
-	ldr x9, [x8, #0x4c0]
+	ldr x9, [x8, #0x4c8]
 	orr w10, wzr, #0x1
 	subs wzr, w9, w10
 	csel w9, w10, w9, hs
 	br_table_sequence x9, table_index=0
 L4 (SSA Block: blk4):
-	ldr w9, [x8, #0x4c8]
-	ldr w10, [x8, #0x4d0]
-	ldr w11, [x8, #0x4d8]
-	ldr w12, [x8, #0x4e0]
-	ldr w8, [x8, #0x4e8]
+	ldr x8, [x8, #0x4d8]
+	ldr w9, [x8]
+	ldr w10, [x8, #0x8]
+	ldr w11, [x8, #0x10]
+	ldr w12, [x8, #0x18]
+	ldr w8, [x8, #0x20]
 L1 (SSA Block: blk1):
 	mov x4, x8
 	mov x3, x12
@@ -2491,23 +2523,31 @@ L1 (SSA Block: blk1):
 	mov x1, x10
 	mov x0, x9
 	add sp, sp, #0x10
-	add sp, sp, #0x20
+	add sp, sp, #0x30
 	ldr x30, [sp], #0x10
 	ret
 L3 (SSA Block: blk3):
 	ldr x9, [sp, #0x18]
 	str x9, [x8, #0x8]
+	ldr x9, [x8, #0x4c0]
+	mov x0, x8
+	mov x1, xzr
+	bl x9
+	ldr x8, [sp, #0x10]
+	ldr x9, [x8, #0x4d0]
+	ldr w10, [sp, #0x20]
+	str w10, [x9]
+	ldr w10, [sp, #0x24]
+	str w10, [x9, #0x8]
+	ldr w10, [sp, #0x28]
+	str w10, [x9, #0x10]
+	ldr w10, [sp, #0x2c]
+	str w10, [x9, #0x18]
+	ldr w10, [sp, #0x30]
+	str w10, [x9, #0x20]
 	ldr x9, [x8, #0x4a0]
 	mov x0, x8
 	mov x1, xzr
-	ldr w10, [sp, #0x20]
-	mov x2, x10
-	ldr w10, [sp, #0x24]
-	mov x3, x10
-	ldr w10, [sp, #0x28]
-	mov x4, x10
-	ldr w10, [sp, #0x2c]
-	mov x5, x10
 	bl x9
 	movz x8, #0x3, lsl 0
 	ldr x9, [sp, #0x10]
@@ -2531,11 +2571,11 @@ L0 (SSA Block: blk0):
 	str x1, [sp, #0x18]
 	str x1, [x0, #0x8]
 	ldr x8, [x0, #0x4b0]
-	movz x9, #0x1b, lsl 0
+	orr x9, xzr, #0x1c
 	mov x1, x9
 	bl x8
 	ldr x8, [sp, #0x10]
-	ldr x9, [x8, #0x4c0]
+	ldr x9, [x8, #0x4c8]
 	orr w10, wzr, #0x1
 	subs wzr, w9, w10
 	csel w9, w10, w9, hs
@@ -2550,13 +2590,14 @@ L1 (SSA Block: blk1):
 L3 (SSA Block: blk3):
 	ldr x9, [sp, #0x18]
 	str x9, [x8, #0x8]
+	ldr x9, [x8, #0x4c0]
+	mov x0, x8
+	mov x1, xzr
+	bl x9
+	ldr x8, [sp, #0x10]
 	ldr x9, [x8, #0x4a0]
 	mov x0, x8
 	mov x1, xzr
-	mov x2, xzr
-	mov x3, xzr
-	mov x4, xzr
-	mov x5, xzr
 	bl x9
 	movz x8, #0x3, lsl 0
 	ldr x9, [sp, #0x10]
