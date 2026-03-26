@@ -579,11 +579,12 @@ func (c *callEngine) callWithStack(ctx context.Context, paramResultStack []uint6
 		case wazevoapi.ExitCodeThrowRef:
 			// The throw_ref trampoline passes: (execCtx, exnref)
 			s := goCallStackView(c.execCtx.stackPointerBeforeGoCall)
-			exnRefPtr := uintptr(s[0])
-			if exnRefPtr == 0 {
+			if s[0] == 0 {
 				panic(wasmruntime.ErrRuntimeNullReference)
 			}
-			exn := (*wasm.Exception)(unsafe.Pointer(exnRefPtr))
+			// Read the Exception pointer directly from the stack slot to avoid
+			// uintptr→unsafe.Pointer conversion which triggers checkptr.
+			exn := *(**wasm.Exception)(unsafe.Pointer(&s[0]))
 			if !c.doHandleException(exn) {
 				panic(wasmruntime.ErrRuntimeUncaughtException)
 			}
