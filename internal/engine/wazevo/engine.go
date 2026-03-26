@@ -67,6 +67,9 @@ type (
 		memoryWait64Address *byte
 		// memoryNotifyAddress is the address of memory.notify builtin function
 		memoryNotifyAddress *byte
+		// throwAllocTrampolineAddress is the address of the throw-alloc trampoline:
+		// phase 1 of throw, which allocates the Exception heap object.
+		throwAllocTrampolineAddress *byte
 		// throwTrampolineAddress is the address of the throw trampoline function.
 		throwTrampolineAddress *byte
 		// throwRefTrampolineAddress is the address of the throw_ref trampoline function.
@@ -815,14 +818,22 @@ func (e *engine) compileSharedFunctions() {
 
 	e.be.Init()
 	addTrampoline(8,
-		e.machine.CompileGoFunctionTrampoline(wazevoapi.ExitCodeThrow, &ssa.Signature{
-			// exec context, tag index, up to 4 exception params
-			Params:  []ssa.Type{ssa.TypeI64, ssa.TypeI64, ssa.TypeI64, ssa.TypeI64, ssa.TypeI64, ssa.TypeI64},
+		e.machine.CompileGoFunctionTrampoline(wazevoapi.ExitCodeThrowAlloc, &ssa.Signature{
+			// exec context, tag index
+			Params:  []ssa.Type{ssa.TypeI64, ssa.TypeI64},
 			Results: []ssa.Type{},
 		}, false))
 
 	e.be.Init()
 	addTrampoline(9,
+		e.machine.CompileGoFunctionTrampoline(wazevoapi.ExitCodeThrow, &ssa.Signature{
+			// exec context, tag index
+			Params:  []ssa.Type{ssa.TypeI64, ssa.TypeI64},
+			Results: []ssa.Type{},
+		}, false))
+
+	e.be.Init()
+	addTrampoline(10,
 		e.machine.CompileGoFunctionTrampoline(wazevoapi.ExitCodeThrowRef, &ssa.Signature{
 			// exec context, exnref pointer
 			Params:  []ssa.Type{ssa.TypeI64, ssa.TypeI64},
@@ -830,7 +841,7 @@ func (e *engine) compileSharedFunctions() {
 		}, false))
 
 	e.be.Init()
-	addTrampoline(10,
+	addTrampoline(11,
 		e.machine.CompileGoFunctionTrampoline(wazevoapi.ExitCodeTryTableEnter, &ssa.Signature{
 			// exec context, catch clause info (encoded)
 			Params:  []ssa.Type{ssa.TypeI64, ssa.TypeI64},
@@ -838,7 +849,7 @@ func (e *engine) compileSharedFunctions() {
 		}, false))
 
 	e.be.Init()
-	addTrampoline(11,
+	addTrampoline(12,
 		e.machine.CompileGoFunctionTrampoline(wazevoapi.ExitCodeTryTableLeave, &ssa.Signature{
 			// exec context
 			Params:  []ssa.Type{ssa.TypeI64},
@@ -868,12 +879,14 @@ func (e *engine) compileSharedFunctions() {
 	offset += sizes[6]
 	fns.memoryNotifyAddress = &fns.executable[offset]
 	offset += sizes[7]
-	fns.throwTrampolineAddress = &fns.executable[offset]
+	fns.throwAllocTrampolineAddress = &fns.executable[offset]
 	offset += sizes[8]
-	fns.throwRefTrampolineAddress = &fns.executable[offset]
+	fns.throwTrampolineAddress = &fns.executable[offset]
 	offset += sizes[9]
-	fns.tryTableEnterAddress = &fns.executable[offset]
+	fns.throwRefTrampolineAddress = &fns.executable[offset]
 	offset += sizes[10]
+	fns.tryTableEnterAddress = &fns.executable[offset]
+	offset += sizes[11]
 	fns.tryTableLeaveAddress = &fns.executable[offset]
 
 	if wazevoapi.PerfMapEnabled {

@@ -77,5 +77,9 @@ func Test_ExecutionContextOffsets(t *testing.T) {
 	require.Equal(t, wazevoapi.Offset(unsafe.Offsetof(execCtx.throwRefTrampolineAddress)), wazevoapi.ExecutionContextOffsetThrowRefTrampolineAddress)
 	require.Equal(t, wazevoapi.Offset(unsafe.Offsetof(execCtx.tryTableEnterTrampolineAddress)), wazevoapi.ExecutionContextOffsetTryTableEnterTrampolineAddress)
 	require.Equal(t, wazevoapi.Offset(unsafe.Offsetof(execCtx.tryTableLeaveTrampolineAddress)), wazevoapi.ExecutionContextOffsetTryTableLeaveTrampolineAddress)
+	require.Equal(t, wazevoapi.Offset(unsafe.Offsetof(execCtx.throwAllocTrampolineAddress)), wazevoapi.ExecutionContextOffsetThrowAllocTrampolineAddress)
 	require.Equal(t, wazevoapi.Offset(unsafe.Offsetof(execCtx.caughtExceptionClauseIdx)), wazevoapi.ExecutionContextOffsetCaughtExceptionClauseIdx)
+	require.Equal(t, wazevoapi.Offset(unsafe.Offsetof(execCtx.throwExceptionParamsPtr)), wazevoapi.ExecutionContextOffsetThrowExceptionParamsPtr)
+	require.Equal(t, wazevoapi.Offset(unsafe.Offsetof(execCtx.caughtExceptionParamsPtr)), wazevoapi.ExecutionContextOffsetCaughtExceptionParamsPtr)
+	require.Equal(t, wazevoapi.Offset(unsafe.Offsetof(execCtx.caughtExceptionExnRef)), wazevoapi.ExecutionContextOffsetCaughtExceptionExnRef)
 }

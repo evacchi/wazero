@@ -62,7 +62,11 @@ type Compiler struct {
 
 	execCtxPtrValue, moduleCtxPtrValue ssa.Value
 
-	// throwSig is the signature for the throw trampoline.
+	// throwAllocSig is the signature for the throw-alloc trampoline (phase 1):
+	// allocates the Exception heap object and sets throwExceptionParamsPtr.
+	throwAllocSig ssa.Signature
+	// throwSig is the signature for the throw trampoline (phase 2):
+	// compiled code has written params; handler searches for a catch clause.
 	throwSig ssa.Signature
 	// throwRefSig is the signature for the throw_ref trampoline.
 	throwRefSig ssa.Signature
@@ -207,9 +211,16 @@ func (c *Compiler) declareSignatures(listenerOn bool) {
 	}
 	c.ssaBuilder.DeclareSignature(&c.memoryNotifySig)
 
-	c.throwSig = ssa.Signature{
+	c.throwAllocSig = ssa.Signature{
 		ID:      c.memoryNotifySig.ID + 1,
-		Params:  []ssa.Type{ssa.TypeI64 /* exec context */, ssa.TypeI64 /* tag index */, ssa.TypeI64, ssa.TypeI64, ssa.TypeI64, ssa.TypeI64},
+		Params:  []ssa.Type{ssa.TypeI64 /* exec context */, ssa.TypeI64 /* tag index */},
+		Results: []ssa.Type{},
+	}
+	c.ssaBuilder.DeclareSignature(&c.throwAllocSig)
+
+	c.throwSig = ssa.Signature{
+		ID:      c.throwAllocSig.ID + 1,
+		Params:  []ssa.Type{ssa.TypeI64 /* exec context */, ssa.TypeI64 /* tag index */},
 		Results: []ssa.Type{},
 	}
 	c.ssaBuilder.DeclareSignature(&c.throwSig)

@@ -3442,35 +3442,55 @@ func (c *Compiler) lowerCurrentOpcode() {
 
 		c.storeCallerModuleContext()
 
-		// Call the throw trampoline: (execCtx, tagIndex, p0, p1, p2, p3) -> ()
-		throwPtr := builder.AllocateInstruction().
+		tagIdxVal := builder.AllocateInstruction().AsIconst64(uint64(tagIndex)).Insert(builder).Return()
+
+		// Phase 1: call throwAlloc trampoline — Go allocates the Exception heap
+		// object (Params sized to nParams) and writes its backing-array pointer
+		// into execCtx.throwExceptionParamsPtr.
+		throwAllocPtr := builder.AllocateInstruction().
 			AsLoad(c.execCtxPtrValue,
-				wazevoapi.ExecutionContextOffsetThrowTrampolineAddress.U32(),
+				wazevoapi.ExecutionContextOffsetThrowAllocTrampolineAddress.U32(),
 				ssa.TypeI64,
 			).Insert(builder).Return()
+		throwAllocArgs := c.allocateVarLengthValues(2, c.execCtxPtrValue, tagIdxVal)
+		builder.AllocateInstruction().
+			AsCallIndirect(throwAllocPtr, &c.throwAllocSig, throwAllocArgs).
+			Insert(builder)
 
-		tagIdxVal := builder.AllocateInstruction().AsIconst64(uint64(tagIndex)).Insert(builder).Return()
-		// Pad with zeros up to 4 params. Float values must be bitcast to
-		// integers since the throw trampoline signature is all i64.
-		paddedParams := make([]ssa.Value, 4)
-		for i := range paddedParams {
-			if i < len(throwParams) {
-				v := throwParams[i]
+		// Reload memory pointers invalidated by the Go call.
+		c.reloadAfterCall()
+
+		// Phase 2: store each param directly into Exception.Params via the
+		// pointer that throwAlloc wrote to execCtx.throwExceptionParamsPtr.
+		if len(throwParams) > 0 {
+			paramsPtr := builder.AllocateInstruction().
+				AsLoad(c.execCtxPtrValue,
+					wazevoapi.ExecutionContextOffsetThrowExceptionParamsPtr.U32(),
+					ssa.TypeI64,
+				).Insert(builder).Return()
+			for i, v := range throwParams {
+				// Bitcast floats to their integer representation so we store
+				// uniformly as integer bytes into the []uint64 backing array.
 				switch v.Type() {
 				case ssa.TypeF32:
 					v = builder.AllocateInstruction().AsBitcast(v, ssa.TypeI32).Insert(builder).Return()
 				case ssa.TypeF64:
 					v = builder.AllocateInstruction().AsBitcast(v, ssa.TypeI64).Insert(builder).Return()
 				}
-				paddedParams[i] = v
-			} else {
-				paddedParams[i] = builder.AllocateInstruction().AsIconst64(0).Insert(builder).Return()
+				builder.AllocateInstruction().
+					AsStore(ssa.OpcodeStore, v, paramsPtr, uint32(i)*8).
+					Insert(builder)
 			}
 		}
 
-		throwArgs := c.allocateVarLengthValues(6, c.execCtxPtrValue, tagIdxVal,
-			paddedParams[0], paddedParams[1], paddedParams[2], paddedParams[3])
-
+		// Phase 3: call throw trampoline — Go reads pendingException (already
+		// populated) and searches for a matching catch clause.
+		throwPtr := builder.AllocateInstruction().
+			AsLoad(c.execCtxPtrValue,
+				wazevoapi.ExecutionContextOffsetThrowTrampolineAddress.U32(),
+				ssa.TypeI64,
+			).Insert(builder).Return()
+		throwArgs := c.allocateVarLengthValues(2, c.execCtxPtrValue, tagIdxVal)
 		builder.AllocateInstruction().
 			AsCallIndirect(throwPtr, &c.throwSig, throwArgs).
 			Insert(builder)
@@ -4300,35 +4320,47 @@ type parsedCatchClause struct {
 	labelIdx uint32
 }
 
-// loadExceptionParams loads the exception params from the executionContext.
-// The dispatch loop writes them to caughtExceptionParams after matching a handler.
-// Float values were bitcast to integers by the throw site, so we load as
-// integer and bitcast back to the original type.
+// loadExceptionParams loads the exception params from the caught Exception's
+// Params slice. The dispatch loop sets execCtx.caughtExceptionParamsPtr to the
+// slice's backing-array pointer after matching a handler. We load that pointer
+// and then read each param from [ptr + i*8], mirroring the stores emitted by
+// the throw lowering. Float params were bitcast to integers at the throw site,
+// so we load as integer and bitcast back to the original type.
 func (c *Compiler) loadExceptionParams(tagType *wasm.FunctionType) []ssa.Value {
+	if len(tagType.Params) == 0 {
+		return nil
+	}
 	builder := c.ssaBuilder
+
+	// Load the pointer to the caught Exception's Params backing array.
+	paramsPtr := builder.AllocateInstruction().
+		AsLoad(c.execCtxPtrValue,
+			wazevoapi.ExecutionContextOffsetCaughtExceptionParamsPtr.U32(),
+			ssa.TypeI64,
+		).Insert(builder).Return()
 
 	var values []ssa.Value
 	for i, vt := range tagType.Params {
-		offset := wazevoapi.ExecutionContextOffsetCaughtExceptionParams.U32() + uint32(i)*8
+		offset := uint32(i) * 8
 		ssaType := WasmTypeToSSAType(vt)
 		switch ssaType {
 		case ssa.TypeF32:
-			// Load as i32 then bitcast to f32.
+			// Stored as i32 at throw site; bitcast back to f32.
 			raw := builder.AllocateInstruction().
-				AsLoad(c.execCtxPtrValue, offset, ssa.TypeI32).
+				AsLoad(paramsPtr, offset, ssa.TypeI32).
 				Insert(builder).Return()
 			val := builder.AllocateInstruction().AsBitcast(raw, ssa.TypeF32).Insert(builder).Return()
 			values = append(values, val)
 		case ssa.TypeF64:
-			// Load as i64 then bitcast to f64.
+			// Stored as i64 at throw site; bitcast back to f64.
 			raw := builder.AllocateInstruction().
-				AsLoad(c.execCtxPtrValue, offset, ssa.TypeI64).
+				AsLoad(paramsPtr, offset, ssa.TypeI64).
 				Insert(builder).Return()
 			val := builder.AllocateInstruction().AsBitcast(raw, ssa.TypeF64).Insert(builder).Return()
 			values = append(values, val)
 		default:
 			val := builder.AllocateInstruction().
-				AsLoad(c.execCtxPtrValue, offset, ssaType).
+				AsLoad(paramsPtr, offset, ssaType).
 				Insert(builder).Return()
 			values = append(values, val)
 		}

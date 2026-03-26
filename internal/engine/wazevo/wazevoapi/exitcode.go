@@ -30,8 +30,15 @@ const (
 	ExitCodeMemoryWait64
 	ExitCodeMemoryNotify
 	ExitCodeUnalignedAtomic
-	// ExitCodeThrow is an exit code for the wasm throw instruction.
-	// The tag index is encoded in the upper bits like ExitCodeCallGoFunction.
+	// ExitCodeThrowAlloc is the first phase of wasm throw: Go allocates the
+	// Exception heap object (with Params sized to the tag's param count) and
+	// writes its Params data pointer to execCtx.throwExceptionParamsPtr.
+	// Compiled code then stores params directly into the Exception.Params slice,
+	// followed by ExitCodeThrow to search for a matching handler.
+	ExitCodeThrowAlloc
+	// ExitCodeThrow is the second phase of wasm throw: compiled code has
+	// written all params into the Exception allocated by ExitCodeThrowAlloc,
+	// and the handler now searches for a matching catch clause.
 	ExitCodeThrow
 	// ExitCodeThrowRef is an exit code for the wasm throw_ref instruction.
 	// The exnref value is passed on the stack.
@@ -101,6 +108,8 @@ func (e ExitCode) String() string {
 		return "memory_wait64"
 	case ExitCodeMemoryNotify:
 		return "memory_notify"
+	case ExitCodeThrowAlloc:
+		return "throw_alloc"
 	case ExitCodeThrow:
 		return "throw"
 	case ExitCodeThrowRef:

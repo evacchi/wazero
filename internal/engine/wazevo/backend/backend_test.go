@@ -2371,38 +2371,8 @@ L5 (SSA Block: blk5):
 `,
 		},
 		{
-			name: "try_table_catch_all_empty", m: testcases.TryTableCatchAllEmpty.Module,
-			afterFinalizeARM64: `
-L0 (SSA Block: blk0):
-	stp x30, xzr, [sp, #-0x10]!
-	sub sp, sp, #0x10
-	orr x27, xzr, #0x10
-	str x27, [sp, #-0x10]!
-	str x0, [sp, #0x10]
-	str x1, [x0, #0x8]
-	ldr x8, [x0, #0x4b0]
-	movz x1, #0x1b, lsl 0
-	bl x8
-	ldr x8, [sp, #0x10]
-	ldr x8, [x8, #0x4c0]
-	orr w9, wzr, #0x1
-	subs wzr, w8, w9
-	csel w8, w9, w8, hs
-	br_table_sequence x8, table_index=0
-L4 (SSA Block: blk4):
-L1 (SSA Block: blk1):
-	mov x0, xzr
-	add sp, sp, #0x10
-	add sp, sp, #0x10
-	ldr x30, [sp], #0x10
-	ret
-L3 (SSA Block: blk3):
-	movz w0, #0x2a, lsl 0
-	add sp, sp, #0x10
-	add sp, sp, #0x10
-	ldr x30, [sp], #0x10
-	ret
-`,
+			name:               "try_table_catch_all_empty", m: testcases.TryTableCatchAllEmpty.Module,
+			afterFinalizeARM64: ``,
 			afterLoweringARM64: `
 L0 (SSA Block: blk0):
 	mov x128?, x0
@@ -2410,10 +2380,10 @@ L0 (SSA Block: blk0):
 	str x129?, [x128?, #0x8]
 	ldr x132?, [x128?, #0x4b0]
 	mov x0, x128?
-	movz x133?, #0x1b, lsl 0
+	orr x133?, xzr, #0x1c
 	mov x1, x133?
 	bl x132?
-	ldr x134?, [x128?, #0x4c0]
+	ldr x134?, [x128?, #0x4c8]
 	orr w135?, wzr, #0x1
 	subs wzr, w134?, w135?
 	csel w136?, w135?, w134?, hs
@@ -2441,11 +2411,11 @@ L0 (SSA Block: blk0):
 	str x1, [sp, #0x18]
 	str x1, [x0, #0x8]
 	ldr x8, [x0, #0x4b0]
-	movz x9, #0x1b, lsl 0
+	orr x9, xzr, #0x1c
 	mov x1, x9
 	bl x8
 	ldr x8, [sp, #0x10]
-	ldr x9, [x8, #0x4c0]
+	ldr x9, [x8, #0x4c8]
 	orr w10, wzr, #0x1
 	subs wzr, w9, w10
 	csel w9, w10, w9, hs
@@ -2460,13 +2430,14 @@ L1 (SSA Block: blk1):
 L3 (SSA Block: blk3):
 	ldr x9, [sp, #0x18]
 	str x9, [x8, #0x8]
+	ldr x9, [x8, #0x4c0]
+	mov x0, x8
+	mov x1, xzr
+	bl x9
+	ldr x8, [sp, #0x10]
 	ldr x9, [x8, #0x4a0]
 	mov x0, x8
 	mov x1, xzr
-	mov x2, xzr
-	mov x3, xzr
-	mov x4, xzr
-	mov x5, xzr
 	bl x9
 	movz x8, #0x3, lsl 0
 	ldr x9, [sp, #0x10]

@@ -121,15 +121,22 @@ type (
 		tryTableEnterTrampolineAddress *byte
 		// tryTableLeaveTrampolineAddress holds the address of the try_table leave trampoline function.
 		tryTableLeaveTrampolineAddress *byte
+		// throwAllocTrampolineAddress holds the address of the throw-alloc trampoline:
+		// phase 1 of throw, which allocates the Exception heap object.
+		throwAllocTrampolineAddress *byte
 		// caughtExceptionClauseIdx is set by the dispatch loop to -1 on
 		// TryTableEnter (normal path) or to the matched catch clause index
 		// when an exception is caught. Compiled code loads this from execCtx
 		// after the trampoline call to decide which handler to dispatch to.
 		caughtExceptionClauseIdx int64
-		// caughtExceptionParams holds exception parameters written by the
-		// dispatch loop when an exception is caught. Handler blocks load
-		// these from execCtx at known offsets.
-		caughtExceptionParams [4]uint64
+		// throwExceptionParamsPtr points into the pending Exception's Params
+		// slice backing array. Compiled throw code stores each tag param at
+		// [throwExceptionParamsPtr + i*8] between the throwAlloc and throw calls.
+		throwExceptionParamsPtr uintptr
+		// caughtExceptionParamsPtr points into the caught Exception's Params
+		// slice backing array. Compiled catch handler blocks load each param
+		// from [caughtExceptionParamsPtr + i*8].
+		caughtExceptionParamsPtr uintptr
 		// caughtExceptionExnRef holds the pointer to the caught Exception
 		// struct, used by catch_ref/catch_all_ref handlers.
 		caughtExceptionExnRef uint64
@@ -552,22 +559,36 @@ func (c *callEngine) callWithStack(ctx context.Context, paramResultStack []uint6
 			panic(wasmruntime.ErrRuntimeInvalidConversionToInteger)
 		case wazevoapi.ExitCodeUnalignedAtomic:
 			panic(wasmruntime.ErrRuntimeUnalignedAtomic)
-		case wazevoapi.ExitCodeThrow:
-			// The throw trampoline passes: (execCtx, tagIndex, p0, p1, p2, p3)
+		case wazevoapi.ExitCodeThrowAlloc:
+			// Phase 1 of throw: allocate the Exception heap object sized exactly
+			// to the tag's param count, then set throwExceptionParamsPtr so
+			// compiled code can store params directly into Exception.Params.
 			s := goCallStackView(c.execCtx.stackPointerBeforeGoCall)
 			tagIndex := int(s[0])
 			mod := c.callerModuleInstance()
 			tag := mod.Tags[tagIndex]
 			nParams := len(tag.Type.Params)
-			params := make([]uint64, nParams)
-			copy(params, s[1:1+nParams])
-			exn := &wasm.Exception{Tag: tag, Params: params}
+			exn := &wasm.Exception{Tag: tag, Params: make([]uint64, nParams)}
+			c.pendingException = exn // GC root: keeps exn alive while compiled code writes params
+			if nParams > 0 {
+				c.execCtx.throwExceptionParamsPtr = uintptr(unsafe.Pointer(&exn.Params[0]))
+			}
+			c.execCtx.exitCode = wazevoapi.ExitCodeOK
+			afterGoFunctionCallEntrypoint(c.execCtx.goCallReturnAddress, c.execCtxPtr,
+				uintptr(unsafe.Pointer(c.execCtx.stackPointerBeforeGoCall)), c.execCtx.framePointerBeforeGoCall)
+		case wazevoapi.ExitCodeThrow:
+			// Phase 2 of throw: compiled code has written all params into
+			// pendingException.Params; now search for a matching handler.
+			exn := c.pendingException
 			if !c.doHandleException(exn) {
 				panic(wasmruntime.ErrRuntimeUncaughtException)
 			}
 			// doHandleException restored the cloned stack and set clauseIdx in execCtx.
-			// Write exception params and exnref to execCtx so handler code can read them.
-			copy(c.execCtx.caughtExceptionParams[:], exn.Params)
+			// Point caughtExceptionParamsPtr at the Exception's Params so handler
+			// blocks can load params from [caughtExceptionParamsPtr + i*8].
+			if len(exn.Params) > 0 {
+				c.execCtx.caughtExceptionParamsPtr = uintptr(unsafe.Pointer(&exn.Params[0]))
+			}
 			c.execCtx.caughtExceptionExnRef = uint64(uintptr(unsafe.Pointer(exn)))
 			c.execCtx.exitCode = wazevoapi.ExitCodeOK
 			afterGoFunctionCallEntrypoint(c.execCtx.goCallReturnAddress, c.execCtxPtr,
@@ -584,8 +605,10 @@ func (c *callEngine) callWithStack(ctx context.Context, paramResultStack []uint6
 			if !c.doHandleException(exn) {
 				panic(wasmruntime.ErrRuntimeUncaughtException)
 			}
-			// Write exception params and exnref to execCtx so handler code can read them.
-			copy(c.execCtx.caughtExceptionParams[:], exn.Params)
+			c.pendingException = exn // keep alive while handler reads params
+			if len(exn.Params) > 0 {
+				c.execCtx.caughtExceptionParamsPtr = uintptr(unsafe.Pointer(&exn.Params[0]))
+			}
 			c.execCtx.caughtExceptionExnRef = uint64(uintptr(unsafe.Pointer(exn)))
 			c.execCtx.exitCode = wazevoapi.ExitCodeOK
 			afterGoFunctionCallEntrypoint(c.execCtx.goCallReturnAddress, c.execCtxPtr,
