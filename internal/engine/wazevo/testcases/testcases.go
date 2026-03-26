@@ -2810,7 +2810,7 @@ var TryTableCatchAllEmpty = TestCase{
 				wasm.OpcodeReturn,
 				wasm.OpcodeEnd, // end try_table
 				// After try_table (catch_all path): return 99
-				wasm.OpcodeI32Const, 99,
+				wasm.OpcodeI32Const, 0xe3, 0x00, // 99 in signed LEB128
 				wasm.OpcodeReturn,
 				wasm.OpcodeEnd, // end block $caught
 				// Should not reach here.
@@ -3012,6 +3012,78 @@ var TryTableCatchManyParamThrow = TestCase{
 			},
 		}},
 		ExportSection: []wasm.Export{{Name: ExportedFunctionName, Type: wasm.ExternTypeFunc, Index: 0}},
+	},
+}
+
+// TryTableCatchWithReturnCall exercises the interaction between try_table and tail calls.
+// The try_table body performs a conditional:
+//   - param=1: TryTableLeave (pops handler) + return_call $target → returns 99
+//   - param=0: throw $e (caught by the catch clause) → catch handler returns 42
+//
+// This verifies two things:
+//  1. removeUntilRet does not accidentally remove the catch handler block that follows
+//     the tail-call path in the instruction stream.
+//  2. TryTableLeave + return_call correctly pass control to the tail callee.
+//
+//	(module
+//	  (tag $e)
+//	  (func $target (result i32) (i32.const 99))
+//	  (func (export "f") (param i32) (result i32)
+//	    (block $h
+//	      (try_table (catch $e $h)
+//	        (if (local.get 0)
+//	          (then (return_call $target))
+//	          (else (throw $e))
+//	        )
+//	        (unreachable)
+//	      )
+//	      (return)
+//	    )
+//	    (i32.const 42)
+//	  )
+//	)
+var TryTableCatchWithReturnCall = TestCase{
+	Name: "try_table_catch_with_return_call",
+	Module: &wasm.Module{
+		TypeSection: []wasm.FunctionType{
+			vv,                              // type 0: () -> () for tag $e
+			{Results: []wasm.ValueType{i32}}, // type 1: () -> i32 for $target
+			{Params: []wasm.ValueType{i32}, Results: []wasm.ValueType{i32}}, // type 2: (i32) -> i32 for $f
+		},
+		FunctionSection: []wasm.Index{1, 2}, // $target = func 0 (type 1), $f = func 1 (type 2)
+		TagSection:      []wasm.Tag{{Type: 0}},
+		CodeSection: []wasm.Code{
+			{Body: []byte{wasm.OpcodeI32Const, 0xe3, 0x00, wasm.OpcodeEnd}}, // $target: () -> i32 (99 in signed LEB128)
+			{Body: []byte{
+				// block $h (void) = label 0; catch $e delivers 0 values to label 0.
+				wasm.OpcodeBlock, blockSignature_vv,
+				// try_table (result i32): type is declared even though the body is unreachable
+				// (both if-branches diverge). The result is consumed by the return on the normal
+				// path (which is also unreachable), satisfying the validator.
+				wasm.OpcodeTryTable, 0x7F,
+				1,                   // 1 catch clause
+				wasm.CatchKindCatch, // catch $e (no params) → label 0 ($h)
+				0,                   // tag index 0
+				0,                   // label 0 ($h)
+				// body: conditional — both branches diverge.
+				wasm.OpcodeLocalGet, 0,
+				wasm.OpcodeIf, blockSignature_vv, // void if — both branches diverge
+				// then: TryTableLeave (pops handler) + return_call $target (tail call)
+				wasm.OpcodeTailCallReturnCall, 0,
+				wasm.OpcodeElse,
+				// else: throw $e → caught by try_table → branches to end of block $h
+				wasm.OpcodeThrow, 0,
+				wasm.OpcodeEnd,         // end if
+				wasm.OpcodeUnreachable, // unreachable
+				wasm.OpcodeEnd,         // end try_table
+				wasm.OpcodeReturn,      // unreachable (never reached)
+				wasm.OpcodeEnd,         // end block $h
+				// catch handler: reached when $e is caught (jumped to end of block $h)
+				wasm.OpcodeI32Const, 42,
+				wasm.OpcodeEnd, // end func
+			}},
+		},
+		ExportSection: []wasm.Export{{Name: ExportedFunctionName, Type: wasm.ExternTypeFunc, Index: 1}},
 	},
 }
 

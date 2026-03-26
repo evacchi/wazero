@@ -934,13 +934,23 @@ func TestE2E(t *testing.T) {
 			calls:    []callCase{{params: []uint64{42}, expResults: []uint64{42}}},
 		},
 		{
-			// Exercises tags with more than 4 parameters. The 5th param exposes the
-			// hardcoded caughtExceptionParams [4]uint64 limit: it will be silently
-			// dropped until that limit is increased or made dynamic.
 			name:     "try_table_catch_many_param_throw",
 			m:        testcases.TryTableCatchManyParamThrow.Module,
 			features: api.CoreFeaturesV2 | experimental.CoreFeaturesExceptionHandling,
 			calls:    []callCase{{params: []uint64{1, 2, 3, 4, 5}, expResults: []uint64{1, 2, 3, 4, 5}}},
+		},
+		{
+			// Verifies that removeUntilRet does not accidentally remove the catch handler
+			// block code that follows the tail-call path in the instruction stream.
+			// param=0: throw $e is caught → returns 42 (catch handler intact).
+			// param=1: return_call $target (tail call) → returns 99.
+			name:     "try_table_catch_with_return_call",
+			m:        testcases.TryTableCatchWithReturnCall.Module,
+			features: api.CoreFeaturesV2 | experimental.CoreFeaturesExceptionHandling | experimental.CoreFeaturesTailCall,
+			calls: []callCase{
+				{params: []uint64{0}, expResults: []uint64{42}}, // throw path: catch handler intact → 42
+				{params: []uint64{1}, expResults: []uint64{99}}, // tail-call path: return_call $target → 99
+			},
 		},
 	} {
 		tc := tc

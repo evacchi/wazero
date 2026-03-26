@@ -49,17 +49,22 @@ func UnwindStack(sp, _, top uintptr, returnAddresses []uintptr) []uintptr {
 		//    +-----------------+ <---- SP
 		//       (low address)
 		//
-		// Each frame contributes exactly (frame_size + 32 + size_of_arg_ret) bytes.
-		// After processing the outermost frame, i advances to exactly l and the loop
-		// exits via the for-condition. No intermediate bounds checks are needed because
-		// the stack is always correctly laid out.
-
+		if i+8 > uint64(l) {
+			break
+		}
 		frameSize := binary.LittleEndian.Uint64(stackBuf[i:])
-		i += frameSize + 16 // frame_size field + 8-byte pad = 16 bytes overhead before ReturnAddress
+		i += frameSize +
+			16 // frame size + aligned space.
+		if i+8 > uint64(l) {
+			break
+		}
 		retAddr := binary.LittleEndian.Uint64(stackBuf[i:])
-		i += 8 // ReturnAddress
+		i += 8 // ret addr.
+		if i+8 > uint64(l) {
+			break
+		}
 		sizeOfArgRet := binary.LittleEndian.Uint64(stackBuf[i:])
-		i += 8 + sizeOfArgRet // size_of_arg_ret field + arg/ret area
+		i += 8 + sizeOfArgRet
 		returnAddresses = append(returnAddresses, uintptr(retAddr))
 		if len(returnAddresses) == wasmdebug.MaxFrames {
 			break

@@ -853,7 +853,7 @@ func (e *engine) compileSharedFunctions() {
 		e.machine.CompileGoFunctionTrampoline(wazevoapi.ExitCodeTryTableLeave, &ssa.Signature{
 			// exec context
 			Params:  []ssa.Type{ssa.TypeI64},
-			Results: []ssa.Type{ssa.TypeI64},
+			Results: []ssa.Type{},
 		}, false))
 
 	fns := &sharedFunctions{

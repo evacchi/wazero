@@ -242,7 +242,7 @@ func (c *Compiler) declareSignatures(listenerOn bool) {
 	c.tryTableLeaveSig = ssa.Signature{
 		ID:      c.tryTableEnterSig.ID + 1,
 		Params:  []ssa.Type{ssa.TypeI64 /* exec context */},
-		Results: []ssa.Type{ssa.TypeI64},
+		Results: []ssa.Type{},
 	}
 	c.ssaBuilder.DeclareSignature(&c.tryTableLeaveSig)
 }
