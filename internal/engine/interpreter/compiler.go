@@ -851,20 +851,35 @@ operatorSwitch:
 			c.pc++
 			catchCount, catchNum, _ := leb128.LoadUint32(c.body[c.pc:])
 			c.pc += catchNum - 1
+			// Parse and skip each catch clause.
+			// Encoding per spec: catch/catch_ref have (kind + tagIndex + labelIndex),
+			// while catch_all/catch_all_ref have only (kind + labelIndex).
 			for i := uint32(0); i < catchCount; i++ {
 				c.pc++
 				kind := c.body[c.pc]
 				switch kind {
 				case wasm.CatchKindCatch, wasm.CatchKindCatchRef:
+					// Skip tag index (LEB128).
 					c.pc++
-					_, n, _ := leb128.LoadUint32(c.body[c.pc:])
+					_, n, err := leb128.LoadUint32(c.body[c.pc:])
+					if err != nil {
+						return fmt.Errorf("read catch tag index: %w", err)
+					}
 					c.pc += n - 1
+					// Skip label index (LEB128).
 					c.pc++
-					_, n, _ = leb128.LoadUint32(c.body[c.pc:])
+					_, n, err = leb128.LoadUint32(c.body[c.pc:])
+					if err != nil {
+						return fmt.Errorf("read catch label index: %w", err)
+					}
 					c.pc += n - 1
 				case wasm.CatchKindCatchAll, wasm.CatchKindCatchAllRef:
+					// Skip label index (LEB128); no tag index for catch_all variants.
 					c.pc++
-					_, n, _ := leb128.LoadUint32(c.body[c.pc:])
+					_, n, err := leb128.LoadUint32(c.body[c.pc:])
+					if err != nil {
+						return fmt.Errorf("read catch_all label index: %w", err)
+					}
 					c.pc += n - 1
 				}
 			}
