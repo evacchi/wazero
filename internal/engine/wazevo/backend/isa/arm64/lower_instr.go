@@ -68,18 +68,12 @@ func (m *machine) lowerTryTableDispatch(br *ssa.Instruction) {
 	}
 
 	// Arg 0: execCtx (i64)
-	arg0 := &calleeABI.Args[0]
-	if arg0.Kind == backend.ABIArgKindReg {
-		m.InsertMove(arg0.Reg, execCtxVReg, arg0.Type)
-	}
+	m.callerGenVRegToFunctionArg(calleeABI, 0, execCtxVReg, m.compiler.ValueDefinition(execCtx), stackSlotSize)
 
 	// Arg 1: encoded exit code (i64)
 	exitCodeReg := m.compiler.AllocateVReg(ssa.TypeI64)
 	m.lowerConstantI64(exitCodeReg, int64(exitCode))
-	arg1 := &calleeABI.Args[1]
-	if arg1.Kind == backend.ABIArgKindReg {
-		m.InsertMove(arg1.Reg, exitCodeReg, arg1.Type)
-	}
+	m.callerGenVRegToFunctionArg(calleeABI, 1, exitCodeReg, backend.SSAValueDefinition{}, stackSlotSize)
 
 	// Emit the indirect call.
 	callInd := m.allocateInstr()
