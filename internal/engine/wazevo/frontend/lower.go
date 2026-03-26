@@ -3430,8 +3430,31 @@ func (c *Compiler) lowerCurrentOpcode() {
 		if state.unreachable {
 			break
 		}
+		// Resolve tag type index following established pattern (direct section access).
+		var tagType *wasm.FunctionType
+		if tagIndex < c.m.ImportTagCount {
+			// Tag is imported.
+			cur := uint32(0)
+			for i := range c.m.ImportSection {
+				imp := &c.m.ImportSection[i]
+				if imp.Type != wasm.ExternTypeTag {
+					continue
+				}
+				if tagIndex == cur {
+					tagType = &c.m.TypeSection[imp.DescTag]
+					break
+				}
+				cur++
+			}
+		} else {
+			// Tag is module-defined.
+			tagSectionIdx := tagIndex - c.m.ImportTagCount
+			if tagSectionIdx < uint32(len(c.m.TagSection)) {
+				typeIdx := c.m.TagSection[tagSectionIdx].Type
+				tagType = &c.m.TypeSection[typeIdx]
+			}
+		}
 		// Pop the tag's param values from the stack.
-		tagType := c.m.TypeOfTag(tagIndex)
 		var throwParams []ssa.Value
 		if tagType != nil {
 			throwParams = make([]ssa.Value, len(tagType.Params))
@@ -3605,9 +3628,32 @@ func (c *Compiler) lowerCurrentOpcode() {
 				// Resolve the wasm target label.
 				targetBlk, _ := state.brTargetArgNumFor(cc.labelIdx)
 
+				// Resolve tag type index following established pattern (direct section access).
+				var tagType *wasm.FunctionType
+				if cc.tagIndex < c.m.ImportTagCount {
+					// Tag is imported.
+					cur := uint32(0)
+					for i := range c.m.ImportSection {
+						imp := &c.m.ImportSection[i]
+						if imp.Type != wasm.ExternTypeTag {
+							continue
+						}
+						if cc.tagIndex == cur {
+							tagType = &c.m.TypeSection[imp.DescTag]
+							break
+						}
+						cur++
+					}
+				} else {
+					// Tag is module-defined.
+					tagSectionIdx := cc.tagIndex - c.m.ImportTagCount
+					if tagSectionIdx < uint32(len(c.m.TagSection)) {
+						typeIdx := c.m.TagSection[tagSectionIdx].Type
+						tagType = &c.m.TypeSection[typeIdx]
+					}
+				}
 				// Load exception params and jump to wasm target.
 				var brArgs []ssa.Value
-				tagType := c.m.TypeOfTag(cc.tagIndex)
 				switch cc.kind {
 				case wasm.CatchKindCatch:
 					if tagType != nil {

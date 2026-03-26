@@ -237,7 +237,7 @@ func boolToByte(b bool) (ret byte) {
 
 // typeOfTag returns the wasm.FunctionType for the given tag space index or nil.
 // Tags use the same index space as the tag section, prefixed by imported tags.
-func (m *Module) TypeOfTag(tagIdx Index) *FunctionType {
+func (m *Module) typeOfTag(tagIdx Index) *FunctionType {
 	typeSectionLength := uint32(len(m.TypeSection))
 	if tagIdx < m.ImportTagCount {
 		cur := Index(0)
@@ -309,7 +309,7 @@ func (m *Module) Validate(enabledFeatures api.CoreFeatures) error {
 		return err
 	}
 
-	functions, globals, memory, tables, err := m.AllDeclarations()
+	functions, globals, memory, tables, tags, err := m.AllDeclarations()
 	if err != nil {
 		return err
 	}
@@ -326,12 +326,12 @@ func (m *Module) Validate(enabledFeatures api.CoreFeatures) error {
 		return err
 	}
 
-	if err = m.validateExports(enabledFeatures, functions, globals, memory, tables); err != nil {
+	if err = m.validateExports(enabledFeatures, functions, globals, memory, tables, tags); err != nil {
 		return err
 	}
 
 	if m.CodeSection != nil {
-		if err = m.validateFunctions(enabledFeatures, functions, globals, memory, tables, MaximumFunctionIndex); err != nil {
+		if err = m.validateFunctions(enabledFeatures, functions, globals, memory, tables, tags, MaximumFunctionIndex); err != nil {
 			return err
 		}
 	} // No need to validate host functions as NewHostModule validates
@@ -396,7 +396,7 @@ func (m *Module) validateGlobals(globals []GlobalType, numFuncts, maxGlobals uin
 	return nil
 }
 
-func (m *Module) validateFunctions(enabledFeatures api.CoreFeatures, functions []Index, globals []GlobalType, memory *Memory, tables []Table, maximumFunctionIndex uint32) error {
+func (m *Module) validateFunctions(enabledFeatures api.CoreFeatures, functions []Index, globals []GlobalType, memory *Memory, tables []Table, tags []Index, maximumFunctionIndex uint32) error {
 	if uint32(len(functions)) > maximumFunctionIndex {
 		return fmt.Errorf("too many functions (%d) in a module", len(functions))
 	}
@@ -430,7 +430,7 @@ func (m *Module) validateFunctions(enabledFeatures api.CoreFeatures, functions [
 		if c.GoFunc != nil {
 			continue
 		}
-		if err = m.validateFunction(vs, enabledFeatures, Index(idx), functions, globals, memory, tables, declaredFuncIndexes, br); err != nil {
+		if err = m.validateFunction(vs, enabledFeatures, Index(idx), functions, globals, memory, tables, tags, declaredFuncIndexes, br); err != nil {
 			return fmt.Errorf("invalid %s: %w", m.funcDesc(SectionIDFunction, Index(idx)), err)
 		}
 	}
@@ -577,7 +577,7 @@ func (m *Module) validateImports(enabledFeatures api.CoreFeatures) error {
 	return nil
 }
 
-func (m *Module) validateExports(enabledFeatures api.CoreFeatures, functions []Index, globals []GlobalType, memory *Memory, tables []Table) error {
+func (m *Module) validateExports(enabledFeatures api.CoreFeatures, functions []Index, globals []GlobalType, memory *Memory, tables []Table, tags []Index) error {
 	for i := range m.ExportSection {
 		exp := &m.ExportSection[i]
 		index := exp.Index
@@ -605,8 +605,7 @@ func (m *Module) validateExports(enabledFeatures api.CoreFeatures, functions []I
 				return fmt.Errorf("table for export[%q] out of range", exp.Name)
 			}
 		case ExternTypeTag:
-			tagCount := m.ImportTagCount + uint32(len(m.TagSection))
-			if index >= tagCount {
+			if index >= uint32(len(tags)) {
 				return fmt.Errorf("tag for export[%q] out of range", exp.Name)
 			}
 		}
@@ -1044,8 +1043,8 @@ type NameMapAssoc struct {
 	NameMap NameMap
 }
 
-// AllDeclarations returns all declarations for functions, globals, memories and tables in a module including imported ones.
-func (m *Module) AllDeclarations() (functions []Index, globals []GlobalType, memory *Memory, tables []Table, err error) {
+// AllDeclarations returns all declarations for functions, globals, memories, tables and tags in a module including imported ones.
+func (m *Module) AllDeclarations() (functions []Index, globals []GlobalType, memory *Memory, tables []Table, tags []Index, err error) {
 	for i := range m.ImportSection {
 		imp := &m.ImportSection[i]
 		switch imp.Type {
@@ -1057,6 +1056,8 @@ func (m *Module) AllDeclarations() (functions []Index, globals []GlobalType, mem
 			memory = imp.DescMem
 		case ExternTypeTable:
 			tables = append(tables, imp.DescTable)
+		case ExternTypeTag:
+			tags = append(tags, imp.DescTag)
 		}
 	}
 
@@ -1064,6 +1065,10 @@ func (m *Module) AllDeclarations() (functions []Index, globals []GlobalType, mem
 	for i := range m.GlobalSection {
 		g := &m.GlobalSection[i]
 		globals = append(globals, g.Type)
+	}
+	for i := range m.TagSection {
+		t := &m.TagSection[i]
+		tags = append(tags, t.Type)
 	}
 	if m.MemorySection != nil {
 		if memory != nil { // shouldn't be possible due to Validate

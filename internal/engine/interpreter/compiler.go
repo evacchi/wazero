@@ -190,6 +190,8 @@ type compiler struct {
 	funcs []uint32
 	// globals holds the global types for all declared globals in the module where the target function exists.
 	globals []wasm.GlobalType
+	// tags holds the type indexes for all declared tags in the module where the target function exists.
+	tags []uint32
 
 	// needSourceOffset is true if this module requires DWARF based stack trace.
 	needSourceOffset bool
@@ -279,7 +281,7 @@ type compilationResult struct {
 // newCompiler returns the new *compiler for the given parameters.
 // Use compiler.Next function to get compilation result per function.
 func newCompiler(enabledFeatures api.CoreFeatures, callFrameStackSizeInUint64 int, module *wasm.Module, ensureTermination bool) (*compiler, error) {
-	functions, globals, mem, tables, err := module.AllDeclarations()
+	functions, globals, mem, tables, tags, err := module.AllDeclarations()
 	if err != nil {
 		return nil, err
 	}
@@ -316,6 +318,7 @@ func newCompiler(enabledFeatures api.CoreFeatures, callFrameStackSizeInUint64 in
 		},
 		globals:           globals,
 		funcs:             functions,
+		tags:              tags,
 		types:             types,
 		ensureTermination: ensureTermination,
 		br:                bytes.NewReader(nil),
@@ -818,8 +821,8 @@ operatorSwitch:
 			break operatorSwitch
 		}
 		// Pop the tag's param values from the stack.
-		tagType := c.module.TypeOfTag(index)
-		if tagType != nil {
+		if index < uint32(len(c.tags)) {
+			tagType := &c.types[c.tags[index]]
 			for i := len(tagType.Params) - 1; i >= 0; i-- {
 				c.stackPop()
 			}

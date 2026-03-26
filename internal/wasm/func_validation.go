@@ -29,9 +29,9 @@ const maximumValuesOnStack = 1 << 27
 // Returns an error if the instruction sequence is not valid,
 // or potentially it can exceed the maximum number of values on the stack.
 func (m *Module) validateFunction(sts *stacks, enabledFeatures api.CoreFeatures, idx Index, functions []Index,
-	globals []GlobalType, memory *Memory, tables []Table, declaredFunctionIndexes map[Index]struct{}, br *bytes.Reader,
+	globals []GlobalType, memory *Memory, tables []Table, tags []Index, declaredFunctionIndexes map[Index]struct{}, br *bytes.Reader,
 ) error {
-	return m.validateFunctionWithMaxStackValues(sts, enabledFeatures, idx, functions, globals, memory, tables, maximumValuesOnStack, declaredFunctionIndexes, br)
+	return m.validateFunctionWithMaxStackValues(sts, enabledFeatures, idx, functions, globals, memory, tables, tags, maximumValuesOnStack, declaredFunctionIndexes, br)
 }
 
 func readMemArg(pc uint64, body []byte) (align, offset uint32, read uint64, err error) {
@@ -69,6 +69,7 @@ func (m *Module) validateFunctionWithMaxStackValues(
 	globals []GlobalType,
 	memory *Memory,
 	tables []Table,
+	tags []Index,
 	maxStackValues int,
 	declaredFunctionIndexes map[Index]struct{},
 	br *bytes.Reader,
@@ -548,7 +549,7 @@ func (m *Module) validateFunctionWithMaxStackValues(
 				return fmt.Errorf("read immediate: %v", err)
 			}
 			pc += num - 1
-			tagType := m.TypeOfTag(tagIndex)
+			tagType := m.typeOfTag(tagIndex)
 			if tagType == nil {
 				return fmt.Errorf("invalid tag index for %s: %d", OpcodeThrowName, tagIndex)
 			}
@@ -599,7 +600,7 @@ func (m *Module) validateFunctionWithMaxStackValues(
 						return fmt.Errorf("read catch tag index: %v", err)
 					}
 					pc += tagNum - 1
-					tagType := m.TypeOfTag(tagIdx)
+					tagType := m.typeOfTag(tagIdx)
 					if tagType == nil {
 						return fmt.Errorf("invalid tag index in catch clause: %d", tagIdx)
 					}
