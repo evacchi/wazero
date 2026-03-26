@@ -48,21 +48,12 @@ func UnwindStack(sp, _, top uintptr, returnAddresses []uintptr) []uintptr {
 		//    |   frame_size    |
 		//    +-----------------+ <---- SP
 		//       (low address)
-		//
-		if i+8 > uint64(l) {
-			break
-		}
+
 		frameSize := binary.LittleEndian.Uint64(stackBuf[i:])
 		i += frameSize +
 			16 // frame size + aligned space.
-		if i+8 > uint64(l) {
-			break
-		}
 		retAddr := binary.LittleEndian.Uint64(stackBuf[i:])
 		i += 8 // ret addr.
-		if i+8 > uint64(l) {
-			break
-		}
 		sizeOfArgRet := binary.LittleEndian.Uint64(stackBuf[i:])
 		i += 8 + sizeOfArgRet
 		returnAddresses = append(returnAddresses, uintptr(retAddr))
