@@ -2979,36 +2979,36 @@ var TryTableCatchManyParamThrow = TestCase{
 	Name: "try_table_catch_many_param_throw",
 	Module: &wasm.Module{
 		TypeSection: []wasm.FunctionType{
-			{Params: []wasm.ValueType{i32, i32, i32, i32, i32}},                                                                       // type 0: (i32x5) -> () for tag
-			{Params: []wasm.ValueType{i32, i32, i32, i32, i32}, Results: []wasm.ValueType{i32, i32, i32, i32, i32}},                   // type 1: (i32x5) -> (i32x5) for func
-			{Results: []wasm.ValueType{i32, i32, i32, i32, i32}},                                                                      // type 2: () -> (i32x5) for block/try_table
+			{Params: []wasm.ValueType{i32, i32, i32, i32, i32}},                                                     // type 0: (i32x5) -> () for tag
+			{Params: []wasm.ValueType{i32, i32, i32, i32, i32}, Results: []wasm.ValueType{i32, i32, i32, i32, i32}}, // type 1: (i32x5) -> (i32x5) for func
+			{Results: []wasm.ValueType{i32, i32, i32, i32, i32}},                                                    // type 2: () -> (i32x5) for block/try_table
 		},
 		FunctionSection: []wasm.Index{1},       // func type 1
 		TagSection:      []wasm.Tag{{Type: 0}}, // tag type 0: (i32x5) -> ()
 		CodeSection: []wasm.Code{{
 			Body: []byte{
-				wasm.OpcodeBlock, 0x02,     // block $h (result i32 i32 i32 i32 i32) -- type index 2
-				wasm.OpcodeTryTable, 0x02,  // try_table (result i32 i32 i32 i32 i32) -- type index 2
-				1,                          // 1 catch clause
-				wasm.CatchKindCatch,        // catch
-				0,                          // tag index 0 ($e)
-				0,                          // label 0 ($h)
-				wasm.OpcodeLocalGet, 0,     // local.get 0
-				wasm.OpcodeLocalGet, 1,     // local.get 1
-				wasm.OpcodeLocalGet, 2,     // local.get 2
-				wasm.OpcodeLocalGet, 3,     // local.get 3
-				wasm.OpcodeLocalGet, 4,     // local.get 4
-				wasm.OpcodeThrow, 0,        // throw tag 0
-				wasm.OpcodeI32Const, 0,     // unreachable dummy results
+				wasm.OpcodeBlock, 0x02, // block $h (result i32 i32 i32 i32 i32) -- type index 2
+				wasm.OpcodeTryTable, 0x02, // try_table (result i32 i32 i32 i32 i32) -- type index 2
+				1,                      // 1 catch clause
+				wasm.CatchKindCatch,    // catch
+				0,                      // tag index 0 ($e)
+				0,                      // label 0 ($h)
+				wasm.OpcodeLocalGet, 0, // local.get 0
+				wasm.OpcodeLocalGet, 1, // local.get 1
+				wasm.OpcodeLocalGet, 2, // local.get 2
+				wasm.OpcodeLocalGet, 3, // local.get 3
+				wasm.OpcodeLocalGet, 4, // local.get 4
+				wasm.OpcodeThrow, 0, // throw tag 0
+				wasm.OpcodeI32Const, 0, // unreachable dummy results
 				wasm.OpcodeI32Const, 0,
 				wasm.OpcodeI32Const, 0,
 				wasm.OpcodeI32Const, 0,
 				wasm.OpcodeI32Const, 0,
-				wasm.OpcodeEnd,             // end try_table
-				wasm.OpcodeReturn,          // return try_table result
-				wasm.OpcodeEnd,             // end block $h
-				wasm.OpcodeReturn,          // return
-				wasm.OpcodeEnd,             // end func
+				wasm.OpcodeEnd,    // end try_table
+				wasm.OpcodeReturn, // return try_table result
+				wasm.OpcodeEnd,    // end block $h
+				wasm.OpcodeReturn, // return
+				wasm.OpcodeEnd,    // end func
 			},
 		}},
 		ExportSection: []wasm.Export{{Name: ExportedFunctionName, Type: wasm.ExternTypeFunc, Index: 0}},
@@ -3021,32 +3021,34 @@ var TryTableCatchManyParamThrow = TestCase{
 //   - param=0: throw $e (caught by the catch clause) → catch handler returns 42
 //
 // This verifies two things:
+//
 //  1. removeUntilRet does not accidentally remove the catch handler block that follows
 //     the tail-call path in the instruction stream.
+//
 //  2. TryTableLeave + return_call correctly pass control to the tail callee.
 //
-//	(module
-//	  (tag $e)
-//	  (func $target (result i32) (i32.const 99))
-//	  (func (export "f") (param i32) (result i32)
-//	    (block $h
-//	      (try_table (catch $e $h)
-//	        (if (local.get 0)
-//	          (then (return_call $target))
-//	          (else (throw $e))
-//	        )
-//	        (unreachable)
-//	      )
-//	      (return)
-//	    )
-//	    (i32.const 42)
-//	  )
-//	)
+//     (module
+//     (tag $e)
+//     (func $target (result i32) (i32.const 99))
+//     (func (export "f") (param i32) (result i32)
+//     (block $h
+//     (try_table (catch $e $h)
+//     (if (local.get 0)
+//     (then (return_call $target))
+//     (else (throw $e))
+//     )
+//     (unreachable)
+//     )
+//     (return)
+//     )
+//     (i32.const 42)
+//     )
+//     )
 var TryTableCatchWithReturnCall = TestCase{
 	Name: "try_table_catch_with_return_call",
 	Module: &wasm.Module{
 		TypeSection: []wasm.FunctionType{
-			vv,                              // type 0: () -> () for tag $e
+			vv,                               // type 0: () -> () for tag $e
 			{Results: []wasm.ValueType{i32}}, // type 1: () -> i32 for $target
 			{Params: []wasm.ValueType{i32}, Results: []wasm.ValueType{i32}}, // type 2: (i32) -> i32 for $f
 		},
