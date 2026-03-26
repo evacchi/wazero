@@ -68,8 +68,6 @@ type (
 		moduleInstance *wasm.ModuleInstance
 	}
 
-
-
 	// executionContext is the struct to be read/written by assembly functions.
 	executionContext struct {
 		// exitCode holds the wazevoapi.ExitCode describing the state of the function execution.
@@ -569,9 +567,7 @@ func (c *callEngine) callWithStack(ctx context.Context, paramResultStack []uint6
 			}
 			// doHandleException restored the cloned stack and set clauseIdx in execCtx.
 			// Write exception params and exnref to execCtx so handler code can read them.
-			for i, p := range exn.Params {
-				c.execCtx.caughtExceptionParams[i] = p
-			}
+			copy(c.execCtx.caughtExceptionParams[:], exn.Params)
 			c.execCtx.caughtExceptionExnRef = uint64(uintptr(unsafe.Pointer(exn)))
 			c.execCtx.exitCode = wazevoapi.ExitCodeOK
 			afterGoFunctionCallEntrypoint(c.execCtx.goCallReturnAddress, c.execCtxPtr,
@@ -589,9 +585,7 @@ func (c *callEngine) callWithStack(ctx context.Context, paramResultStack []uint6
 				panic(wasmruntime.ErrRuntimeUncaughtException)
 			}
 			// Write exception params and exnref to execCtx so handler code can read them.
-			for i, p := range exn.Params {
-				c.execCtx.caughtExceptionParams[i] = p
-			}
+			copy(c.execCtx.caughtExceptionParams[:], exn.Params)
 			c.execCtx.caughtExceptionExnRef = uint64(uintptr(unsafe.Pointer(exn)))
 			c.execCtx.exitCode = wazevoapi.ExitCodeOK
 			afterGoFunctionCallEntrypoint(c.execCtx.goCallReturnAddress, c.execCtxPtr,

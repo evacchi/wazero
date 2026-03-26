@@ -4300,7 +4300,6 @@ type parsedCatchClause struct {
 	labelIdx uint32
 }
 
-
 // loadExceptionParams loads the exception params from the executionContext.
 // The dispatch loop writes them to caughtExceptionParams after matching a handler.
 // Float values were bitcast to integers by the throw site, so we load as
