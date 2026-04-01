@@ -143,36 +143,80 @@ type tryHandler struct {
 	savedFrames   []*callFrame
 }
 
-// exceptionState is the panic value used for cross-function exception propagation.
-// It follows the same pattern as *snapshot: panic with a typed value,
-// recover at the call site, call doRestore() to resume execution.
-type exceptionState struct {
-	ce *callEngine
+// restorable is implemented by panic values that can restore callEngine state.
+// Both *snapshot (snapshotter API) and *thrownException (wasm exception handling)
+// implement this interface, allowing a single recover block to handle both.
+type restorable interface {
+	// canRestore checks whether this panic value can restore the given callEngine.
+	// Returns a restorable ready for doRestore(), or nil if not handled.
+	canRestore(ce *callEngine) restorable
+	// doRestore restores the callEngine state. Returns true if this was an
+	// exception catch (caller should continue the loop), false for snapshot
+	// restores (caller should proceed to frame.pc++).
+	doRestore() bool
+}
+
+// thrownException is the panic value for wasm exception propagation.
+// It implements restorable: canRestore searches for a matching try handler
+// and populates the restore target fields; doRestore applies the restore.
+type thrownException struct {
 	// Exception being propagated.
 	// Note: we need to hold onto this reference because in order to push it onto the stack
 	// we must convert it into a raw uint64
 	exception *wasm.Exception
-	// Restore target (set when a matching handler is found).
-	savedStackLen int // stack length at try_table entry
+	// Restore target fields, populated by canRestore when a handler matches.
+	ce            *callEngine
+	savedStackLen int
 	savedFrames   []*callFrame
 	targetPC      uint64
-	stackDropSize int // number of uint64 slots to drop from savedStackLen
-	// Values to push onto the stack after restore (exception params, possibly exnref).
-	values []uint64
+	stackDropSize int
+	values        []uint64
 }
 
-func (es *exceptionState) doRestore() {
-	ce := es.ce
+func (t *thrownException) canRestore(ce *callEngine) restorable {
+	for i := len(ce.tryHandlers) - 1; i >= 0; i-- {
+		h := &ce.tryHandlers[i]
+		for j := 0; j < h.catchCount; j++ {
+			kind := byte(h.clauses[j*4])
+			clauseTagIndex := uint32(h.clauses[j*4+1])
+			targetPC := h.clauses[j*4+2]
+			stackDropSize := int(h.clauses[j*4+3])
+
+			var clauseTag *wasm.TagInstance
+			if kind == wasm.CatchKindCatch || kind == wasm.CatchKindCatchRef {
+				handlerFrame := h.savedFrames[len(h.savedFrames)-1]
+				clauseTag = handlerFrame.f.moduleInstance.Tags[clauseTagIndex]
+			}
+			matched, values := matchCatchClause(kind, clauseTag, t.exception)
+			if matched {
+				t.ce = ce
+				t.savedStackLen = h.savedStackLen
+				t.savedFrames = h.savedFrames
+				t.targetPC = targetPC
+				t.stackDropSize = stackDropSize
+				t.values = values
+				// Pop all handlers at and above this one.
+				ce.tryHandlers = ce.tryHandlers[:i]
+				return t
+			}
+		}
+	}
+	return nil
+}
+
+func (t *thrownException) doRestore() bool {
+	ce := t.ce
 	// Truncate the operand stack to the target block's depth.
 	// We truncate rather than replace, preserving local variable mutations.
-	keepLen := es.savedStackLen - es.stackDropSize
+	keepLen := t.savedStackLen - t.stackDropSize
 	ce.stack = ce.stack[:keepLen]
 	// Push catch values onto the stack.
-	ce.stack = append(ce.stack, es.values...)
+	ce.stack = append(ce.stack, t.values...)
 	// Restore frames to the handler's snapshot level (remove callee frames that panicked).
-	ce.frames = ce.frames[:len(es.savedFrames)]
+	ce.frames = ce.frames[:len(t.savedFrames)]
 	// Set the PC on the handler's frame to the catch target.
-	ce.frames[len(ce.frames)-1].pc = es.targetPC
+	ce.frames[len(ce.frames)-1].pc = t.targetPC
+	return true
 }
 
 // callEngine holds context per moduleEngine.Call, and shared across all the
@@ -285,44 +329,6 @@ func (ce *callEngine) handleExceptionInCurrentFrame(exn *wasm.Exception, frame *
 	return false
 }
 
-// matchException searches the try handler stack (top-down) for a handler
-// that matches the given exception. If found, it pops handlers down to
-// the match and returns an exceptionState ready for doRestore().
-// Returns nil if no handler matches.
-func (ce *callEngine) matchException(exn *wasm.Exception) *exceptionState {
-	for i := len(ce.tryHandlers) - 1; i >= 0; i-- {
-		h := &ce.tryHandlers[i]
-		for j := 0; j < h.catchCount; j++ {
-			kind := byte(h.clauses[j*4])
-			clauseTagIndex := uint32(h.clauses[j*4+1])
-			targetPC := h.clauses[j*4+2]
-			stackDropSize := int(h.clauses[j*4+3])
-
-			var clauseTag *wasm.TagInstance
-			if kind == wasm.CatchKindCatch || kind == wasm.CatchKindCatchRef {
-				handlerFrame := h.savedFrames[len(h.savedFrames)-1]
-				clauseTag = handlerFrame.f.moduleInstance.Tags[clauseTagIndex]
-			}
-			matched, values := matchCatchClause(kind, clauseTag, exn)
-			if matched {
-				es := &exceptionState{
-					ce:            ce,
-					exception:     exn,
-					savedStackLen: h.savedStackLen,
-					savedFrames:   h.savedFrames,
-					targetPC:      targetPC,
-					stackDropSize: stackDropSize,
-					values:        values,
-				}
-				// Pop all handlers at and above this one.
-				ce.tryHandlers = ce.tryHandlers[:i]
-				return es
-			}
-		}
-	}
-	return nil
-}
-
 // callWithRecover calls the target function, recovering from snapshot restores
 // and exception panics. Returns true if an exception was caught by a try handler
 // (caller should refresh frame/body/bodyLen and continue the loop).
@@ -336,16 +342,9 @@ func (ce *callEngine) callWithRecover(ctx context.Context, m *wasm.ModuleInstanc
 	func() {
 		defer func() {
 			if r := recover(); r != nil {
-				switch v := r.(type) {
-				case *snapshot:
-					if v.ce == ce {
-						v.doRestore()
-						return
-					}
-				case *wasm.Exception:
-					if es := ce.matchException(v); es != nil {
-						es.doRestore()
-						caught = true
+				if v, ok := r.(restorable); ok {
+					if res := v.canRestore(ce); res != nil {
+						caught = res.doRestore()
 						return
 					}
 				}
@@ -490,7 +489,14 @@ func (s *snapshot) Restore(ret []uint64) {
 	panic(s)
 }
 
-func (s *snapshot) doRestore() {
+func (s *snapshot) canRestore(ce *callEngine) restorable {
+	if s.ce == ce {
+		return s
+	}
+	return nil
+}
+
+func (s *snapshot) doRestore() bool {
 	ce := s.ce
 
 	ce.stack = s.stack
@@ -498,6 +504,7 @@ func (s *snapshot) doRestore() {
 	ce.frames[len(ce.frames)-1].pc = s.pc
 
 	copy(ce.stack[len(ce.stack)-len(s.ret):], s.ret)
+	return false
 }
 
 // Error implements the same method on error.
@@ -858,7 +865,7 @@ func (ce *callEngine) recoverOnCall(ctx context.Context, m *wasm.ModuleInstance,
 	}
 
 	// If an exception reached the top level without being caught, convert it to an uncaught exception error.
-	if _, ok := v.(*wasm.Exception); ok {
+	if _, ok := v.(*thrownException); ok {
 		v = wasmruntime.ErrRuntimeUncaughtException
 	}
 
@@ -4597,7 +4604,7 @@ func (ce *callEngine) callNativeFunc(ctx context.Context, m *wasm.ModuleInstance
 			if ce.handleExceptionInCurrentFrame(exn, frame, &body, &bodyLen) {
 				continue
 			}
-			panic(exn)
+			panic(&thrownException{exception: exn})
 
 		case operationKindThrowRef:
 			v := ce.popValue()
@@ -4610,7 +4617,7 @@ func (ce *callEngine) callNativeFunc(ctx context.Context, m *wasm.ModuleInstance
 			if ce.handleExceptionInCurrentFrame(exn, frame, &body, &bodyLen) {
 				continue
 			}
-			panic(exn)
+			panic(&thrownException{exception: exn})
 
 		case operationKindTryTable:
 			// Capture a snapshot of engine state, following the snapshot/restore
