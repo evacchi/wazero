@@ -43,8 +43,6 @@ func (m *machine) LowerSingleBranch(br *ssa.Instruction) {
 
 func (m *machine) lowerTryTableDispatch(br *ssa.Instruction) {
 	execCtx, exitCode, sigID, targets := br.TryTableDispatchData()
-	targetBlockIDs := targets
-	targetBlockCount := len(targetBlockIDs.View())
 
 	// Copy execCtx to a VReg that survives the call.
 	execCtxVReg := m.compiler.VRegOf(execCtx)
@@ -89,33 +87,20 @@ func (m *machine) lowerTryTableDispatch(br *ssa.Instruction) {
 	loadClause.asULoad(clauseIdxReg, amodeClause, 64)
 	m.insert(loadClause)
 
-	// Step 4: Jump-table dispatch (same pattern as lowerBrTable).
-	// clauseIdx 0..N-2 → handler blocks, out-of-range (including -1/MAX_UINT64) → bodyBlk (last target).
-	indexOperand := operandNR(clauseIdxReg)
-	maxIndexReg := m.compiler.AllocateVReg(ssa.TypeI32)
-	m.lowerConstantI32(maxIndexReg, int32(targetBlockCount-1))
-	subs := m.allocateInstr()
-	subs.asALU(aluOpSubS, xzrVReg, indexOperand, operandNR(maxIndexReg), false)
-	m.insert(subs)
-	csel := m.allocateInstr()
-	adjustedIndex := m.compiler.AllocateVReg(ssa.TypeI32)
-	csel.asCSel(adjustedIndex, operandNR(maxIndexReg), indexOperand, hs, false)
-	m.insert(csel)
-
-	brSequence := m.allocateInstr()
-	tableIndex := m.addJmpTableTarget(targetBlockIDs)
-	brSequence.asBrTableSequence(adjustedIndex, tableIndex, targetBlockCount)
-	m.insert(brSequence)
+	// Step 4: Jump-table dispatch.
+	m.emitJumpTableDispatch(operandNR(clauseIdxReg), targets)
 }
 
 func (m *machine) lowerBrTable(i *ssa.Instruction) {
-	index, targetBlockIDs := i.BrTableData()
-	targetBlockCount := len(targetBlockIDs.View())
+	index, targets := i.BrTableData()
 	indexOperand := m.getOperand_NR(m.compiler.ValueDefinition(index), extModeNone)
+	m.emitJumpTableDispatch(indexOperand, targets)
+}
 
-	// Firstly, we have to do the bounds check of the index, and
-	// set it to the default target (sitting at the end of the list) if it's out of bounds.
-
+// emitJumpTableDispatch emits bounds-checked jump table dispatch.
+// If index >= len(targets)-1, it clamps to the last target (default).
+func (m *machine) emitJumpTableDispatch(indexOperand operand, targets ssa.Values) {
+	targetBlockCount := len(targets.View())
 	// mov  maxIndexReg #maximum_index
 	// subs wzr, index, maxIndexReg
 	// csel adjustedIndex, maxIndexReg, index, hs ;; if index is higher or equal than maxIndexReg.
@@ -130,8 +115,7 @@ func (m *machine) lowerBrTable(i *ssa.Instruction) {
 	m.insert(csel)
 
 	brSequence := m.allocateInstr()
-
-	tableIndex := m.addJmpTableTarget(targetBlockIDs)
+	tableIndex := m.addJmpTableTarget(targets)
 	brSequence.asBrTableSequence(adjustedIndex, tableIndex, targetBlockCount)
 	m.insert(brSequence)
 }

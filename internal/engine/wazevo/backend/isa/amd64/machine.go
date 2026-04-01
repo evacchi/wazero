@@ -352,48 +352,11 @@ var condBranchMatches = [...]ssa.Opcode{ssa.OpcodeIcmp, ssa.OpcodeFcmp}
 func (m *machine) lowerBrTable(index ssa.Value, targets ssa.Values) {
 	_v := m.getOperand_Reg(m.c.ValueDefinition(index))
 	v := m.copyToTmp(_v.reg())
-
-	targetCount := len(targets.View())
-
-	// First, we need to do the bounds check.
-	maxIndex := m.c.AllocateVReg(ssa.TypeI32)
-	m.lowerIconst(maxIndex, uint64(targetCount-1), false)
-	cmp := m.allocateInstr().asCmpRmiR(true, newOperandReg(maxIndex), v, false)
-	m.insert(cmp)
-
-	// Then do the conditional move maxIndex to v if v > maxIndex.
-	cmov := m.allocateInstr().asCmove(condNB, newOperandReg(maxIndex), v, false)
-	m.insert(cmov)
-
-	// Now that v has the correct index. Load the address of the jump table into the addr.
-	addr := m.c.AllocateVReg(ssa.TypeI64)
-	leaJmpTableAddr := m.allocateInstr()
-	m.insert(leaJmpTableAddr)
-
-	// Then add the target's offset into jmpTableAddr.
-	loadTargetOffsetFromJmpTable := m.allocateInstr().asAluRmiR(aluRmiROpcodeAdd,
-		// Shift by 3 because each entry is 8 bytes.
-		newOperandMem(m.newAmodeRegRegShift(0, addr, v, 3)), addr, true)
-	m.insert(loadTargetOffsetFromJmpTable)
-
-	// Now ready to jump.
-	jmp := m.allocateInstr().asJmp(newOperandReg(addr))
-	m.insert(jmp)
-
-	jmpTableBegin, jmpTableBeginLabel := m.allocateBrTarget()
-	m.insert(jmpTableBegin)
-	leaJmpTableAddr.asLEA(newOperandLabel(jmpTableBeginLabel), addr)
-
-	jmpTable := m.allocateInstr()
-	targetSliceIndex := m.addJmpTableTarget(targets)
-	jmpTable.asJmpTableSequence(targetSliceIndex, targetCount)
-	m.insert(jmpTable)
+	m.emitJumpTableDispatch(v, targets)
 }
 
 func (m *machine) lowerTryTableDispatch(br *ssa.Instruction) {
 	execCtx, exitCode, sigID, targets := br.TryTableDispatchData()
-	targetBlockIDs := targets
-	targetBlockCount := len(targetBlockIDs.View())
 
 	// Copy execCtx to a VReg.
 	execCtxVReg := m.c.VRegOf(execCtx)
@@ -437,23 +400,37 @@ func (m *machine) lowerTryTableDispatch(br *ssa.Instruction) {
 	)
 	m.insert(loadClause)
 
-	// Step 4: Jump-table dispatch (same pattern as lowerBrTable).
+	// Step 4: Jump-table dispatch.
 	v := m.copyToTmp(clauseIdxReg)
+	m.emitJumpTableDispatch(v, targets)
+}
+
+// emitJumpTableDispatch emits bounds-checked jump table dispatch.
+// If index >= len(targets)-1, it clamps to the last target (default).
+func (m *machine) emitJumpTableDispatch(indexReg regalloc.VReg, targets ssa.Values) {
+	targetCount := len(targets.View())
+
+	// Bounds check.
 	maxIndex := m.c.AllocateVReg(ssa.TypeI32)
-	m.lowerIconst(maxIndex, uint64(targetBlockCount-1), false)
-	cmp := m.allocateInstr().asCmpRmiR(true, newOperandReg(maxIndex), v, false)
+	m.lowerIconst(maxIndex, uint64(targetCount-1), false)
+	cmp := m.allocateInstr().asCmpRmiR(true, newOperandReg(maxIndex), indexReg, false)
 	m.insert(cmp)
-	cmov := m.allocateInstr().asCmove(condNB, newOperandReg(maxIndex), v, false)
+
+	// Conditional move maxIndex to indexReg if indexReg > maxIndex.
+	cmov := m.allocateInstr().asCmove(condNB, newOperandReg(maxIndex), indexReg, false)
 	m.insert(cmov)
 
+	// Load the address of the jump table.
 	addr := m.c.AllocateVReg(ssa.TypeI64)
 	leaJmpTableAddr := m.allocateInstr()
 	m.insert(leaJmpTableAddr)
 
+	// Add the target's offset into jmpTableAddr (shift by 3: each entry is 8 bytes).
 	loadTargetOffsetFromJmpTable := m.allocateInstr().asAluRmiR(aluRmiROpcodeAdd,
-		newOperandMem(m.newAmodeRegRegShift(0, addr, v, 3)), addr, true)
+		newOperandMem(m.newAmodeRegRegShift(0, addr, indexReg, 3)), addr, true)
 	m.insert(loadTargetOffsetFromJmpTable)
 
+	// Jump.
 	jmp := m.allocateInstr().asJmp(newOperandReg(addr))
 	m.insert(jmp)
 
@@ -462,8 +439,8 @@ func (m *machine) lowerTryTableDispatch(br *ssa.Instruction) {
 	leaJmpTableAddr.asLEA(newOperandLabel(jmpTableBeginLabel), addr)
 
 	jmpTable := m.allocateInstr()
-	targetSliceIndex := m.addJmpTableTarget(targetBlockIDs)
-	jmpTable.asJmpTableSequence(targetSliceIndex, targetBlockCount)
+	targetSliceIndex := m.addJmpTableTarget(targets)
+	jmpTable.asJmpTableSequence(targetSliceIndex, targetCount)
 	m.insert(jmpTable)
 }
 
