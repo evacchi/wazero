@@ -899,6 +899,7 @@ operatorSwitch:
 		for i := uint32(0); i < catchCount; i++ {
 			c.pc++
 			kind := c.body[c.pc]
+			// Parse tagIdx.
 			var tagIdx uint32
 			switch kind {
 			case wasm.CatchKindCatch, wasm.CatchKindCatchRef:
@@ -908,6 +909,8 @@ operatorSwitch:
 					return fmt.Errorf("reading catch tag index: %w", err)
 				}
 				c.pc += num - 1
+			case wasm.CatchKindCatchAll, wasm.CatchKindCatchAllRef:
+				// No tagIdx for catch_all variants.
 			}
 			c.pc++
 			labelIdx, n, err := leb128.LoadUint32(c.body[c.pc:])

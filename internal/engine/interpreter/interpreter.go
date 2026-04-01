@@ -130,10 +130,6 @@ func (e *moduleEngine) OwnsGlobals() bool { return false }
 // MemoryGrown implements wasm.ModuleEngine.
 func (e *moduleEngine) MemoryGrown() {}
 
-// callEngine holds context per moduleEngine.Call, and shared across all the
-// function calls originating from the same moduleEngine.Call execution.
-//
-// This implements api.Function.
 // tryHandler represents an active try_table exception handler.
 // It captures a snapshot of the engine state at the point try_table was entered,
 // following the same pattern as the snapshot/restore mechanism (see PR #1808).
@@ -177,6 +173,10 @@ func (es *exceptionState) doRestore() {
 	ce.frames[len(ce.frames)-1].pc = es.targetPC
 }
 
+// callEngine holds context per moduleEngine.Call, and shared across all the
+// function calls originating from the same moduleEngine.Call execution.
+//
+// This implements api.Function.
 type callEngine struct {
 	internalapi.WazeroOnlyType
 

@@ -20,6 +20,7 @@ const (
 	// OpcodeElse brackets a sequence of instructions enclosed by an OpcodeIf. A branch instruction on a then label
 	// breaks out to after the OpcodeEnd on the enclosing OpcodeIf.
 	OpcodeElse Opcode = 0x05
+
 	// Exception handling instructions (toggled with CoreFeaturesExceptionHandling)
 
 	// OpcodeThrow throws an exception with the given tag.
@@ -49,14 +50,16 @@ const (
 	OpcodeCall         Opcode = 0x10
 	OpcodeCallIndirect Opcode = 0x11
 
-	// OpcodeTryTable brackets a sequence of instructions with catch clauses for exception handling.
-	OpcodeTryTable Opcode = 0x1f
-
 	// parametric instructions
 
 	OpcodeDrop        Opcode = 0x1a
 	OpcodeSelect      Opcode = 0x1b
 	OpcodeTypedSelect Opcode = 0x1c
+
+	// Exception handling instructions (toggled with CoreFeaturesExceptionHandling)
+
+	// OpcodeTryTable brackets a sequence of instructions with catch clauses for exception handling.
+	OpcodeTryTable Opcode = 0x1f
 
 	// variable instructions
 
