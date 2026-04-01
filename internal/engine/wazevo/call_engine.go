@@ -576,36 +576,26 @@ func (c *callEngine) callWithStack(ctx context.Context, paramResultStack []uint6
 			c.execCtx.exitCode = wazevoapi.ExitCodeOK
 			afterGoFunctionCallEntrypoint(c.execCtx.goCallReturnAddress, c.execCtxPtr,
 				uintptr(unsafe.Pointer(c.execCtx.stackPointerBeforeGoCall)), c.execCtx.framePointerBeforeGoCall)
-		case wazevoapi.ExitCodeThrow:
+		case wazevoapi.ExitCodeThrow, wazevoapi.ExitCodeThrowRef:
+			var exn *wasm.Exception
+			if ec == wazevoapi.ExitCodeThrowRef {
+				// The throw_ref trampoline passes: (execCtx, exnref)
+				s := goCallStackView(c.execCtx.stackPointerBeforeGoCall)
+				if s[0] == 0 {
+					panic(wasmruntime.ErrRuntimeNullReference)
+				}
+				// Read the Exception pointer directly from the stack slot to avoid
+				// uintptr→unsafe.Pointer conversion which triggers checkptr.
+				exn = *(**wasm.Exception)(unsafe.Pointer(&s[0]))
+			} else {
+				exn = c.pendingException
+			}
+
 			// Phase 2 of throw: compiled code has written all params into
 			// pendingException.Params; now search for a matching handler.
-			exn := c.pendingException
 			if !c.doHandleException(exn) {
 				panic(wasmruntime.ErrRuntimeUncaughtException)
 			}
-			// doHandleException restored the cloned stack and set clauseIdx in execCtx.
-			// Point caughtExceptionParamsPtr at the Exception's Params so handler
-			// blocks can load params from [caughtExceptionParamsPtr + i*8].
-			if len(exn.Params) > 0 {
-				c.execCtx.caughtExceptionParamsPtr = uintptr(unsafe.Pointer(&exn.Params[0]))
-			}
-			c.execCtx.caughtExceptionExnRef = uint64(uintptr(unsafe.Pointer(exn)))
-			c.execCtx.exitCode = wazevoapi.ExitCodeOK
-			afterGoFunctionCallEntrypoint(c.execCtx.goCallReturnAddress, c.execCtxPtr,
-				uintptr(unsafe.Pointer(c.execCtx.stackPointerBeforeGoCall)), c.execCtx.framePointerBeforeGoCall)
-		case wazevoapi.ExitCodeThrowRef:
-			// The throw_ref trampoline passes: (execCtx, exnref)
-			s := goCallStackView(c.execCtx.stackPointerBeforeGoCall)
-			if s[0] == 0 {
-				panic(wasmruntime.ErrRuntimeNullReference)
-			}
-			// Read the Exception pointer directly from the stack slot to avoid
-			// uintptr→unsafe.Pointer conversion which triggers checkptr.
-			exn := *(**wasm.Exception)(unsafe.Pointer(&s[0]))
-			if !c.doHandleException(exn) {
-				panic(wasmruntime.ErrRuntimeUncaughtException)
-			}
-			c.pendingException = exn // keep alive while handler reads params
 			if len(exn.Params) > 0 {
 				c.execCtx.caughtExceptionParamsPtr = uintptr(unsafe.Pointer(&exn.Params[0]))
 			}
