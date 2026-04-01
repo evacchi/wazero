@@ -150,10 +150,9 @@ type restorable interface {
 	// canRestore checks whether this panic value can restore the given callEngine.
 	// Returns a restorable ready for doRestore(), or nil if not handled.
 	canRestore(ce *callEngine) restorable
-	// doRestore restores the callEngine state. Returns true if this was an
-	// exception catch (caller should continue the loop), false for snapshot
-	// restores (caller should proceed to frame.pc++).
-	doRestore() bool
+	// doRestore restores the callEngine state (frames, stack, PC).
+	// After doRestore, the caller must refresh frame/body/bodyLen and continue.
+	doRestore()
 }
 
 // thrownException is the panic value for wasm exception propagation.
@@ -204,7 +203,7 @@ func (t *thrownException) canRestore(ce *callEngine) restorable {
 	return nil
 }
 
-func (t *thrownException) doRestore() bool {
+func (t *thrownException) doRestore() {
 	ce := t.ce
 	// Truncate the operand stack to the target block's depth.
 	// We truncate rather than replace, preserving local variable mutations.
@@ -216,7 +215,6 @@ func (t *thrownException) doRestore() bool {
 	ce.frames = ce.frames[:len(t.savedFrames)]
 	// Set the PC on the handler's frame to the catch target.
 	ce.frames[len(ce.frames)-1].pc = t.targetPC
-	return true
 }
 
 // callEngine holds context per moduleEngine.Call, and shared across all the
@@ -344,7 +342,8 @@ func (ce *callEngine) callWithRecover(ctx context.Context, m *wasm.ModuleInstanc
 			if r := recover(); r != nil {
 				if v, ok := r.(restorable); ok {
 					if res := v.canRestore(ce); res != nil {
-						caught = res.doRestore()
+						res.doRestore()
+						caught = true
 						return
 					}
 				}
@@ -496,7 +495,7 @@ func (s *snapshot) canRestore(ce *callEngine) restorable {
 	return nil
 }
 
-func (s *snapshot) doRestore() bool {
+func (s *snapshot) doRestore() {
 	ce := s.ce
 
 	ce.stack = s.stack
@@ -504,7 +503,6 @@ func (s *snapshot) doRestore() bool {
 	ce.frames[len(ce.frames)-1].pc = s.pc
 
 	copy(ce.stack[len(ce.stack)-len(s.ret):], s.ret)
-	return false
 }
 
 // Error implements the same method on error.
