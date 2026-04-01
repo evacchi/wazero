@@ -80,7 +80,7 @@ func (m *machine) lowerTryTableDispatch(br *ssa.Instruction) {
 	callInd.asCallIndirect(trampolineAddr, calleeABI)
 	m.insert(callInd)
 
-	// Step 3: Load caughtExceptionClauseIdx from execCtx + offset 1216.
+	// Step 3: Load caughtExceptionClauseIdx from execCtx.
 	clauseIdxReg := m.compiler.AllocateVReg(ssa.TypeI64)
 	amodeClause := m.resolveAddressModeForOffset(
 		int64(wazevoapi.ExecutionContextOffsetCaughtExceptionClauseIdx), 64, execCtxVReg, false,

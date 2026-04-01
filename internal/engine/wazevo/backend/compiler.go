@@ -3,19 +3,10 @@ package backend
 import (
 	"context"
 	"fmt"
-	"sync/atomic"
-	"time"
 
 	"github.com/tetratelabs/wazero/internal/engine/wazevo/backend/regalloc"
 	"github.com/tetratelabs/wazero/internal/engine/wazevo/ssa"
 	"github.com/tetratelabs/wazero/internal/engine/wazevo/wazevoapi"
-)
-
-// Backend sub-phase timing counters (atomic, in nanoseconds).
-var (
-	PhaseLowerNs    atomic.Int64
-	PhaseRegAllocNs atomic.Int64
-	PhaseFinalizeNs atomic.Int64
 )
 
 // NewCompiler returns a new Compiler that can generate a machine code.
@@ -169,29 +160,23 @@ type SourceOffsetInfo struct {
 
 // Compile implements Compiler.Compile.
 func (c *compiler) Compile(ctx context.Context) ([]byte, []RelocationInfo, error) {
-	t0 := time.Now()
 	c.Lower()
-	PhaseLowerNs.Add(time.Since(t0).Nanoseconds())
 	if wazevoapi.PrintSSAToBackendIRLowering && wazevoapi.PrintEnabledIndex(ctx) {
 		fmt.Printf("[[[after lowering for %s ]]]%s\n", wazevoapi.GetCurrentFunctionName(ctx), c.Format())
 	}
 	if wazevoapi.DeterministicCompilationVerifierEnabled {
 		wazevoapi.VerifyOrSetDeterministicCompilationContextValue(ctx, "After lowering to ISA specific IR", c.Format())
 	}
-	t1 := time.Now()
 	c.RegAlloc()
-	PhaseRegAllocNs.Add(time.Since(t1).Nanoseconds())
 	if wazevoapi.PrintRegisterAllocated && wazevoapi.PrintEnabledIndex(ctx) {
 		fmt.Printf("[[[after regalloc for %s]]]%s\n", wazevoapi.GetCurrentFunctionName(ctx), c.Format())
 	}
 	if wazevoapi.DeterministicCompilationVerifierEnabled {
 		wazevoapi.VerifyOrSetDeterministicCompilationContextValue(ctx, "After Register Allocation", c.Format())
 	}
-	t2 := time.Now()
 	if err := c.Finalize(ctx); err != nil {
 		return nil, nil, err
 	}
-	PhaseFinalizeNs.Add(time.Since(t2).Nanoseconds())
 	if wazevoapi.PrintFinalizedMachineCode && wazevoapi.PrintEnabledIndex(ctx) {
 		fmt.Printf("[[[after finalize for %s]]]%s\n", wazevoapi.GetCurrentFunctionName(ctx), c.Format())
 	}
