@@ -3430,30 +3430,7 @@ func (c *Compiler) lowerCurrentOpcode() {
 		if state.unreachable {
 			break
 		}
-		// Resolve tag type index following established pattern (direct section access).
-		var tagType *wasm.FunctionType
-		if tagIndex < c.m.ImportTagCount {
-			// Tag is imported.
-			cur := uint32(0)
-			for i := range c.m.ImportSection {
-				imp := &c.m.ImportSection[i]
-				if imp.Type != wasm.ExternTypeTag {
-					continue
-				}
-				if tagIndex == cur {
-					tagType = &c.m.TypeSection[imp.DescTag]
-					break
-				}
-				cur++
-			}
-		} else {
-			// Tag is module-defined.
-			tagSectionIdx := tagIndex - c.m.ImportTagCount
-			if tagSectionIdx < uint32(len(c.m.TagSection)) {
-				typeIdx := c.m.TagSection[tagSectionIdx].Type
-				tagType = &c.m.TypeSection[typeIdx]
-			}
-		}
+		tagType := c.resolveTagType(tagIndex)
 		// Pop the tag's param values from the stack.
 		var throwParams []ssa.Value
 		if tagType != nil {
@@ -3628,30 +3605,7 @@ func (c *Compiler) lowerCurrentOpcode() {
 				// Resolve the wasm target label.
 				targetBlk, _ := state.brTargetArgNumFor(cc.labelIdx)
 
-				// Resolve tag type index following established pattern (direct section access).
-				var tagType *wasm.FunctionType
-				if cc.tagIndex < c.m.ImportTagCount {
-					// Tag is imported.
-					cur := uint32(0)
-					for i := range c.m.ImportSection {
-						imp := &c.m.ImportSection[i]
-						if imp.Type != wasm.ExternTypeTag {
-							continue
-						}
-						if cc.tagIndex == cur {
-							tagType = &c.m.TypeSection[imp.DescTag]
-							break
-						}
-						cur++
-					}
-				} else {
-					// Tag is module-defined.
-					tagSectionIdx := cc.tagIndex - c.m.ImportTagCount
-					if tagSectionIdx < uint32(len(c.m.TagSection)) {
-						typeIdx := c.m.TagSection[tagSectionIdx].Type
-						tagType = &c.m.TypeSection[typeIdx]
-					}
-				}
+				tagType := c.resolveTagType(cc.tagIndex)
 				// Load exception params and jump to wasm target.
 				var brArgs []ssa.Value
 				switch cc.kind {
@@ -4328,6 +4282,30 @@ func (c *Compiler) storeCallerModuleContext() {
 	store.AsStore(ssa.OpcodeStore,
 		c.moduleCtxPtrValue, execCtx, wazevoapi.ExecutionContextOffsetCallerModuleContextPtr.U32())
 	builder.InsertInstruction(store)
+}
+
+// resolveTagType returns the FunctionType for the tag at the given module-local index.
+func (c *Compiler) resolveTagType(tagIndex uint32) *wasm.FunctionType {
+	if tagIndex < c.m.ImportTagCount {
+		cur := uint32(0)
+		for i := range c.m.ImportSection {
+			imp := &c.m.ImportSection[i]
+			if imp.Type != wasm.ExternTypeTag {
+				continue
+			}
+			if tagIndex == cur {
+				return &c.m.TypeSection[imp.DescTag]
+			}
+			cur++
+		}
+	} else {
+		tagSectionIdx := tagIndex - c.m.ImportTagCount
+		if tagSectionIdx < uint32(len(c.m.TagSection)) {
+			typeIdx := c.m.TagSection[tagSectionIdx].Type
+			return &c.m.TypeSection[typeIdx]
+		}
+	}
+	return nil
 }
 
 // emitTryTableLeave emits a trampoline call to pop the try handler in the dispatch loop.
