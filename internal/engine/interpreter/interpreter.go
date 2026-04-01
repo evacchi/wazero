@@ -220,6 +220,28 @@ func (ce *callEngine) popTryHandlersForFrame() {
 	}
 }
 
+// matchCatchClause checks whether a single catch clause matches the given exception.
+// Returns whether it matched and the values to push onto the stack.
+func matchCatchClause(kind byte, clauseTag *wasm.TagInstance, exn *wasm.Exception) (matched bool, values []uint64) {
+	switch kind {
+	case wasm.CatchKindCatch:
+		if exn.Tag == clauseTag {
+			return true, slices.Clone(exn.Params)
+		}
+	case wasm.CatchKindCatchRef:
+		if exn.Tag == clauseTag {
+			values = slices.Clone(exn.Params)
+			values = append(values, uint64(uintptr(unsafe.Pointer(exn))))
+			return true, values
+		}
+	case wasm.CatchKindCatchAll:
+		return true, nil
+	case wasm.CatchKindCatchAllRef:
+		return true, []uint64{uint64(uintptr(unsafe.Pointer(exn)))}
+	}
+	return false, nil
+}
+
 // handleExceptionInCurrentFrame handles an exception thrown within the same
 // callNativeFunc as the try_table handler. Returns true if a handler was found
 // and applied (caller should continue the loop). Returns false if the exception
@@ -239,29 +261,11 @@ func (ce *callEngine) handleExceptionInCurrentFrame(exn *wasm.Exception, frame *
 			targetPC := h.clauses[j*4+2]
 			stackDropSize := int(h.clauses[j*4+3])
 
-			var matched bool
-			var values []uint64
-			switch kind {
-			case wasm.CatchKindCatch:
-				clauseTag := frame.f.moduleInstance.Tags[clauseTagIndex]
-				if exn.Tag == clauseTag {
-					matched = true
-					values = slices.Clone(exn.Params)
-				}
-			case wasm.CatchKindCatchRef:
-				clauseTag := frame.f.moduleInstance.Tags[clauseTagIndex]
-				if exn.Tag == clauseTag {
-					matched = true
-					values = slices.Clone(exn.Params)
-					values = append(values, uint64(uintptr(unsafe.Pointer(exn))))
-				}
-			case wasm.CatchKindCatchAll:
-				matched = true
-			case wasm.CatchKindCatchAllRef:
-				matched = true
-				values = []uint64{uint64(uintptr(unsafe.Pointer(exn)))}
+			var clauseTag *wasm.TagInstance
+			if kind == wasm.CatchKindCatch || kind == wasm.CatchKindCatchRef {
+				clauseTag = frame.f.moduleInstance.Tags[clauseTagIndex]
 			}
-
+			matched, values := matchCatchClause(kind, clauseTag, exn)
 			if matched {
 				// Truncate stack to the target block's depth, preserving local mutations.
 				keepLen := h.savedStackLen - stackDropSize
@@ -292,31 +296,12 @@ func (ce *callEngine) matchException(exn *wasm.Exception) *exceptionState {
 			targetPC := h.clauses[j*4+2]
 			stackDropSize := int(h.clauses[j*4+3])
 
-			var matched bool
-			var values []uint64
-			switch kind {
-			case wasm.CatchKindCatch:
+			var clauseTag *wasm.TagInstance
+			if kind == wasm.CatchKindCatch || kind == wasm.CatchKindCatchRef {
 				handlerFrame := h.savedFrames[len(h.savedFrames)-1]
-				clauseTag := handlerFrame.f.moduleInstance.Tags[clauseTagIndex]
-				if exn.Tag == clauseTag {
-					matched = true
-					values = slices.Clone(exn.Params)
-				}
-			case wasm.CatchKindCatchRef:
-				handlerFrame := h.savedFrames[len(h.savedFrames)-1]
-				clauseTag := handlerFrame.f.moduleInstance.Tags[clauseTagIndex]
-				if exn.Tag == clauseTag {
-					matched = true
-					values = slices.Clone(exn.Params)
-					values = append(values, uint64(uintptr(unsafe.Pointer(exn))))
-				}
-			case wasm.CatchKindCatchAll:
-				matched = true
-			case wasm.CatchKindCatchAllRef:
-				matched = true
-				values = []uint64{uint64(uintptr(unsafe.Pointer(exn)))}
+				clauseTag = handlerFrame.f.moduleInstance.Tags[clauseTagIndex]
 			}
-
+			matched, values := matchCatchClause(kind, clauseTag, exn)
 			if matched {
 				es := &exceptionState{
 					ce:            ce,
@@ -959,38 +944,40 @@ func (ce *callEngine) callNativeFunc(ctx context.Context, m *wasm.ModuleInstance
 			ce.drop(op.Us[v+1])
 			frame.pc = op.Us[v]
 		case operationKindCall:
-			caught := false
-			func() {
-				defer func() {
-					if r := recover(); r != nil {
-						switch v := r.(type) {
-						case *snapshot:
-							if v.ce == ce {
-								v.doRestore()
-								frame = ce.frames[len(ce.frames)-1]
-								body = frame.f.parent.body
-								bodyLen = uint64(len(body))
-								return
+			if len(ce.tryHandlers) > 0 || ctx.Value(expctxkeys.EnableSnapshotterKey{}) != nil {
+				caught := false
+				func() {
+					defer func() {
+						if r := recover(); r != nil {
+							switch v := r.(type) {
+							case *snapshot:
+								if v.ce == ce {
+									v.doRestore()
+									frame = ce.frames[len(ce.frames)-1]
+									body = frame.f.parent.body
+									bodyLen = uint64(len(body))
+									return
+								}
+							case *wasm.Exception:
+								if es := ce.matchException(v); es != nil {
+									es.doRestore()
+									frame = ce.frames[len(ce.frames)-1]
+									body = frame.f.parent.body
+									bodyLen = uint64(len(body))
+									caught = true
+									return
+								}
 							}
-						case *wasm.Exception:
-							// Exception propagating up from a callee.
-							// Try to match against try handlers.
-							if es := ce.matchException(v); es != nil {
-								es.doRestore()
-								frame = ce.frames[len(ce.frames)-1]
-								body = frame.f.parent.body
-								bodyLen = uint64(len(body))
-								caught = true
-								return
-							}
+							panic(r)
 						}
-						panic(r)
-					}
+					}()
+					ce.callFunction(ctx, f.moduleInstance, &functions[op.U1])
 				}()
+				if caught {
+					continue
+				}
+			} else {
 				ce.callFunction(ctx, f.moduleInstance, &functions[op.U1])
-			}()
-			if caught {
-				continue
 			}
 			frame.pc++
 		case operationKindCallIndirect:
@@ -998,13 +985,22 @@ func (ce *callEngine) callNativeFunc(ctx context.Context, m *wasm.ModuleInstance
 			table := tables[op.U2]
 			tf := ce.functionForOffset(table, offset, typeIDs[op.U1])
 
-			if len(ce.tryHandlers) > 0 {
+			if len(ce.tryHandlers) > 0 || ctx.Value(expctxkeys.EnableSnapshotterKey{}) != nil {
 				caught := false
 				func() {
 					defer func() {
 						if r := recover(); r != nil {
-							if exn, ok := r.(*wasm.Exception); ok {
-								if es := ce.matchException(exn); es != nil {
+							switch v := r.(type) {
+							case *snapshot:
+								if v.ce == ce {
+									v.doRestore()
+									frame = ce.frames[len(ce.frames)-1]
+									body = frame.f.parent.body
+									bodyLen = uint64(len(body))
+									return
+								}
+							case *wasm.Exception:
+								if es := ce.matchException(v); es != nil {
 									es.doRestore()
 									frame = ce.frames[len(ce.frames)-1]
 									body = frame.f.parent.body
