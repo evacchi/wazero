@@ -149,6 +149,8 @@ type tryHandler struct {
 type exceptionState struct {
 	ce *callEngine
 	// Exception being propagated.
+	// Note: we need to hold onto this reference because in order to push it onto the stack
+	// we must convert it into a raw uint64
 	exception *wasm.Exception
 	// Restore target (set when a matching handler is found).
 	savedStackLen int // stack length at try_table entry
@@ -319,6 +321,40 @@ func (ce *callEngine) matchException(exn *wasm.Exception) *exceptionState {
 		}
 	}
 	return nil
+}
+
+// callWithRecover calls the target function, recovering from snapshot restores
+// and exception panics. Returns true if an exception was caught by a try handler
+// (caller should refresh frame/body/bodyLen and continue the loop).
+// On snapshot restore or normal return, returns false (caller should do frame.pc++).
+func (ce *callEngine) callWithRecover(ctx context.Context, m *wasm.ModuleInstance, tf *function) bool {
+	if len(ce.tryHandlers) == 0 && ctx.Value(expctxkeys.EnableSnapshotterKey{}) == nil {
+		ce.callFunction(ctx, m, tf)
+		return false
+	}
+	caught := false
+	func() {
+		defer func() {
+			if r := recover(); r != nil {
+				switch v := r.(type) {
+				case *snapshot:
+					if v.ce == ce {
+						v.doRestore()
+						return
+					}
+				case *wasm.Exception:
+					if es := ce.matchException(v); es != nil {
+						es.doRestore()
+						caught = true
+						return
+					}
+				}
+				panic(r)
+			}
+		}()
+		ce.callFunction(ctx, m, tf)
+	}()
+	return caught
 }
 
 func (e *moduleEngine) newCallEngine(compiled *function) *callEngine {
@@ -944,40 +980,11 @@ func (ce *callEngine) callNativeFunc(ctx context.Context, m *wasm.ModuleInstance
 			ce.drop(op.Us[v+1])
 			frame.pc = op.Us[v]
 		case operationKindCall:
-			if len(ce.tryHandlers) > 0 || ctx.Value(expctxkeys.EnableSnapshotterKey{}) != nil {
-				caught := false
-				func() {
-					defer func() {
-						if r := recover(); r != nil {
-							switch v := r.(type) {
-							case *snapshot:
-								if v.ce == ce {
-									v.doRestore()
-									frame = ce.frames[len(ce.frames)-1]
-									body = frame.f.parent.body
-									bodyLen = uint64(len(body))
-									return
-								}
-							case *wasm.Exception:
-								if es := ce.matchException(v); es != nil {
-									es.doRestore()
-									frame = ce.frames[len(ce.frames)-1]
-									body = frame.f.parent.body
-									bodyLen = uint64(len(body))
-									caught = true
-									return
-								}
-							}
-							panic(r)
-						}
-					}()
-					ce.callFunction(ctx, f.moduleInstance, &functions[op.U1])
-				}()
-				if caught {
-					continue
-				}
-			} else {
-				ce.callFunction(ctx, f.moduleInstance, &functions[op.U1])
+			if ce.callWithRecover(ctx, f.moduleInstance, &functions[op.U1]) {
+				frame = ce.frames[len(ce.frames)-1]
+				body = frame.f.parent.body
+				bodyLen = uint64(len(body))
+				continue
 			}
 			frame.pc++
 		case operationKindCallIndirect:
@@ -985,40 +992,11 @@ func (ce *callEngine) callNativeFunc(ctx context.Context, m *wasm.ModuleInstance
 			table := tables[op.U2]
 			tf := ce.functionForOffset(table, offset, typeIDs[op.U1])
 
-			if len(ce.tryHandlers) > 0 || ctx.Value(expctxkeys.EnableSnapshotterKey{}) != nil {
-				caught := false
-				func() {
-					defer func() {
-						if r := recover(); r != nil {
-							switch v := r.(type) {
-							case *snapshot:
-								if v.ce == ce {
-									v.doRestore()
-									frame = ce.frames[len(ce.frames)-1]
-									body = frame.f.parent.body
-									bodyLen = uint64(len(body))
-									return
-								}
-							case *wasm.Exception:
-								if es := ce.matchException(v); es != nil {
-									es.doRestore()
-									frame = ce.frames[len(ce.frames)-1]
-									body = frame.f.parent.body
-									bodyLen = uint64(len(body))
-									caught = true
-									return
-								}
-							}
-							panic(r)
-						}
-					}()
-					ce.callFunction(ctx, f.moduleInstance, tf)
-				}()
-				if caught {
-					continue
-				}
-			} else {
-				ce.callFunction(ctx, f.moduleInstance, tf)
+			if ce.callWithRecover(ctx, f.moduleInstance, tf) {
+				frame = ce.frames[len(ce.frames)-1]
+				body = frame.f.parent.body
+				bodyLen = uint64(len(body))
+				continue
 			}
 			frame.pc++
 		case operationKindDrop:
@@ -4627,7 +4605,7 @@ func (ce *callEngine) callNativeFunc(ctx context.Context, m *wasm.ModuleInstance
 				panic(wasmruntime.ErrRuntimeUnreachable) // null exnref traps
 			}
 			// Read the Exception pointer directly from the uint64 value to avoid
-			// uintptr→unsafe.Pointer conversion which triggers checkptr.
+			// conversion from uintptr into unsafe.Pointer, which triggers checkptr.
 			exn := *(**wasm.Exception)(unsafe.Pointer(&v))
 			if ce.handleExceptionInCurrentFrame(exn, frame, &body, &bodyLen) {
 				continue
@@ -4644,7 +4622,6 @@ func (ce *callEngine) callNativeFunc(ctx context.Context, m *wasm.ModuleInstance
 				savedFrames:   slices.Clone(ce.frames),
 			})
 			frame.pc++
-			continue
 
 		case operationKindPopTryHandler:
 			ce.popTryHandler()
@@ -4669,7 +4646,12 @@ func (ce *callEngine) callNativeFunc(ctx context.Context, m *wasm.ModuleInstance
 			// For details, see internal/engine/RATIONALE.md
 			if tf.moduleInstance != f.moduleInstance {
 				// Revert to a normal call.
-				ce.callFunction(ctx, f.moduleInstance, tf)
+				if ce.callWithRecover(ctx, f.moduleInstance, tf) {
+					frame = ce.frames[len(ce.frames)-1]
+					body = frame.f.parent.body
+					bodyLen = uint64(len(body))
+					continue
+				}
 				// Return
 				ce.drop(op.Us[0])
 				// Jump to the function frame (return)
