@@ -283,7 +283,7 @@ func (e *engine) compileModule(ctx context.Context, module *wasm.Module, listene
 
 			relocator.appendFunction(fctx, module, cm, i, fidx, body, relsPerFunc, be.SourceOffsetInfo())
 		}
-		cm.catchClauseTable = fe.CatchClauseTable
+		cm.catchClauseTable = fe.CatchClauseTable()
 	} else {
 		// Compile with N worker goroutines.
 		// Collect compiled functions across workers in a slice,

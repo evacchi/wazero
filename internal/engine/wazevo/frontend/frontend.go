@@ -74,9 +74,8 @@ type Compiler struct {
 	tryTableEnterSig ssa.Signature
 	// tryTableLeaveSig is the signature for the try_table leave trampoline.
 	tryTableLeaveSig ssa.Signature
-	// CatchClauseTable accumulates catch clause info for each try_table during compilation.
-	// The engine reads this after compilation.
-	CatchClauseTable [][]wazevoapi.CatchClauseInstance
+	// catchClauseTable accumulates catch clause info for each try_table during compilation.
+	catchClauseTable [][]wazevoapi.CatchClauseInstance
 
 	// Following are reused for the known safe bounds analysis.
 
@@ -286,6 +285,11 @@ func (c *Compiler) Init(idx, typIndex wasm.Index, typ *wasm.FunctionType, localT
 const executionContextPtrTyp, moduleContextPtrTyp = ssa.TypeI64, ssa.TypeI64
 
 // LowerToSSA lowers the current function to SSA function which will be held by ssaBuilder.
+// CatchClauseTable returns the catch clause table accumulated during compilation.
+func (c *Compiler) CatchClauseTable() [][]wazevoapi.CatchClauseInstance {
+	return c.catchClauseTable
+}
+
 // After calling this, the caller will be able to access the SSA info in *Compiler.ssaBuilder.
 //
 // Note that this only does the naive lowering, and do not do any optimization, instead the caller is expected to do so.
