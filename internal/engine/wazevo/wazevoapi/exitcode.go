@@ -142,13 +142,7 @@ func GoFunctionIndexFromExitCode(exitCode ExitCode) int {
 	return int(exitCode >> 8)
 }
 
-// ExitCodeThrowWithTagIndex encodes a tag index into the ExitCodeThrow exit code.
-func ExitCodeThrowWithTagIndex(tagIndex int) ExitCode {
-	return ExitCodeThrow | ExitCode(tagIndex<<8)
-}
-
-// TagIndexFromExitCode extracts the tag index from a throw exit code.
-func TagIndexFromExitCode(exitCode ExitCode) int {
+func TryTableIDFromExitCode(exitCode ExitCode) int {
 	return int(exitCode >> 8)
 }
 

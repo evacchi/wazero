@@ -621,7 +621,7 @@ func (c *callEngine) callWithStack(ctx context.Context, paramResultStack []uint6
 			// The encoded exit code (with tryTableID in upper bits) is on the
 			// Go call stack as the second trampoline argument, not in execCtx.exitCode.
 			tryTableEnterStack := goCallStackView(c.execCtx.stackPointerBeforeGoCall)
-			catchClauseTableIdx := wazevoapi.TagIndexFromExitCode(wazevoapi.ExitCode(tryTableEnterStack[0]))
+			catchClauseTableIdx := wazevoapi.TryTableIDFromExitCode(wazevoapi.ExitCode(tryTableEnterStack[0]))
 			mod := c.callerModuleInstance()
 			me := mod.Engine.(*moduleEngine)
 			clauses := me.parent.catchClauseTable[catchClauseTableIdx]
@@ -673,13 +673,9 @@ func (c *callEngine) doHandleException(exn *wasm.Exception) bool {
 			mod := h.moduleInstance
 			matched := false
 			switch clause.Kind {
-			case wasm.CatchKindCatch:
+			case wasm.CatchKindCatch, wasm.CatchKindCatchRef:
 				matched = mod.Tags[clause.TagIndex] == exn.Tag
-			case wasm.CatchKindCatchRef:
-				matched = mod.Tags[clause.TagIndex] == exn.Tag
-			case wasm.CatchKindCatchAll:
-				matched = true
-			case wasm.CatchKindCatchAllRef:
+			case wasm.CatchKindCatchAll, wasm.CatchKindCatchAllRef:
 				matched = true
 			}
 			if matched {
