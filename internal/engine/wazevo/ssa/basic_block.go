@@ -220,7 +220,7 @@ func (bb *basicBlock) insertInstruction(b *builder, next *Instruction) {
 	case OpcodeJump, OpcodeBrz, OpcodeBrnz:
 		target := BasicBlockID(next.rValue)
 		b.basicBlock(target).addPred(bb, next)
-	case OpcodeBrTable, OpcodeTryTableDispatch:
+	case OpcodeBrTable:
 		for _, _target := range next.rValues.View() {
 			target := BasicBlockID(_target)
 			b.basicBlock(target).addPred(bb, next)
@@ -335,7 +335,7 @@ func (bb *basicBlock) validate(b *builder) {
 	}
 	if len(bb.preds) > 0 {
 		for _, pred := range bb.preds {
-			if pred.branch.opcode != OpcodeBrTable && pred.branch.opcode != OpcodeTryTableDispatch {
+			if pred.branch.opcode != OpcodeBrTable {
 				blockID := int(pred.branch.rValue)
 				target := b.basicBlocksPool.View(blockID)
 				if target != bb {
@@ -344,8 +344,7 @@ func (bb *basicBlock) validate(b *builder) {
 				}
 			}
 
-			// TryTableDispatch targets don't pass block arguments through vs.
-			if pred.branch.opcode != OpcodeTryTableDispatch {
+			if pred.branch.opcode != OpcodeBrTable {
 				var exp int
 				if bb.ReturnBlock() {
 					exp = len(b.currentSignature.Results)

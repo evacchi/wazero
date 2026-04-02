@@ -171,7 +171,7 @@ func (i *Instruction) Prev() *Instruction {
 // IsBranching returns true if this instruction is a branching instruction.
 func (i *Instruction) IsBranching() bool {
 	switch i.opcode {
-	case OpcodeJump, OpcodeBrz, OpcodeBrnz, OpcodeBrTable, OpcodeTryTableDispatch:
+	case OpcodeJump, OpcodeBrz, OpcodeBrnz, OpcodeBrTable:
 		return true
 	default:
 		return false
@@ -641,13 +641,6 @@ const (
 	// for tail calls. Semantically, it combines CallIndirect + Return into a single operation.
 	OpcodeTailCallReturnCallIndirect
 
-	// OpcodeTryTableDispatch is a meta-instruction for exception handling dispatch.
-	// It calls the TryTableEnter trampoline, loads caughtExceptionClauseIdx from execCtx,
-	// and dispatches to handler blocks or the body block via a jump table.
-	// Fields: v = execCtx, u1 = encoded exitCode, u2 = signature ID,
-	// rValues = target block IDs [handler0, handler1, ..., bodyBlk].
-	OpcodeTryTableDispatch
-
 	// opcodeEnd marks the end of the opcode list.
 	opcodeEnd
 )
@@ -896,7 +889,6 @@ var instructionSideEffects = [opcodeEnd]sideEffect{
 	OpcodeTailCallReturnCall:          sideEffectStrict,
 	OpcodeTailCallReturnCallIndirect:  sideEffectStrict,
 	OpcodeWideningPairwiseDotProductS: sideEffectNone,
-	OpcodeTryTableDispatch:            sideEffectStrict,
 }
 
 // sideEffect returns true if this instruction has side effects.
@@ -1055,7 +1047,6 @@ var instructionReturnTypes = [opcodeEnd]returnTypesFn{
 	OpcodeTailCallReturnCallIndirect:  returnTypesFnCallIndirect,
 	OpcodeTailCallReturnCall:          returnTypesFnCall,
 	OpcodeWideningPairwiseDotProductS: returnTypesFnV128,
-	OpcodeTryTableDispatch:            returnTypesFnNoReturns,
 }
 
 // AsLoad initializes this instruction as a store instruction with OpcodeLoad.
@@ -2197,30 +2188,6 @@ func (i *Instruction) AsBrTable(index Value, targets Values) {
 	i.rValues = targets
 }
 
-// AsTryTableDispatch initializes this instruction as a try-table dispatch meta-instruction with OpcodeTryTableDispatch.
-// execCtx is the execution context pointer, exitCode is the encoded exit code for the trampoline,
-// sigID is the trampoline signature ID, and targets is a list of basic block IDs
-// [handler0, handler1, ..., bodyBlk] cast to Values.
-func (i *Instruction) AsTryTableDispatch(execCtx Value, exitCode uint64, sigID SignatureID, targets Values) {
-	i.opcode = OpcodeTryTableDispatch
-	i.v = execCtx
-	i.u1 = exitCode
-	i.u2 = uint64(sigID)
-	i.rValues = targets
-}
-
-// TryTableDispatchData returns the try-table dispatch data for this instruction.
-func (i *Instruction) TryTableDispatchData() (execCtx Value, exitCode uint64, sigID SignatureID, targets Values) {
-	if i.opcode != OpcodeTryTableDispatch {
-		panic("BUG: TryTableDispatchData only available for OpcodeTryTableDispatch")
-	}
-	execCtx = i.v
-	exitCode = i.u1
-	sigID = SignatureID(i.u2)
-	targets = i.rValues
-	return
-}
-
 // AsCall initializes this instruction as a call instruction with OpcodeCall.
 func (i *Instruction) AsCall(ref FuncRef, sig *Signature, args Values) {
 	i.opcode = OpcodeCall
@@ -2634,18 +2601,6 @@ func (i *Instruction) Format(b Builder) string {
 			}
 		}
 		instSuffix += "]"
-	case OpcodeTryTableDispatch:
-		// `TryTableDispatch execCtx, exitCode, sigID, [handler0, handler1, ..., bodyBlk]`
-		instSuffix = fmt.Sprintf(" %s, exitCode=%d, sigID=%d, [", i.v.Format(b), i.u1, i.u2)
-		for i, target := range i.rValues.View() {
-			blk := b.BasicBlock(BasicBlockID(target))
-			if i == 0 {
-				instSuffix += blk.Name()
-			} else {
-				instSuffix += ", " + blk.Name()
-			}
-		}
-		instSuffix += "]"
 	case OpcodeBand, OpcodeBor, OpcodeBxor, OpcodeRotr, OpcodeRotl, OpcodeIshl, OpcodeSshr, OpcodeUshr,
 		OpcodeSdiv, OpcodeUdiv, OpcodeFcopysign, OpcodeSrem, OpcodeUrem,
 		OpcodeVbnot, OpcodeVbxor, OpcodeVbor, OpcodeVband, OpcodeVbandnot, OpcodeVIcmp, OpcodeVFcmp:
@@ -2972,8 +2927,6 @@ func (o Opcode) String() (ret string) {
 		return "ReturnCall"
 	case OpcodeTailCallReturnCallIndirect:
 		return "ReturnCallIndirect"
-	case OpcodeTryTableDispatch:
-		return "TryTableDispatch"
 	case OpcodeVbor:
 		return "Vbor"
 	case OpcodeVbxor:

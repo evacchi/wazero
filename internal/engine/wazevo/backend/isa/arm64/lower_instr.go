@@ -10,7 +10,6 @@ import (
 	"fmt"
 	"math"
 
-	"github.com/tetratelabs/wazero/internal/engine/wazevo/backend"
 	"github.com/tetratelabs/wazero/internal/engine/wazevo/backend/regalloc"
 	"github.com/tetratelabs/wazero/internal/engine/wazevo/ssa"
 	"github.com/tetratelabs/wazero/internal/engine/wazevo/wazevoapi"
@@ -34,73 +33,19 @@ func (m *machine) LowerSingleBranch(br *ssa.Instruction) {
 		m.insert(b)
 	case ssa.OpcodeBrTable:
 		m.lowerBrTable(br)
-	case ssa.OpcodeTryTableDispatch:
-		m.lowerTryTableDispatch(br)
 	default:
 		panic("BUG: unexpected branch opcode" + br.Opcode().String())
 	}
 }
 
-func (m *machine) lowerTryTableDispatch(br *ssa.Instruction) {
-	execCtx, exitCode, sigID, targets := br.TryTableDispatchData()
-
-	// Copy execCtx to a VReg that survives the call.
-	execCtxVReg := m.compiler.VRegOf(execCtx)
-
-	// Step 1: Load trampoline address from execCtx + TryTableEnterTrampolineAddress offset.
-	trampolineAddr := m.compiler.AllocateVReg(ssa.TypeI64)
-	amode := m.resolveAddressModeForOffset(
-		int64(wazevoapi.ExecutionContextOffsetTryTableEnterTrampolineAddress), 64, execCtxVReg, false,
-	)
-	loadTrampoline := m.allocateInstr()
-	loadTrampoline.asULoad(trampolineAddr, amode, 64)
-	m.insert(loadTrampoline)
-
-	// Step 2: Set up call args and call trampoline.
-	sig := m.compiler.SSABuilder().ResolveSignature(sigID)
-	calleeABI := m.compiler.GetFunctionABI(sig)
-
-	stackSlotSize := int64(calleeABI.AlignedArgResultStackSlotSize())
-	if m.maxRequiredStackSizeForCalls < stackSlotSize+16 {
-		m.maxRequiredStackSizeForCalls = stackSlotSize + 16
-	}
-
-	// Arg 0: execCtx (i64)
-	m.callerGenVRegToFunctionArg(calleeABI, 0, execCtxVReg, m.compiler.ValueDefinition(execCtx), stackSlotSize)
-
-	// Arg 1: encoded exit code (i64)
-	exitCodeReg := m.compiler.AllocateVReg(ssa.TypeI64)
-	m.lowerConstantI64(exitCodeReg, int64(exitCode))
-	m.callerGenVRegToFunctionArg(calleeABI, 1, exitCodeReg, backend.SSAValueDefinition{}, stackSlotSize)
-
-	// Emit the indirect call.
-	callInd := m.allocateInstr()
-	callInd.asCallIndirect(trampolineAddr, calleeABI)
-	m.insert(callInd)
-
-	// Step 3: Load caughtExceptionClauseIdx from execCtx.
-	clauseIdxReg := m.compiler.AllocateVReg(ssa.TypeI64)
-	amodeClause := m.resolveAddressModeForOffset(
-		int64(wazevoapi.ExecutionContextOffsetCaughtExceptionClauseIdx), 64, execCtxVReg, false,
-	)
-	loadClause := m.allocateInstr()
-	loadClause.asULoad(clauseIdxReg, amodeClause, 64)
-	m.insert(loadClause)
-
-	// Step 4: Jump-table dispatch.
-	m.emitJumpTableDispatch(operandNR(clauseIdxReg), targets)
-}
-
 func (m *machine) lowerBrTable(i *ssa.Instruction) {
-	index, targets := i.BrTableData()
+	index, targetBlockIDs := i.BrTableData()
+	targetBlockCount := len(targetBlockIDs.View())
 	indexOperand := m.getOperand_NR(m.compiler.ValueDefinition(index), extModeNone)
-	m.emitJumpTableDispatch(indexOperand, targets)
-}
 
-// emitJumpTableDispatch emits bounds-checked jump table dispatch.
-// If index >= len(targets)-1, it clamps to the last target (default).
-func (m *machine) emitJumpTableDispatch(indexOperand operand, targets ssa.Values) {
-	targetBlockCount := len(targets.View())
+	// Firstly, we have to do the bounds check of the index, and
+	// set it to the default target (sitting at the end of the list) if it's out of bounds.
+
 	// mov  maxIndexReg #maximum_index
 	// subs wzr, index, maxIndexReg
 	// csel adjustedIndex, maxIndexReg, index, hs ;; if index is higher or equal than maxIndexReg.
@@ -115,7 +60,8 @@ func (m *machine) emitJumpTableDispatch(indexOperand operand, targets ssa.Values
 	m.insert(csel)
 
 	brSequence := m.allocateInstr()
-	tableIndex := m.addJmpTableTarget(targets)
+
+	tableIndex := m.addJmpTableTarget(targetBlockIDs)
 	brSequence.asBrTableSequence(adjustedIndex, tableIndex, targetBlockCount)
 	m.insert(brSequence)
 }
@@ -210,7 +156,7 @@ func (m *machine) LowerInstr(instr *ssa.Instruction) {
 	}
 
 	switch op := instr.Opcode(); op {
-	case ssa.OpcodeBrz, ssa.OpcodeBrnz, ssa.OpcodeJump, ssa.OpcodeBrTable, ssa.OpcodeTryTableDispatch:
+	case ssa.OpcodeBrz, ssa.OpcodeBrnz, ssa.OpcodeJump, ssa.OpcodeBrTable:
 		panic("BUG: branching instructions are handled by LowerBranches")
 	case ssa.OpcodeReturn:
 		panic("BUG: return must be handled by backend.Compiler")
