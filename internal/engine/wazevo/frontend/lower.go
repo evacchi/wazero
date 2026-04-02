@@ -1446,7 +1446,7 @@ func (c *Compiler) lowerCurrentOpcode() {
 
 		unreachable := state.unreachable
 		if !unreachable {
-			// For try_table, emit the leave trampoline BEFORE the jump to followingBlock.
+			// For try_table, emit the leave trampoline before the jump to the following block.
 			if ctrl.kind == controlFrameKindTryTable {
 				c.emitTryTableLeave()
 			}
@@ -3444,9 +3444,11 @@ func (c *Compiler) lowerCurrentOpcode() {
 
 		tagIdxVal := builder.AllocateInstruction().AsIconst64(uint64(tagIndex)).Insert(builder).Return()
 
-		// Phase 1: call throwAlloc trampoline — Go allocates the Exception heap
-		// object (Params sized to nParams) and writes its backing-array pointer
-		// into execCtx.throwExceptionParamsPtr.
+		// We need to store the throwParams in the exception and then throw it.
+		// However, each exception might have a variable number of parameters,
+		// so we let Go allocate the reference on the heap.
+		// The Go side allocates the Exception object (Params sized to nParams)
+		// and writes its backing-array pointer into execCtx.throwExceptionParamsPtr.
 		throwAllocPtr := builder.AllocateInstruction().
 			AsLoad(c.execCtxPtrValue,
 				wazevoapi.ExecutionContextOffsetThrowAllocTrampolineAddress.U32(),
@@ -3460,8 +3462,8 @@ func (c *Compiler) lowerCurrentOpcode() {
 		// Reload memory pointers invalidated by the Go call.
 		c.reloadAfterCall()
 
-		// Phase 2: store each param directly into Exception.Params via the
-		// pointer that throwAlloc wrote to execCtx.throwExceptionParamsPtr.
+		// We can now store each param directly into Exception.Params using the pointer
+		// stored to execCtx.throwExceptionParamsPtr.
 		if len(throwParams) > 0 {
 			paramsPtr := builder.AllocateInstruction().
 				AsLoad(c.execCtxPtrValue,
@@ -3469,8 +3471,7 @@ func (c *Compiler) lowerCurrentOpcode() {
 					ssa.TypeI64,
 				).Insert(builder).Return()
 			for i, v := range throwParams {
-				// Bitcast floats to their integer representation so we store
-				// uniformly as integer bytes into the []uint64 backing array.
+				// If necessary, bitcast floats to their integer representation.
 				switch v.Type() {
 				case ssa.TypeF32:
 					v = builder.AllocateInstruction().AsBitcast(v, ssa.TypeI32).Insert(builder).Return()
@@ -3483,8 +3484,7 @@ func (c *Compiler) lowerCurrentOpcode() {
 			}
 		}
 
-		// Phase 3: call throw trampoline — Go reads pendingException (already
-		// populated) and searches for a matching catch clause.
+		// We return again control to Go to search and dispatch to a matching catch clause.
 		throwPtr := builder.AllocateInstruction().
 			AsLoad(c.execCtxPtrValue,
 				wazevoapi.ExecutionContextOffsetThrowTrampolineAddress.U32(),
@@ -3550,7 +3550,7 @@ func (c *Compiler) lowerCurrentOpcode() {
 		catchCount, catchNum, _ := leb128.LoadUint32(c.wasmFunctionBody[c.loweringState.pc:])
 		c.loweringState.pc += int(catchNum) - 1
 
-		var catchClauses []parsedCatchClause
+		var catchClauses []catchClause
 		for i := uint32(0); i < catchCount; i++ {
 			c.loweringState.pc++
 			kind := c.wasmFunctionBody[c.loweringState.pc]
@@ -3561,11 +3561,13 @@ func (c *Compiler) lowerCurrentOpcode() {
 				var n uint64
 				tagIdx, n, _ = leb128.LoadUint32(c.wasmFunctionBody[c.loweringState.pc:])
 				c.loweringState.pc += int(n) - 1
+			case wasm.CatchKindCatchAll, wasm.CatchKindCatchAllRef:
+				// No tagIdx for catch_all variants.
 			}
 			c.loweringState.pc++
 			labelIdx, n, _ := leb128.LoadUint32(c.wasmFunctionBody[c.loweringState.pc:])
 			c.loweringState.pc += int(n) - 1
-			catchClauses = append(catchClauses, parsedCatchClause{kind: kind, tagIndex: tagIdx, labelIdx: labelIdx})
+			catchClauses = append(catchClauses, catchClause{kind: kind, tagIndex: tagIdx, labelIdx: labelIdx})
 		}
 
 		// Register catch clauses in the table and get the try_table ID.
@@ -4361,8 +4363,8 @@ func (c *Compiler) emitTryTableLeavesForReturn() {
 	}
 }
 
-// parsedCatchClause holds a parsed catch clause from a try_table instruction.
-type parsedCatchClause struct {
+// catchClause holds a parsed catch clause from a try_table instruction.
+type catchClause struct {
 	kind     byte
 	tagIndex uint32
 	labelIdx uint32
