@@ -36,13 +36,10 @@ const (
 	// Compiled code then stores params directly into the Exception.Params slice,
 	// followed by ExitCodeThrow to search for a matching handler.
 	ExitCodeThrowAlloc
-	// ExitCodeThrow is the second phase of wasm throw: compiled code has
-	// written all params into the Exception allocated by ExitCodeThrowAlloc,
-	// and the handler now searches for a matching catch clause.
+	// ExitCodeThrow is the shared throw/throw_ref exit code.
+	// The exnref is passed on the stack. The handler searches for a
+	// matching catch clause and restores the stack checkpoint.
 	ExitCodeThrow
-	// ExitCodeThrowRef is an exit code for the wasm throw_ref instruction.
-	// The exnref value is passed on the stack.
-	ExitCodeThrowRef
 	// ExitCodeNullReference is an exit code for a null reference trap (throw_ref with null exnref).
 	ExitCodeNullReference
 	// ExitCodeTryTableEnter is an exit code for entering a try_table block.
@@ -112,8 +109,6 @@ func (e ExitCode) String() string {
 		return "throw_alloc"
 	case ExitCodeThrow:
 		return "throw"
-	case ExitCodeThrowRef:
-		return "throw_ref"
 	case ExitCodeNullReference:
 		return "null_reference"
 	case ExitCodeTryTableEnter:

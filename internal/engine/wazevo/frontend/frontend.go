@@ -62,14 +62,13 @@ type Compiler struct {
 
 	execCtxPtrValue, moduleCtxPtrValue ssa.Value
 
-	// throwAllocSig is the signature for the throw-alloc trampoline (phase 1):
-	// allocates the Exception heap object and sets throwExceptionParamsPtr.
+	// throwAllocSig is the signature for the throw-alloc trampoline:
+	// (execCtx, tagIndex) → (exnref). Allocates the Exception and returns
+	// its pointer so compiled code can pass it to the throw trampoline.
 	throwAllocSig ssa.Signature
-	// throwSig is the signature for the throw trampoline (phase 2):
-	// compiled code has written params; handler searches for a catch clause.
+	// throwSig is the signature for the throw/throw_ref trampoline:
+	// (execCtx, exnref) → (). Searches for a matching handler and restores.
 	throwSig ssa.Signature
-	// throwRefSig is the signature for the throw_ref trampoline.
-	throwRefSig ssa.Signature
 	// tryTableEnterSig is the signature for the try_table enter trampoline.
 	tryTableEnterSig ssa.Signature
 	// tryTableLeaveSig is the signature for the try_table leave trampoline.
@@ -213,26 +212,19 @@ func (c *Compiler) declareSignatures(listenerOn bool) {
 	c.throwAllocSig = ssa.Signature{
 		ID:      c.memoryNotifySig.ID + 1,
 		Params:  []ssa.Type{ssa.TypeI64 /* exec context */, ssa.TypeI64 /* tag index */},
-		Results: []ssa.Type{},
+		Results: []ssa.Type{ssa.TypeI64 /* exnref */},
 	}
 	c.ssaBuilder.DeclareSignature(&c.throwAllocSig)
 
 	c.throwSig = ssa.Signature{
 		ID:      c.throwAllocSig.ID + 1,
-		Params:  []ssa.Type{ssa.TypeI64 /* exec context */, ssa.TypeI64 /* tag index */},
+		Params:  []ssa.Type{ssa.TypeI64 /* exec context */, ssa.TypeI64 /* exnref */},
 		Results: []ssa.Type{},
 	}
 	c.ssaBuilder.DeclareSignature(&c.throwSig)
 
-	c.throwRefSig = ssa.Signature{
-		ID:      c.throwSig.ID + 1,
-		Params:  []ssa.Type{ssa.TypeI64 /* exec context */, ssa.TypeI64 /* exnref */},
-		Results: []ssa.Type{},
-	}
-	c.ssaBuilder.DeclareSignature(&c.throwRefSig)
-
 	c.tryTableEnterSig = ssa.Signature{
-		ID:      c.throwRefSig.ID + 1,
+		ID:      c.throwSig.ID + 1,
 		Params:  []ssa.Type{ssa.TypeI64 /* exec context */, ssa.TypeI64 /* encoded exit code */},
 		Results: []ssa.Type{},
 	}

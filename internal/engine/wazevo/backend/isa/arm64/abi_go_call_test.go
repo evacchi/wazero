@@ -490,7 +490,7 @@ func TestMachine_CompileGoFunctionTrampoline(t *testing.T) {
 	orr x27, xzr, #0x10
 	orr x16, xzr, #0x1
 	stp x27, x16, [sp, #-0x10]!
-	orr w17, wzr, #0x1c
+	movz w17, #0x1b, lsl 0
 	str w17, [x0]
 	mov x27, sp
 	str x27, [x0, #0x38]

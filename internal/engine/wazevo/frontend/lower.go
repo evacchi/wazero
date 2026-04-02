@@ -3444,26 +3444,24 @@ func (c *Compiler) lowerCurrentOpcode() {
 
 		tagIdxVal := builder.AllocateInstruction().AsIconst64(uint64(tagIndex)).Insert(builder).Return()
 
-		// We need to store the throwParams in the exception and then throw it.
-		// However, each exception might have a variable number of parameters,
-		// so we let Go allocate the reference on the heap.
-		// The Go side allocates the Exception object (Params sized to nParams)
-		// and writes its backing-array pointer into execCtx.throwExceptionParamsPtr.
+		// Phase 1: throwAlloc — Go allocates the Exception heap object
+		// (Params sized to nParams), writes its backing-array pointer
+		// into execCtx.throwExceptionParamsPtr, and returns the exnref.
 		throwAllocPtr := builder.AllocateInstruction().
 			AsLoad(c.execCtxPtrValue,
 				wazevoapi.ExecutionContextOffsetThrowAllocTrampolineAddress.U32(),
 				ssa.TypeI64,
 			).Insert(builder).Return()
 		throwAllocArgs := c.allocateVarLengthValues(2, c.execCtxPtrValue, tagIdxVal)
-		builder.AllocateInstruction().
+		exnref := builder.AllocateInstruction().
 			AsCallIndirect(throwAllocPtr, &c.throwAllocSig, throwAllocArgs).
-			Insert(builder)
+			Insert(builder).Return()
 
 		// Reload memory pointers invalidated by the Go call.
 		c.reloadAfterCall()
 
-		// We can now store each param directly into Exception.Params using the pointer
-		// stored to execCtx.throwExceptionParamsPtr.
+		// Store each param directly into Exception.Params via the pointer
+		// that throwAlloc wrote to execCtx.throwExceptionParamsPtr.
 		if len(throwParams) > 0 {
 			paramsPtr := builder.AllocateInstruction().
 				AsLoad(c.execCtxPtrValue,
@@ -3471,7 +3469,6 @@ func (c *Compiler) lowerCurrentOpcode() {
 					ssa.TypeI64,
 				).Insert(builder).Return()
 			for i, v := range throwParams {
-				// If necessary, bitcast floats to their integer representation.
 				switch v.Type() {
 				case ssa.TypeF32:
 					v = builder.AllocateInstruction().AsBitcast(v, ssa.TypeI32).Insert(builder).Return()
@@ -3484,21 +3481,9 @@ func (c *Compiler) lowerCurrentOpcode() {
 			}
 		}
 
-		// We return again control to Go to search and dispatch to a matching catch clause.
-		throwPtr := builder.AllocateInstruction().
-			AsLoad(c.execCtxPtrValue,
-				wazevoapi.ExecutionContextOffsetThrowTrampolineAddress.U32(),
-				ssa.TypeI64,
-			).Insert(builder).Return()
-		throwArgs := c.allocateVarLengthValues(2, c.execCtxPtrValue, tagIdxVal)
-		builder.AllocateInstruction().
-			AsCallIndirect(throwPtr, &c.throwSig, throwArgs).
-			Insert(builder)
-
-		// Throw never returns.
-		exit := builder.AllocateInstruction()
-		exit.AsExitWithCode(c.execCtxPtrValue, wazevoapi.ExitCodeUnreachable)
-		builder.InsertInstruction(exit)
+		// Phase 2: throw — pass the exnref to the shared throw trampoline
+		// which searches for a matching catch clause and restores.
+		c.emitThrow(exnref)
 		state.unreachable = true
 
 	case wasm.OpcodeThrowRef:
@@ -3517,22 +3502,7 @@ func (c *Compiler) lowerCurrentOpcode() {
 
 		c.storeCallerModuleContext()
 
-		// Call the throw_ref trampoline: (execCtx, exnref) -> ()
-		throwRefPtr := builder.AllocateInstruction().
-			AsLoad(c.execCtxPtrValue,
-				wazevoapi.ExecutionContextOffsetThrowRefTrampolineAddress.U32(),
-				ssa.TypeI64,
-			).Insert(builder).Return()
-
-		throwRefArgs := c.allocateVarLengthValues(2, c.execCtxPtrValue, exnref)
-		builder.AllocateInstruction().
-			AsCallIndirect(throwRefPtr, &c.throwRefSig, throwRefArgs).
-			Insert(builder)
-
-		// Throw_ref never returns.
-		exit := builder.AllocateInstruction()
-		exit.AsExitWithCode(c.execCtxPtrValue, wazevoapi.ExitCodeUnreachable)
-		builder.InsertInstruction(exit)
+		c.emitThrow(exnref)
 		state.unreachable = true
 
 	case wasm.OpcodeTryTable:
@@ -4332,6 +4302,25 @@ func (c *Compiler) resolveTagType(tagIndex uint32) *wasm.FunctionType {
 		}
 	}
 	return nil
+}
+
+// emitThrow emits a call to the shared throw trampoline with the given exnref,
+// followed by an unreachable exit (throw never returns).
+func (c *Compiler) emitThrow(exnref ssa.Value) {
+	builder := c.ssaBuilder
+	throwPtr := builder.AllocateInstruction().
+		AsLoad(c.execCtxPtrValue,
+			wazevoapi.ExecutionContextOffsetThrowTrampolineAddress.U32(),
+			ssa.TypeI64,
+		).Insert(builder).Return()
+	throwArgs := c.allocateVarLengthValues(2, c.execCtxPtrValue, exnref)
+	builder.AllocateInstruction().
+		AsCallIndirect(throwPtr, &c.throwSig, throwArgs).
+		Insert(builder)
+
+	exit := builder.AllocateInstruction()
+	exit.AsExitWithCode(c.execCtxPtrValue, wazevoapi.ExitCodeUnreachable)
+	builder.InsertInstruction(exit)
 }
 
 // emitTryTableLeave emits a trampoline call to pop the try handler in the dispatch loop.

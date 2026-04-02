@@ -54,27 +54,26 @@ const (
 	ExecutionContextOffsetMemoryWait64TrampolineAddress  Offset = 1168
 	ExecutionContextOffsetMemoryNotifyTrampolineAddress  Offset = 1176
 	ExecutionContextOffsetThrowTrampolineAddress         Offset = 1184
-	ExecutionContextOffsetThrowRefTrampolineAddress      Offset = 1192
-	ExecutionContextOffsetTryTableEnterTrampolineAddress Offset = 1200
-	ExecutionContextOffsetTryTableLeaveTrampolineAddress Offset = 1208
+	ExecutionContextOffsetTryTableEnterTrampolineAddress Offset = 1192
+	ExecutionContextOffsetTryTableLeaveTrampolineAddress Offset = 1200
 	// ExecutionContextOffsetThrowAllocTrampolineAddress is the address of the
-	// throw-alloc trampoline: phase 1 of throw, which allocates the Exception
-	// heap object and sets throwExceptionParamsPtr.
-	ExecutionContextOffsetThrowAllocTrampolineAddress Offset = 1216
+	// throw-alloc trampoline, which allocates the Exception heap object,
+	// sets throwExceptionParamsPtr, and returns the exnref.
+	ExecutionContextOffsetThrowAllocTrampolineAddress Offset = 1208
 	// ExecutionContextOffsetCaughtExceptionClauseIdx is the matched catch clause index
 	// written by handleException and read by compiled handler dispatch code.
-	ExecutionContextOffsetCaughtExceptionClauseIdx Offset = 1224
+	ExecutionContextOffsetCaughtExceptionClauseIdx Offset = 1216
 	// ExecutionContextOffsetThrowExceptionParamsPtr holds a pointer into the
 	// pending Exception's Params slice backing array. Compiled throw code stores
 	// each tag param here before calling the throw trampoline.
-	ExecutionContextOffsetThrowExceptionParamsPtr Offset = 1232
+	ExecutionContextOffsetThrowExceptionParamsPtr Offset = 1224
 	// ExecutionContextOffsetCaughtExceptionParamsPtr holds a pointer into the
 	// caught Exception's Params slice backing array. Compiled catch handler
 	// blocks load each param from [caughtExceptionParamsPtr + i*8].
-	ExecutionContextOffsetCaughtExceptionParamsPtr Offset = 1240
+	ExecutionContextOffsetCaughtExceptionParamsPtr Offset = 1232
 	// ExecutionContextOffsetCaughtExceptionExnRef holds the pointer to the
 	// caught Exception struct for catch_ref/catch_all_ref handlers.
-	ExecutionContextOffsetCaughtExceptionExnRef Offset = 1248
+	ExecutionContextOffsetCaughtExceptionExnRef Offset = 1240
 )
 
 // ModuleContextOffsetData allows the compilers to get the information about offsets to the fields of wazevo.moduleContextOpaque,

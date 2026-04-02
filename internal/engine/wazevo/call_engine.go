@@ -113,10 +113,8 @@ type (
 		memoryWait64TrampolineAddress *byte
 		// memoryNotifyTrampolineAddress holds the address of the memory_notify trampoline function.
 		memoryNotifyTrampolineAddress *byte
-		// throwTrampolineAddress holds the address of the throw trampoline function.
+		// throwTrampolineAddress holds the address of the throw/throw_ref trampoline function.
 		throwTrampolineAddress *byte
-		// throwRefTrampolineAddress holds the address of the throw_ref trampoline function.
-		throwRefTrampolineAddress *byte
 		// tryTableEnterTrampolineAddress holds the address of the try_table enter trampoline function.
 		tryTableEnterTrampolineAddress *byte
 		// tryTableLeaveTrampolineAddress holds the address of the try_table leave trampoline function.
@@ -560,9 +558,9 @@ func (c *callEngine) callWithStack(ctx context.Context, paramResultStack []uint6
 		case wazevoapi.ExitCodeUnalignedAtomic:
 			panic(wasmruntime.ErrRuntimeUnalignedAtomic)
 		case wazevoapi.ExitCodeThrowAlloc:
-			// Phase 1 of throw: allocate the Exception heap object sized exactly
-			// to the tag's param count, then set throwExceptionParamsPtr so
-			// compiled code can store params directly into Exception.Params.
+			// Allocate the Exception heap object sized exactly to the tag's
+			// param count. Sets throwExceptionParamsPtr so compiled code can
+			// store params, and returns the exnref via the stack slot.
 			s := goCallStackView(c.execCtx.stackPointerBeforeGoCall)
 			tagIndex := int(s[0])
 			mod := c.callerModuleInstance()
@@ -573,26 +571,16 @@ func (c *callEngine) callWithStack(ctx context.Context, paramResultStack []uint6
 			if nParams > 0 {
 				c.execCtx.throwExceptionParamsPtr = uintptr(unsafe.Pointer(&exn.Params[0]))
 			}
+			// Return the exnref to compiled code via the stack slot.
+			s[0] = uint64(uintptr(unsafe.Pointer(exn)))
 			c.execCtx.exitCode = wazevoapi.ExitCodeOK
 			afterGoFunctionCallEntrypoint(c.execCtx.goCallReturnAddress, c.execCtxPtr,
 				uintptr(unsafe.Pointer(c.execCtx.stackPointerBeforeGoCall)), c.execCtx.framePointerBeforeGoCall)
-		case wazevoapi.ExitCodeThrow, wazevoapi.ExitCodeThrowRef:
-			var exn *wasm.Exception
-			if ec == wazevoapi.ExitCodeThrowRef {
-				// The throw_ref trampoline passes: (execCtx, exnref)
-				s := goCallStackView(c.execCtx.stackPointerBeforeGoCall)
-				if s[0] == 0 {
-					panic(wasmruntime.ErrRuntimeNullReference)
-				}
-				// Read the Exception pointer directly from the stack slot to avoid
-				// uintptr→unsafe.Pointer conversion which triggers checkptr.
-				exn = *(**wasm.Exception)(unsafe.Pointer(&s[0]))
-			} else {
-				exn = c.pendingException
-			}
-
-			// Phase 2 of throw: compiled code has written all params into
-			// pendingException.Params; now search for a matching handler.
+		case wazevoapi.ExitCodeThrow:
+			// Throw trampoline: (execCtx, exnref) → ().
+			// Reads the exnref from the stack, searches for a matching handler.
+			s := goCallStackView(c.execCtx.stackPointerBeforeGoCall)
+			exn := *(**wasm.Exception)(unsafe.Pointer(&s[0]))
 			if !c.doHandleException(exn) {
 				panic(wasmruntime.ErrRuntimeUncaughtException)
 			}
