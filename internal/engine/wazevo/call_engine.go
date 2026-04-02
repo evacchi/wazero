@@ -125,7 +125,7 @@ type (
 		// exceptionPtr holds the pointer to the Exception struct,
 		// used on the throw side (throwAlloc stores the new Exception)
 		// and on the catch side (catch_ref/catch_all_ref retrieve the exnref).
-		exceptionPtr uint64
+		exceptionPtr uintptr
 		// exceptionParamsPtr points into exceptionPtr's Params slice
 		// backing array. On the throw side, throwAlloc sets it so compiled
 		// code can store params at [ptr + i*8]. On the catch side, compiled
@@ -585,7 +585,7 @@ func (c *callEngine) callWithStack(ctx context.Context, paramResultStack []uint6
 			if len(exn.Params) > 0 {
 				c.execCtx.exceptionParamsPtr = uintptr(unsafe.Pointer(&exn.Params[0]))
 			}
-			c.execCtx.exceptionPtr = uint64(uintptr(unsafe.Pointer(exn)))
+			c.execCtx.exceptionPtr = uintptr(unsafe.Pointer(exn))
 			c.execCtx.exitCode = wazevoapi.ExitCodeOK
 			afterGoFunctionCallEntrypoint(c.execCtx.goCallReturnAddress, c.execCtxPtr,
 				uintptr(unsafe.Pointer(c.execCtx.stackPointerBeforeGoCall)), c.execCtx.framePointerBeforeGoCall)
