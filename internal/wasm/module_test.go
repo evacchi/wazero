@@ -129,6 +129,7 @@ func TestModule_allDeclarations(t *testing.T) {
 		expectedGlobals   []GlobalType
 		expectedMemory    *Memory
 		expectedTables    []Table
+		expectedTags      []Index
 	}{
 		// Functions.
 		{
@@ -196,17 +197,38 @@ func TestModule_allDeclarations(t *testing.T) {
 			},
 			expectedTables: []Table{{Min: 10}},
 		},
+		// Tags.
+		{
+			module: &Module{
+				ImportSection: []Import{{Type: ExternTypeTag, DescTag: 5}},
+			},
+			expectedTags: []Index{5},
+		},
+		{
+			module: &Module{
+				TagSection: []Tag{{Type: 3}},
+			},
+			expectedTags: []Index{3},
+		},
+		{
+			module: &Module{
+				ImportSection: []Import{{Type: ExternTypeTag, DescTag: 5}},
+				TagSection:    []Tag{{Type: 3}},
+			},
+			expectedTags: []Index{5, 3},
+		},
 	}
 
 	for i, tt := range tests {
 		tc := tt
 		t.Run(fmt.Sprintf("%d", i), func(t *testing.T) {
-			functions, globals, memory, tables, _, err := tc.module.AllDeclarations()
+			functions, globals, memory, tables, tags, err := tc.module.AllDeclarations()
 			require.NoError(t, err)
 			require.Equal(t, tc.expectedFunctions, functions)
 			require.Equal(t, tc.expectedGlobals, globals)
 			require.Equal(t, tc.expectedTables, tables)
 			require.Equal(t, tc.expectedMemory, memory)
+			require.Equal(t, tc.expectedTags, tags)
 		})
 	}
 }
