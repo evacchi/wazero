@@ -2408,24 +2408,24 @@ L0 (SSA Block: blk0):
 	mov x128?, x0
 	mov x129?, x1
 	str x129?, [x128?, #0x8]
-	ldr x132?, [x128?, #0x4b0]
+	ldr x130?, [x128?, #0x4b0]
 	mov x0, x128?
-	orr x133?, xzr, #0x1c
-	mov x1, x133?
-	bl x132?
-	ldr x134?, [x128?, #0x4c8]
+	orr x131?, xzr, #0x1c
+	mov x1, x131?
+	bl x130?
+	ldr x132?, [x128?, #0x4c8]
 	orr w135?, wzr, #0x1
-	subs wzr, w134?, w135?
-	csel w136?, w135?, w134?, hs
+	subs wzr, w132?, w135?
+	csel w136?, w135?, w132?, hs
 	br_table_sequence x136?, table_index=0
 L4 (SSA Block: blk4):
 L1 (SSA Block: blk1):
-	mov x130?, xzr
-	mov x0, x130?
+	mov x133?, xzr
+	mov x0, x133?
 	ret
 L3 (SSA Block: blk3):
-	movz w131?, #0x2a, lsl 0
-	mov x0, x131?
+	movz w134?, #0x2a, lsl 0
+	mov x0, x134?
 	ret
 `,
 		},

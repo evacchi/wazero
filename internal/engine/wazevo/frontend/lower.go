@@ -3632,14 +3632,38 @@ func (c *Compiler) lowerCurrentOpcode() {
 			// Last target is the body block (default for clauseIdx == -1 / out of range).
 			targets = targets.Append(varPool, ssa.Value(bodyBlk.ID()))
 
-			// Back to the original block: emit the TryTableDispatch meta-instruction.
+			// Back to the original block: call the try_table enter trampoline,
+			// then dispatch on the caught clause index.
 			builder.SetCurrentBlock(currentBlk)
 			encodedExitCode := uint64(wazevoapi.ExitCodeTryTableEnter | wazevoapi.ExitCode(tryTableID<<8))
-			dispatch := builder.AllocateInstruction()
-			dispatch.AsTryTableDispatch(c.execCtxPtrValue, encodedExitCode, c.tryTableEnterSig.ID, targets)
-			builder.InsertInstruction(dispatch)
 
-			// Seal handler blocks after TryTableDispatch is inserted (so predecessors are registered).
+			// Load trampoline address from execCtx.
+			enterPtr := builder.AllocateInstruction().
+				AsLoad(c.execCtxPtrValue,
+					wazevoapi.ExecutionContextOffsetTryTableEnterTrampolineAddress.U32(),
+					ssa.TypeI64,
+				).Insert(builder).Return()
+
+			// Call the trampoline: (execCtx, encodedExitCode) -> ().
+			exitCodeVal := builder.AllocateInstruction().AsIconst64(encodedExitCode).Insert(builder).Return()
+			args := c.allocateVarLengthValues(2, c.execCtxPtrValue, exitCodeVal)
+			builder.AllocateInstruction().
+				AsCallIndirect(enterPtr, &c.tryTableEnterSig, args).
+				Insert(builder)
+
+			// Load the caught clause index written by the dispatch loop.
+			clauseIdx := builder.AllocateInstruction().
+				AsLoad(c.execCtxPtrValue,
+					wazevoapi.ExecutionContextOffsetCaughtExceptionClauseIdx.U32(),
+					ssa.TypeI64,
+				).Insert(builder).Return()
+
+			// Dispatch to handler blocks or body block via br_table.
+			brTable := builder.AllocateInstruction()
+			brTable.AsBrTable(clauseIdx, targets)
+			builder.InsertInstruction(brTable)
+
+			// Seal handler blocks after BrTable is inserted (so predecessors are registered).
 			for _, targetID := range targets.View() {
 				blk := builder.BasicBlock(ssa.BasicBlockID(targetID))
 				if !blk.Sealed() {
