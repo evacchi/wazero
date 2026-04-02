@@ -63,13 +63,13 @@ const (
 	// ExecutionContextOffsetCaughtExceptionClauseIdx is the matched catch clause index
 	// written by handleException and read by compiled handler dispatch code.
 	ExecutionContextOffsetCaughtExceptionClauseIdx Offset = 1216
-	// ExecutionContextOffsetExceptionParamsPtr holds a pointer into an
-	// Exception's Params slice backing array. Used by both throw (store params)
-	// and catch (load params) sides.
-	ExecutionContextOffsetExceptionParamsPtr Offset = 1224
-	// ExecutionContextOffsetCaughtExceptionExnRef holds the pointer to the
+	// ExecutionContextOffsetCaughtExceptionPtr holds the pointer to the
 	// caught Exception struct for catch_ref/catch_all_ref handlers.
-	ExecutionContextOffsetCaughtExceptionExnRef Offset = 1232
+	ExecutionContextOffsetCaughtExceptionPtr Offset = 1224
+	// ExecutionContextOffsetExceptionParamsPtr points into the caught
+	// Exception's Params slice backing array. Used by both throw (store
+	// params) and catch (load params) sides.
+	ExecutionContextOffsetExceptionParamsPtr Offset = 1232
 )
 
 // ModuleContextOffsetData allows the compilers to get the information about offsets to the fields of wazevo.moduleContextOpaque,

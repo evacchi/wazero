@@ -2510,7 +2510,7 @@ L0 (SSA Block: blk0):
 	csel w9, w10, w9, hs
 	br_table_sequence x9, table_index=0
 L4 (SSA Block: blk4):
-	ldr x8, [x8, #0x4c8]
+	ldr x8, [x8, #0x4d0]
 	ldr w9, [x8]
 	ldr w10, [x8, #0x8]
 	ldr w11, [x8, #0x10]
@@ -2535,7 +2535,7 @@ L3 (SSA Block: blk3):
 	bl x9
 	mov x1, x0
 	ldr x8, [sp, #0x10]
-	ldr x9, [x8, #0x4c8]
+	ldr x9, [x8, #0x4d0]
 	ldr w10, [sp, #0x20]
 	str w10, [x9]
 	ldr w10, [sp, #0x24]

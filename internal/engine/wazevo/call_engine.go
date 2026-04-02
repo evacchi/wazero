@@ -584,7 +584,7 @@ func (c *callEngine) callWithStack(ctx context.Context, paramResultStack []uint6
 			if len(exn.Params) > 0 {
 				c.execCtx.exceptionParamsPtr = uintptr(unsafe.Pointer(&exn.Params[0]))
 			}
-			c.execCtx.caughtExceptionExnRef = uint64(uintptr(unsafe.Pointer(exn)))
+			c.execCtx.caughtExceptionPtr = uint64(uintptr(unsafe.Pointer(exn)))
 			c.execCtx.exitCode = wazevoapi.ExitCodeOK
 			afterGoFunctionCallEntrypoint(c.execCtx.goCallReturnAddress, c.execCtxPtr,
 				uintptr(unsafe.Pointer(c.execCtx.stackPointerBeforeGoCall)), c.execCtx.framePointerBeforeGoCall)
