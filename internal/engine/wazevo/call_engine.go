@@ -122,19 +122,20 @@ type (
 		// throwAllocTrampolineAddress holds the address of the throw-alloc trampoline:
 		// phase 1 of throw, which allocates the Exception heap object.
 		throwAllocTrampolineAddress *byte
+		// exceptionPtr holds the pointer to the Exception struct,
+		// used on the throw side (throwAlloc stores the new Exception)
+		// and on the catch side (catch_ref/catch_all_ref retrieve the exnref).
+		exceptionPtr uint64
+		// exceptionParamsPtr points into exceptionPtr's Params slice
+		// backing array. On the throw side, throwAlloc sets it so compiled
+		// code can store params at [ptr + i*8]. On the catch side, compiled
+		// handler blocks load params from the same pointer.
+		exceptionParamsPtr uintptr
 		// caughtExceptionClauseIdx is set by the dispatch loop to -1 on
 		// TryTableEnter (normal path) or to the matched catch clause index
 		// when an exception is caught. Compiled code loads this from execCtx
 		// after the trampoline call to decide which handler to dispatch to.
 		caughtExceptionClauseIdx int64
-		// caughtExceptionPtr holds the pointer to the caught Exception struct,
-		// used by catch_ref/catch_all_ref handlers.
-		caughtExceptionPtr uint64
-		// exceptionParamsPtr points into caughtExceptionPtr's Params slice
-		// backing array. On the throw side, throwAlloc sets it so compiled
-		// code can store params at [ptr + i*8]. On the catch side, compiled
-		// handler blocks load params from the same pointer.
-		exceptionParamsPtr uintptr
 	}
 )
 
@@ -584,7 +585,7 @@ func (c *callEngine) callWithStack(ctx context.Context, paramResultStack []uint6
 			if len(exn.Params) > 0 {
 				c.execCtx.exceptionParamsPtr = uintptr(unsafe.Pointer(&exn.Params[0]))
 			}
-			c.execCtx.caughtExceptionPtr = uint64(uintptr(unsafe.Pointer(exn)))
+			c.execCtx.exceptionPtr = uint64(uintptr(unsafe.Pointer(exn)))
 			c.execCtx.exitCode = wazevoapi.ExitCodeOK
 			afterGoFunctionCallEntrypoint(c.execCtx.goCallReturnAddress, c.execCtxPtr,
 				uintptr(unsafe.Pointer(c.execCtx.stackPointerBeforeGoCall)), c.execCtx.framePointerBeforeGoCall)
