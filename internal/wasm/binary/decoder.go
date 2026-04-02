@@ -192,7 +192,7 @@ func checkSectionOrder(current, previous wasm.SectionID) (byte, bool) {
 
 	// DataCount was introduced in Wasm 2.0.
 	// It must come after Element and before Code.
-	if current > wasm.SectionIDDataCount && current != wasm.SectionIDTag {
+	if current > wasm.SectionIDDataCount {
 		return current, false
 	}
 	if current == wasm.SectionIDDataCount {

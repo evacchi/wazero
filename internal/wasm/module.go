@@ -1171,8 +1171,24 @@ const (
 	ValueTypeExnref ValueType = 0x69
 	// ValueTypeNonNullFuncref is a non-nullable typed function reference (ref $t).
 	// At runtime it behaves identically to funcref; the distinction matters only at validation.
-	// Uses 0x64 which is the binary encoding byte for non-nullable ref.
-	ValueTypeNonNullFuncref ValueType = 0x64
+	// Uses RefPrefixNonNullable which is the binary encoding byte for non-nullable ref.
+	ValueTypeNonNullFuncref ValueType = RefPrefixNonNullable
+)
+
+const (
+	// RefPrefixNullable is the binary encoding prefix for nullable reference types (ref null <heaptype>).
+	RefPrefixNullable byte = 0x63
+	// RefPrefixNonNullable is the binary encoding prefix for non-nullable reference types (ref <heaptype>).
+	RefPrefixNonNullable byte = 0x64
+)
+
+const (
+	// HeapTypeFunc is the abstract heap type for function references.
+	HeapTypeFunc int64 = -16
+	// HeapTypeExtern is the abstract heap type for external references.
+	HeapTypeExtern int64 = -17
+	// HeapTypeExn is the abstract heap type for exception references.
+	HeapTypeExn int64 = -23
 )
 
 // ValueTypeName is an alias of api.ValueTypeName defined to simplify imports.

@@ -27,30 +27,44 @@ func decodeValueTypes(r *bytes.Reader, num uint32) ([]wasm.ValueType, error) {
 			wasm.ValueTypeExternref, wasm.ValueTypeFuncref, wasm.ValueTypeV128,
 			wasm.ValueTypeExnref:
 			ret = append(ret, b)
-		case 0x63: // GC proposal: (ref null <heaptype>) — nullable.
+		case wasm.RefPrefixNullable: // (ref null <heaptype>) — nullable.
 			ht, _, err := leb128.DecodeInt33AsInt64(r)
 			if err != nil {
 				return nil, fmt.Errorf("read ref heap type: %w", err)
 			}
+			// The following nullable refs are an alternative representation of the corresponding ref types:
+			// - (ref null exn) is equivalent to exnref
+			// - (ref null func) is equivalent to funcref
+			// - (ref null extern) is equivalent to externref
+			// See https://webassembly.github.io/gc/core/syntax/types.html#reference-types
 			switch ht {
-			case -23: // exn
+			case wasm.HeapTypeExn:
 				ret = append(ret, wasm.ValueTypeExnref)
-			case -16: // func
+			case wasm.HeapTypeFunc:
 				ret = append(ret, wasm.ValueTypeFuncref)
-			case -17: // extern
+			case wasm.HeapTypeExtern:
 				ret = append(ret, wasm.ValueTypeExternref)
 			default: // concrete type index — treat as nullable funcref
 				ret = append(ret, wasm.ValueTypeFuncref)
 			}
-		case 0x64: // GC proposal: (ref <heaptype>) — non-nullable.
+		case wasm.RefPrefixNonNullable: // (ref <heaptype>) — non-nullable.
 			ht, _, err := leb128.DecodeInt33AsInt64(r)
 			if err != nil {
 				return nil, fmt.Errorf("read ref heap type: %w", err)
 			}
+			// The following non-nullable refs do not have alternative representations:
+			// - (ref exn) is a non-nullable exnref (currently desugared into a nullable exnref)
+			// - (ref func) is a non-nullable funcref
+			// - (ref extern) is a non-nullable externref (unsupported)
+			// See https://webassembly.github.io/gc/core/syntax/types.html#reference-types
 			switch ht {
-			case -23: // exn
-				ret = append(ret, wasm.ValueTypeExnref) // TODO: non-null exnref
-			default:
+			case wasm.HeapTypeExn:
+				ret = append(ret, wasm.ValueTypeExnref)
+			case wasm.HeapTypeFunc:
+				ret = append(ret, wasm.ValueTypeNonNullFuncref)
+			case wasm.HeapTypeExtern:
+				return nil, fmt.Errorf("unsupported non-nullable ref heap type: extern")
+			default: // concrete type index — treat as non-nullable funcref
 				ret = append(ret, wasm.ValueTypeNonNullFuncref)
 			}
 		default:
