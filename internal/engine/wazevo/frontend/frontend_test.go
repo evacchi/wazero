@@ -3096,11 +3096,10 @@ func TestCompiler_declareSignatures(t *testing.T) {
 			{ID: 10, Params: []ssa.Type{ssa.TypeI64, ssa.TypeI64, ssa.TypeI64, ssa.TypeI64}, Results: []ssa.Type{ssa.TypeI32}},
 			{ID: 11, Params: []ssa.Type{ssa.TypeI64, ssa.TypeI32, ssa.TypeI64}, Results: []ssa.Type{ssa.TypeI32}},
 			// EH signatures.
-			{ID: 12, Params: []ssa.Type{ssa.TypeI64, ssa.TypeI64}},
+			{ID: 12, Params: []ssa.Type{ssa.TypeI64, ssa.TypeI64}, Results: []ssa.Type{ssa.TypeI64}},
 			{ID: 13, Params: []ssa.Type{ssa.TypeI64, ssa.TypeI64}},
 			{ID: 14, Params: []ssa.Type{ssa.TypeI64, ssa.TypeI64}},
-			{ID: 15, Params: []ssa.Type{ssa.TypeI64, ssa.TypeI64}},
-			{ID: 16, Params: []ssa.Type{ssa.TypeI64}},
+			{ID: 15, Params: []ssa.Type{ssa.TypeI64}},
 		}
 
 		require.Equal(t, len(expected), len(declaredSigs))
@@ -3141,11 +3140,10 @@ func TestCompiler_declareSignatures(t *testing.T) {
 			{ID: 18, Params: []ssa.Type{ssa.TypeI64, ssa.TypeI64, ssa.TypeI64, ssa.TypeI64}, Results: []ssa.Type{ssa.TypeI32}},
 			{ID: 19, Params: []ssa.Type{ssa.TypeI64, ssa.TypeI32, ssa.TypeI64}, Results: []ssa.Type{ssa.TypeI32}},
 			// EH signatures.
-			{ID: 20, Params: []ssa.Type{ssa.TypeI64, ssa.TypeI64}},
+			{ID: 20, Params: []ssa.Type{ssa.TypeI64, ssa.TypeI64}, Results: []ssa.Type{ssa.TypeI64}},
 			{ID: 21, Params: []ssa.Type{ssa.TypeI64, ssa.TypeI64}},
 			{ID: 22, Params: []ssa.Type{ssa.TypeI64, ssa.TypeI64}},
-			{ID: 23, Params: []ssa.Type{ssa.TypeI64, ssa.TypeI64}},
-			{ID: 24, Params: []ssa.Type{ssa.TypeI64}},
+			{ID: 23, Params: []ssa.Type{ssa.TypeI64}},
 		}
 		require.Equal(t, len(expected), len(declaredSigs))
 		for i := 0; i < len(declaredSigs); i++ {

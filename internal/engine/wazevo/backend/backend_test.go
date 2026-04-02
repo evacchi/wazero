@@ -2381,7 +2381,7 @@ L0 (SSA Block: blk0):
 	str x0, [sp, #0x10]
 	str x1, [x0, #0x8]
 	ldr x8, [x0, #0x4a8]
-	orr x1, xzr, #0x1c
+	movz x1, #0x1b, lsl 0
 	bl x8
 	ldr x8, [sp, #0x10]
 	ldr x8, [x8, #0x4c0]
@@ -2410,7 +2410,7 @@ L0 (SSA Block: blk0):
 	str x129?, [x128?, #0x8]
 	ldr x130?, [x128?, #0x4a8]
 	mov x0, x128?
-	orr x131?, xzr, #0x1c
+	movz x131?, #0x1b, lsl 0
 	mov x1, x131?
 	bl x130?
 	ldr x132?, [x128?, #0x4c0]
@@ -2441,7 +2441,7 @@ L0 (SSA Block: blk0):
 	str x1, [sp, #0x18]
 	str x1, [x0, #0x8]
 	ldr x8, [x0, #0x4a8]
-	orr x9, xzr, #0x1c
+	movz x9, #0x1b, lsl 0
 	mov x1, x9
 	bl x8
 	ldr x8, [sp, #0x10]
@@ -2460,14 +2460,14 @@ L1 (SSA Block: blk1):
 L3 (SSA Block: blk3):
 	ldr x9, [sp, #0x18]
 	str x9, [x8, #0x8]
-	ldr x9, [x8, #0x4c0]
+	ldr x9, [x8, #0x4b8]
 	mov x0, x8
 	mov x1, xzr
 	bl x9
+	mov x1, x0
 	ldr x8, [sp, #0x10]
 	ldr x9, [x8, #0x4a0]
 	mov x0, x8
-	mov x1, xzr
 	bl x9
 	movz x8, #0x3, lsl 0
 	ldr x9, [sp, #0x10]
@@ -2483,7 +2483,7 @@ L3 (SSA Block: blk3):
 			// Exercises tags with 5 i32 parameters: verifies that the two-phase
 			// throw (throwAlloc + throw) correctly passes all 5 params through the
 			// Exception heap object, and the catch handler reads all 5 via the
-			// caughtExceptionParamsPtr pointer.
+			// exceptionParamsPtr pointer.
 			name: "try_table_catch_many_param_throw", m: testcases.TryTableCatchManyParamThrow.Module,
 			afterFinalizeARM64: `
 L0 (SSA Block: blk0):
@@ -2500,7 +2500,7 @@ L0 (SSA Block: blk0):
 	str w6, [sp, #0x30]
 	str x1, [x0, #0x8]
 	ldr x8, [x0, #0x4a8]
-	orr x9, xzr, #0x1c
+	movz x9, #0x1b, lsl 0
 	mov x1, x9
 	bl x8
 	ldr x8, [sp, #0x10]
@@ -2510,7 +2510,7 @@ L0 (SSA Block: blk0):
 	csel w9, w10, w9, hs
 	br_table_sequence x9, table_index=0
 L4 (SSA Block: blk4):
-	ldr x8, [x8, #0x4d8]
+	ldr x8, [x8, #0x4c8]
 	ldr w9, [x8]
 	ldr w10, [x8, #0x8]
 	ldr w11, [x8, #0x10]
@@ -2529,12 +2529,13 @@ L1 (SSA Block: blk1):
 L3 (SSA Block: blk3):
 	ldr x9, [sp, #0x18]
 	str x9, [x8, #0x8]
-	ldr x9, [x8, #0x4c0]
+	ldr x9, [x8, #0x4b8]
 	mov x0, x8
 	mov x1, xzr
 	bl x9
+	mov x1, x0
 	ldr x8, [sp, #0x10]
-	ldr x9, [x8, #0x4d0]
+	ldr x9, [x8, #0x4c8]
 	ldr w10, [sp, #0x20]
 	str w10, [x9]
 	ldr w10, [sp, #0x24]
@@ -2547,7 +2548,6 @@ L3 (SSA Block: blk3):
 	str w10, [x9, #0x20]
 	ldr x9, [x8, #0x4a0]
 	mov x0, x8
-	mov x1, xzr
 	bl x9
 	movz x8, #0x3, lsl 0
 	ldr x9, [sp, #0x10]
@@ -2571,7 +2571,7 @@ L0 (SSA Block: blk0):
 	str x1, [sp, #0x18]
 	str x1, [x0, #0x8]
 	ldr x8, [x0, #0x4a8]
-	orr x9, xzr, #0x1c
+	movz x9, #0x1b, lsl 0
 	mov x1, x9
 	bl x8
 	ldr x8, [sp, #0x10]
@@ -2590,14 +2590,14 @@ L1 (SSA Block: blk1):
 L3 (SSA Block: blk3):
 	ldr x9, [sp, #0x18]
 	str x9, [x8, #0x8]
-	ldr x9, [x8, #0x4c0]
+	ldr x9, [x8, #0x4b8]
 	mov x0, x8
 	mov x1, xzr
 	bl x9
+	mov x1, x0
 	ldr x8, [sp, #0x10]
 	ldr x9, [x8, #0x4a0]
 	mov x0, x8
-	mov x1, xzr
 	bl x9
 	movz x8, #0x3, lsl 0
 	ldr x9, [sp, #0x10]

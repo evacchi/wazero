@@ -3446,7 +3446,7 @@ func (c *Compiler) lowerCurrentOpcode() {
 
 		// Phase 1: throwAlloc — Go allocates the Exception heap object
 		// (Params sized to nParams), writes its backing-array pointer
-		// into execCtx.throwExceptionParamsPtr, and returns the exnref.
+		// into execCtx.exceptionParamsPtr, and returns the exnref.
 		throwAllocPtr := builder.AllocateInstruction().
 			AsLoad(c.execCtxPtrValue,
 				wazevoapi.ExecutionContextOffsetThrowAllocTrampolineAddress.U32(),
@@ -3461,11 +3461,11 @@ func (c *Compiler) lowerCurrentOpcode() {
 		c.reloadAfterCall()
 
 		// Store each param directly into Exception.Params via the pointer
-		// that throwAlloc wrote to execCtx.throwExceptionParamsPtr.
+		// that throwAlloc wrote to execCtx.exceptionParamsPtr.
 		if len(throwParams) > 0 {
 			paramsPtr := builder.AllocateInstruction().
 				AsLoad(c.execCtxPtrValue,
-					wazevoapi.ExecutionContextOffsetThrowExceptionParamsPtr.U32(),
+					wazevoapi.ExecutionContextOffsetExceptionParamsPtr.U32(),
 					ssa.TypeI64,
 				).Insert(builder).Return()
 			for i, v := range throwParams {
@@ -4360,7 +4360,7 @@ type catchClause struct {
 }
 
 // loadExceptionParams loads the exception params from the caught Exception's
-// Params slice. The dispatch loop sets execCtx.caughtExceptionParamsPtr to the
+// Params slice. The dispatch loop sets execCtx.exceptionParamsPtr to the
 // slice's backing-array pointer after matching a handler. We load that pointer
 // and then read each param from [ptr + i*8], mirroring the stores emitted by
 // the throw lowering. Float params were bitcast to integers at the throw site,
@@ -4374,7 +4374,7 @@ func (c *Compiler) loadExceptionParams(tagType *wasm.FunctionType) []ssa.Value {
 	// Load the pointer to the caught Exception's Params backing array.
 	paramsPtr := builder.AllocateInstruction().
 		AsLoad(c.execCtxPtrValue,
-			wazevoapi.ExecutionContextOffsetCaughtExceptionParamsPtr.U32(),
+			wazevoapi.ExecutionContextOffsetExceptionParamsPtr.U32(),
 			ssa.TypeI64,
 		).Insert(builder).Return()
 

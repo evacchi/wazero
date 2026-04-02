@@ -32,7 +32,7 @@ const (
 	ExitCodeUnalignedAtomic
 	// ExitCodeThrowAlloc is the first phase of wasm throw: Go allocates the
 	// Exception heap object (with Params sized to the tag's param count) and
-	// writes its Params data pointer to execCtx.throwExceptionParamsPtr.
+	// writes its Params data pointer to execCtx.exceptionParamsPtr.
 	// Compiled code then stores params directly into the Exception.Params slice,
 	// followed by ExitCodeThrow to search for a matching handler.
 	ExitCodeThrowAlloc
