@@ -59,11 +59,11 @@ func decodeValueTypes(r *bytes.Reader, num uint32) ([]wasm.ValueType, error) {
 			// See https://webassembly.github.io/gc/core/syntax/types.html#reference-types
 			switch ht {
 			case wasm.HeapTypeExn:
-				ret = append(ret, wasm.ValueTypeExnref)
+				ret = append(ret, wasm.ValueTypeNonNullExnref)
 			case wasm.HeapTypeFunc:
 				ret = append(ret, wasm.ValueTypeNonNullFuncref)
 			case wasm.HeapTypeExtern:
-				return nil, fmt.Errorf("unsupported non-nullable ref heap type: extern")
+				ret = append(ret, wasm.ValueTypeNonNullExternref)
 			default: // concrete type index — treat as non-nullable funcref
 				ret = append(ret, wasm.ValueTypeNonNullFuncref)
 			}

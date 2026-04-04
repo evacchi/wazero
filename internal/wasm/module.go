@@ -1171,8 +1171,10 @@ const (
 	ValueTypeExnref ValueType = 0x69
 	// ValueTypeNonNullFuncref is a non-nullable typed function reference (ref $t).
 	// At runtime it behaves identically to funcref; the distinction matters only at validation.
-	// Uses RefPrefixNonNullable which is the binary encoding byte for non-nullable ref.
-	ValueTypeNonNullFuncref ValueType = RefPrefixNonNullable
+	// It is equivalent to ValueTypeFuncref with the high bit set.
+	ValueTypeNonNullFuncref   ValueType = ValueTypeFuncref | 1<<7
+	ValueTypeNonNullExternref ValueType = ValueTypeExternref | 1<<7
+	ValueTypeNonNullExnref    ValueType = ValueTypeExnref | 1<<7
 )
 
 const (
@@ -1199,28 +1201,26 @@ func ValueTypeName(t ValueType) string {
 		return "v128"
 	} else if t == ValueTypeExnref {
 		return "exnref"
-	} else if t == ValueTypeNonNullFuncref {
-		return "ref func"
+	} else if t&(1<<7) != 0 {
+		return "ref " + ValueTypeName(t&^(1<<7))
 	}
 	return api.ValueTypeName(t)
 }
 
 func isReferenceValueType(vt ValueType) bool {
-	return vt == ValueTypeExternref || vt == ValueTypeFuncref || vt == ValueTypeExnref || vt == ValueTypeNonNullFuncref
+	// Clear the high bit to normalize non-nullable to nullable.
+	vt &^= 1 << 7
+	return vt == ValueTypeExternref || vt == ValueTypeFuncref || vt == ValueTypeExnref
 }
 
 // isRefSubtypeOf returns true if actual is assignment-compatible with expected.
-// Treats funcref and NonNullFuncref as interchangeable for general validation
-// since we don't track nullability through the value stack.
+// A non-nullable ref is a subtype of its nullable counterpart and vice versa.
 func isRefSubtypeOf(actual, expected ValueType) bool {
 	if actual == expected {
 		return true
 	}
-	if (actual == ValueTypeNonNullFuncref && expected == ValueTypeFuncref) ||
-		(actual == ValueTypeFuncref && expected == ValueTypeNonNullFuncref) {
-		return true
-	}
-	return false
+	// Non-nullable and nullable forms of the same ref type are interchangeable.
+	return actual&^(1<<7) == expected&^(1<<7) && isReferenceValueType(actual)
 }
 
 // isStrictRefSubtypeOf returns true if actual is a strict subtype of expected.
@@ -1230,9 +1230,8 @@ func isStrictRefSubtypeOf(actual, expected ValueType) bool {
 	if actual == expected {
 		return true
 	}
-	if actual == ValueTypeNonNullFuncref && expected == ValueTypeFuncref {
-		return true
-	}
+	// Non-nullable (high bit set) is a subtype of nullable (high bit clear).
+	return actual&^(1<<7) == expected && actual&(1<<7) != 0 && isReferenceValueType(actual)
 	return false
 }
 

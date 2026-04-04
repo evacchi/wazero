@@ -41,6 +41,71 @@ func TestFunctionType_String(t *testing.T) {
 	}
 }
 
+func TestValueType_highBitReservedForNonNullable(t *testing.T) {
+	// The high bit (1<<7) is used to derive non-nullable reference types
+	// from their nullable counterparts. If a new ValueType is added with
+	// the high bit set, it must be a non-nullable ref type — otherwise
+	// isReferenceValueType, isRefSubtypeOf, and isStrictRefSubtypeOf will
+	// produce incorrect results.
+	allNullableTypes := []ValueType{
+		ValueTypeI32, ValueTypeI64, ValueTypeF32, ValueTypeF64,
+		ValueTypeV128, ValueTypeFuncref, ValueTypeExternref, ValueTypeExnref,
+	}
+	for _, vt := range allNullableTypes {
+		if vt&(1<<7) != 0 {
+			t.Errorf("ValueType %#x has high bit set but is not a non-nullable ref type", vt)
+		}
+	}
+}
+
+func TestIsReferenceValueType(t *testing.T) {
+	refTypes := []ValueType{
+		ValueTypeFuncref, ValueTypeExternref, ValueTypeExnref,
+		ValueTypeNonNullFuncref, ValueTypeNonNullExternref, ValueTypeNonNullExnref,
+	}
+	for _, vt := range refTypes {
+		require.True(t, isReferenceValueType(vt), "expected %#x to be a reference type", vt)
+	}
+	nonRefTypes := []ValueType{ValueTypeI32, ValueTypeI64, ValueTypeF32, ValueTypeF64, ValueTypeV128}
+	for _, vt := range nonRefTypes {
+		require.False(t, isReferenceValueType(vt), "expected %#x to not be a reference type", vt)
+	}
+}
+
+func TestIsRefSubtypeOf(t *testing.T) {
+	// Non-nullable is a subtype of nullable and vice versa.
+	require.True(t, isRefSubtypeOf(ValueTypeNonNullFuncref, ValueTypeFuncref))
+	require.True(t, isRefSubtypeOf(ValueTypeFuncref, ValueTypeNonNullFuncref))
+	require.True(t, isRefSubtypeOf(ValueTypeNonNullExnref, ValueTypeExnref))
+	require.True(t, isRefSubtypeOf(ValueTypeExnref, ValueTypeNonNullExnref))
+	require.True(t, isRefSubtypeOf(ValueTypeNonNullExternref, ValueTypeExternref))
+	require.True(t, isRefSubtypeOf(ValueTypeExternref, ValueTypeNonNullExternref))
+	// Same type is always a subtype.
+	require.True(t, isRefSubtypeOf(ValueTypeFuncref, ValueTypeFuncref))
+	require.True(t, isRefSubtypeOf(ValueTypeNonNullFuncref, ValueTypeNonNullFuncref))
+	// Different ref types are not subtypes.
+	require.False(t, isRefSubtypeOf(ValueTypeFuncref, ValueTypeExnref))
+	require.False(t, isRefSubtypeOf(ValueTypeNonNullFuncref, ValueTypeExnref))
+	// Non-ref types are not subtypes of ref types.
+	require.False(t, isRefSubtypeOf(ValueTypeI32, ValueTypeFuncref))
+}
+
+func TestIsStrictRefSubtypeOf(t *testing.T) {
+	// Non-nullable is a strict subtype of nullable.
+	require.True(t, isStrictRefSubtypeOf(ValueTypeNonNullFuncref, ValueTypeFuncref))
+	require.True(t, isStrictRefSubtypeOf(ValueTypeNonNullExnref, ValueTypeExnref))
+	require.True(t, isStrictRefSubtypeOf(ValueTypeNonNullExternref, ValueTypeExternref))
+	// But NOT vice versa.
+	require.False(t, isStrictRefSubtypeOf(ValueTypeFuncref, ValueTypeNonNullFuncref))
+	require.False(t, isStrictRefSubtypeOf(ValueTypeExnref, ValueTypeNonNullExnref))
+	require.False(t, isStrictRefSubtypeOf(ValueTypeExternref, ValueTypeNonNullExternref))
+	// Same type is always a subtype.
+	require.True(t, isStrictRefSubtypeOf(ValueTypeFuncref, ValueTypeFuncref))
+	require.True(t, isStrictRefSubtypeOf(ValueTypeNonNullFuncref, ValueTypeNonNullFuncref))
+	// Different ref types are not subtypes.
+	require.False(t, isStrictRefSubtypeOf(ValueTypeFuncref, ValueTypeExnref))
+}
+
 func TestSectionIDName(t *testing.T) {
 	tests := []struct {
 		name     string

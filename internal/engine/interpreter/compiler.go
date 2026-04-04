@@ -3753,7 +3753,8 @@ func (c *compiler) emitDefaultValue(t wasm.ValueType) {
 	case wasm.ValueTypeI32:
 		c.stackPush(unsignedTypeI32)
 		c.emit(newOperationConstI32(0))
-	case wasm.ValueTypeI64, wasm.ValueTypeExternref, wasm.ValueTypeFuncref, wasm.ValueTypeExnref, wasm.ValueTypeNonNullFuncref:
+	case wasm.ValueTypeI64, wasm.ValueTypeExternref, wasm.ValueTypeFuncref, wasm.ValueTypeExnref,
+		wasm.ValueTypeNonNullFuncref, wasm.ValueTypeNonNullExternref, wasm.ValueTypeNonNullExnref:
 		c.stackPush(unsignedTypeI64)
 		c.emit(newOperationConstI64(0))
 	case wasm.ValueTypeF32:

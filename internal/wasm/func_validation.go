@@ -631,7 +631,7 @@ func (m *Module) validateFunctionWithMaxStackValues(
 					}
 					for j := range catchTypes {
 						if !isStrictRefSubtypeOf(catchTypes[j], expectedTypes[j]) {
-							return fmt.Errorf("catch clause type mismatch at index %d", j)
+							return fmt.Errorf("catch clause type mismatch at index %d: %v is not a subtype of %v", j, catchTypes[j], expectedTypes[j])
 						}
 					}
 				case CatchKindCatchAll, CatchKindCatchAllRef:
