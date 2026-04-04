@@ -450,13 +450,13 @@ func (o operationKind) String() (ret string) {
 	case operationKindTailCallReturnCallIndirect:
 		ret = "operationKindTailCallReturnCallIndirect"
 	case operationKindThrow:
-		ret = "Throw"
+		ret = "operationKindThrow"
 	case operationKindThrowRef:
-		ret = "ThrowRef"
+		ret = "operationKindThrowRef"
 	case operationKindTryTable:
-		ret = "TryTable"
+		ret = "operationKindTryTable"
 	case operationKindPopTryHandler:
-		ret = "PopTryHandler"
+		ret = "operationKindPopTryHandler"
 	default:
 		panic(fmt.Errorf("unknown operation %d", o))
 	}

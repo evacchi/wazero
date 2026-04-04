@@ -3444,9 +3444,11 @@ func (c *Compiler) lowerCurrentOpcode() {
 
 		tagIdxVal := builder.AllocateInstruction().AsIconst64(uint64(tagIndex)).Insert(builder).Return()
 
-		// Phase 1: throwAlloc — Go allocates the Exception heap object
-		// (Params sized to nParams), writes its backing-array pointer
-		// into execCtx.exceptionParamsPtr, and returns the exnref.
+		// We need to store the throwParams in the exception and then throw it.
+		// However, each exception might have a variable number of parameters,
+		// so we let Go allocate the reference on the heap.
+		// The Go side allocates the Exception object (Params sized to nParams)
+		// and writes stores the pointer to the backing-array into execCtx.exceptionParamsPtr.
 		throwAllocPtr := builder.AllocateInstruction().
 			AsLoad(c.execCtxPtrValue,
 				wazevoapi.ExecutionContextOffsetThrowAllocTrampolineAddress.U32(),
@@ -3460,8 +3462,8 @@ func (c *Compiler) lowerCurrentOpcode() {
 		// Reload memory pointers invalidated by the Go call.
 		c.reloadAfterCall()
 
-		// Store each param directly into Exception.Params via the pointer
-		// that throwAlloc wrote to execCtx.exceptionParamsPtr.
+		// We can now store each param directly into Exception.Params using the pointer
+		// stored into execCtx.exceptionParamsPtr.
 		if len(throwParams) > 0 {
 			paramsPtr := builder.AllocateInstruction().
 				AsLoad(c.execCtxPtrValue,
@@ -3481,8 +3483,7 @@ func (c *Compiler) lowerCurrentOpcode() {
 			}
 		}
 
-		// Phase 2: throw — pass the exnref to the shared throw trampoline
-		// which searches for a matching catch clause and restores.
+		// We return again control to Go to search and dispatch to a matching catch clause.
 		c.emitThrow(exnref)
 		state.unreachable = true
 

@@ -327,11 +327,11 @@ func (ce *callEngine) handleExceptionInCurrentFrame(exn *wasm.Exception, frame *
 	return false
 }
 
-// callWithRecover calls the target function, recovering from snapshot restores
-// and exception panics. Returns true if an exception was caught by a try handler
-// (caller should refresh frame/body/bodyLen and continue the loop).
-// On snapshot restore or normal return, returns false (caller should do frame.pc++).
-func (ce *callEngine) callWithRecover(ctx context.Context, m *wasm.ModuleInstance, tf *function) bool {
+// callWithUnwind calls the target function with support for stack unwinding
+// (exception handling and snapshot restores). Returns true if the frame was
+// unwound (caller should refresh frame/body/bodyLen and continue the loop).
+// Returns false on normal return (caller should do frame.pc++).
+func (ce *callEngine) callWithUnwind(ctx context.Context, m *wasm.ModuleInstance, tf *function) bool {
 	if len(ce.tryHandlers) == 0 && ctx.Value(expctxkeys.EnableSnapshotterKey{}) == nil {
 		ce.callFunction(ctx, m, tf)
 		return false
@@ -952,7 +952,6 @@ func (ce *callEngine) callNativeFunc(ctx context.Context, m *wasm.ModuleInstance
 	ce.pushFrame(frame)
 	body := frame.f.parent.body
 	bodyLen := uint64(len(body))
-
 	for frame.pc < bodyLen {
 		op := &body[frame.pc]
 		// TODO: add description of each operation/case
@@ -985,7 +984,7 @@ func (ce *callEngine) callNativeFunc(ctx context.Context, m *wasm.ModuleInstance
 			ce.drop(op.Us[v+1])
 			frame.pc = op.Us[v]
 		case operationKindCall:
-			if ce.callWithRecover(ctx, f.moduleInstance, &functions[op.U1]) {
+			if ce.callWithUnwind(ctx, f.moduleInstance, &functions[op.U1]) {
 				frame = ce.frames[len(ce.frames)-1]
 				body = frame.f.parent.body
 				bodyLen = uint64(len(body))
@@ -997,7 +996,8 @@ func (ce *callEngine) callNativeFunc(ctx context.Context, m *wasm.ModuleInstance
 			table := tables[op.U2]
 			tf := ce.functionForOffset(table, offset, typeIDs[op.U1])
 
-			if ce.callWithRecover(ctx, f.moduleInstance, tf) {
+			frameUnwound := ce.callWithUnwind(ctx, f.moduleInstance, tf)
+			if frameUnwound {
 				frame = ce.frames[len(ce.frames)-1]
 				body = frame.f.parent.body
 				bodyLen = uint64(len(body))
@@ -4651,7 +4651,8 @@ func (ce *callEngine) callNativeFunc(ctx context.Context, m *wasm.ModuleInstance
 			// For details, see internal/engine/RATIONALE.md
 			if tf.moduleInstance != f.moduleInstance {
 				// Revert to a normal call.
-				if ce.callWithRecover(ctx, f.moduleInstance, tf) {
+				frameUnwound := ce.callWithUnwind(ctx, f.moduleInstance, tf)
+				if frameUnwound {
 					frame = ce.frames[len(ce.frames)-1]
 					body = frame.f.parent.body
 					bodyLen = uint64(len(body))
