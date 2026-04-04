@@ -3,6 +3,7 @@ package spectest
 import (
 	"context"
 	"embed"
+	"math"
 	"testing"
 
 	"github.com/tetratelabs/wazero"
@@ -21,9 +22,25 @@ func TestCompiler(t *testing.T) {
 	if !platform.CompilerSupported() {
 		t.Skip()
 	}
-	spectest.Run(t, testcases, context.Background(), wazero.NewRuntimeConfigCompiler().WithCoreFeatures(enabledFeatures))
+	ctx := context.Background()
+	config := wazero.NewRuntimeConfigCompiler().WithCoreFeatures(enabledFeatures)
+	runCases(t, ctx, config)
 }
 
 func TestInterpreter(t *testing.T) {
-	spectest.Run(t, testcases, context.Background(), wazero.NewRuntimeConfigInterpreter().WithCoreFeatures(enabledFeatures))
+	ctx := context.Background()
+	config := wazero.NewRuntimeConfigInterpreter().WithCoreFeatures(enabledFeatures)
+	runCases(t, ctx, config)
+}
+
+func runCases(t *testing.T, ctx context.Context, config wazero.RuntimeConfig) {
+	spectest.RunCase(t, testcases, "throw", ctx, config, -1, 0, math.MaxInt)
+	spectest.RunCase(t, testcases, "throw_ref", ctx, config, -1, 0, math.MaxInt)
+	spectest.RunCase(t, testcases, "tag", ctx, config, -1, 0, math.MaxInt)
+
+	// Run try_table.wast in two ranges, skipping lines 471 and 483:
+	// we desugar non-nullable ref types to nullable, so we cannot
+	// detect the type mismatch between (ref null $t) and (ref $t).
+	spectest.RunCase(t, testcases, "try_table", ctx, config, -1, 0, 470)
+	spectest.RunCase(t, testcases, "try_table", ctx, config, -1, 496, math.MaxInt)
 }

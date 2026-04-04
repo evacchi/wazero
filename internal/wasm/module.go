@@ -1169,12 +1169,6 @@ const (
 	ValueTypeExternref           = api.ValueTypeExternref
 	// ValueTypeExnref is the exception reference type used in exception handling.
 	ValueTypeExnref ValueType = 0x69
-	// ValueTypeNonNullFuncref is a non-nullable typed function reference (ref $t).
-	// At runtime it behaves identically to funcref; the distinction matters only at validation.
-	// It is equivalent to ValueTypeFuncref with the high bit set.
-	ValueTypeNonNullFuncref   ValueType = ValueTypeFuncref | 1<<7
-	ValueTypeNonNullExternref ValueType = ValueTypeExternref | 1<<7
-	ValueTypeNonNullExnref    ValueType = ValueTypeExnref | 1<<7
 )
 
 const (
@@ -1201,38 +1195,28 @@ func ValueTypeName(t ValueType) string {
 		return "v128"
 	} else if t == ValueTypeExnref {
 		return "exnref"
-	} else if t&(1<<7) != 0 {
-		return "ref " + ValueTypeName(t&^(1<<7))
 	}
 	return api.ValueTypeName(t)
 }
 
 func isReferenceValueType(vt ValueType) bool {
-	// Clear the high bit to normalize non-nullable to nullable.
-	vt &^= 1 << 7
 	return vt == ValueTypeExternref || vt == ValueTypeFuncref || vt == ValueTypeExnref
 }
 
 // isRefSubtypeOf returns true if actual is assignment-compatible with expected.
-// A non-nullable ref is a subtype of its nullable counterpart and vice versa.
+// Currently, non-nullable ref types are desugared to nullable at decode time,
+// so this reduces to equality. When non-nullable ref types are properly supported,
+// this function should allow non-nullable to match nullable and vice versa.
 func isRefSubtypeOf(actual, expected ValueType) bool {
-	if actual == expected {
-		return true
-	}
-	// Non-nullable and nullable forms of the same ref type are interchangeable.
-	return actual&^(1<<7) == expected&^(1<<7) && isReferenceValueType(actual)
+	return actual == expected
 }
 
 // isStrictRefSubtypeOf returns true if actual is a strict subtype of expected.
-// Non-nullable ref IS a subtype of nullable, but NOT vice versa.
-// Used in catch clause validation where the direction matters.
+// Currently, non-nullable ref types are desugared to nullable at decode time,
+// so this reduces to equality. When non-nullable ref types are properly supported,
+// non-nullable should be a subtype of nullable, but NOT vice versa.
 func isStrictRefSubtypeOf(actual, expected ValueType) bool {
-	if actual == expected {
-		return true
-	}
-	// Non-nullable (high bit set) is a subtype of nullable (high bit clear).
-	return actual&^(1<<7) == expected && actual&(1<<7) != 0 && isReferenceValueType(actual)
-	return false
+	return actual == expected
 }
 
 // ExternType is an alias of api.ExternType defined to simplify imports.

@@ -630,7 +630,7 @@ func (m *Module) validateFunctionWithMaxStackValues(
 						return fmt.Errorf("catch clause type mismatch: catch delivers %d values but label expects %d", len(catchTypes), len(expectedTypes))
 					}
 					for j := range catchTypes {
-						if !isStrictRefSubtypeOf(catchTypes[j], expectedTypes[j]) {
+						if catchTypes[j] != expectedTypes[j] {
 							return fmt.Errorf("catch clause type mismatch at index %d: %v is not a subtype of %v", j, catchTypes[j], expectedTypes[j])
 						}
 					}
@@ -1024,7 +1024,7 @@ func (m *Module) validateFunctionWithMaxStackValues(
 				}
 				pc += num - 1
 				// ref.func always produces a non-null reference.
-				valueTypeStack.push(ValueTypeNonNullFuncref)
+				valueTypeStack.push(ValueTypeFuncref)
 			}
 		} else if op == OpcodeTableGet || op == OpcodeTableSet {
 			if err := enabledFeatures.RequireEnabled(api.CoreFeatureReferenceTypes); err != nil {
@@ -2503,7 +2503,7 @@ func DecodeBlockType(types []FunctionType, r *bytes.Reader, enabledFeatures api.
 		case -23: // exn
 			ret = blockType_v_exnref // TODO: non-null exnref
 		default:
-			ret = blockType_v_nonnullfuncref
+			ret = blockType_v_funcref
 		}
 	default:
 		if err = enabledFeatures.RequireEnabled(api.CoreFeatureMultiValue); err != nil {
@@ -2528,7 +2528,6 @@ var (
 	blockType_v_funcref        = &FunctionType{Results: []ValueType{ValueTypeFuncref}, ResultNumInUint64: 1}
 	blockType_v_externref      = &FunctionType{Results: []ValueType{ValueTypeExternref}, ResultNumInUint64: 1}
 	blockType_v_exnref         = &FunctionType{Results: []ValueType{ValueTypeExnref}, ResultNumInUint64: 1}
-	blockType_v_nonnullfuncref = &FunctionType{Results: []ValueType{ValueTypeNonNullFuncref}, ResultNumInUint64: 1}
 )
 
 // SplitCallStack returns the input stack resliced to the count of params and
