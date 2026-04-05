@@ -630,7 +630,7 @@ func (m *Module) validateFunctionWithMaxStackValues(
 						return fmt.Errorf("catch clause type mismatch: catch delivers %d values but label expects %d", len(catchTypes), len(expectedTypes))
 					}
 					for j := range catchTypes {
-						if catchTypes[j] != expectedTypes[j] {
+						if !isStrictRefSubtypeOf(catchTypes[j], expectedTypes[j]) {
 							return fmt.Errorf("catch clause type mismatch at index %d: %v is not a subtype of %v", j, catchTypes[j], expectedTypes[j])
 						}
 					}
@@ -2519,15 +2519,15 @@ func DecodeBlockType(types []FunctionType, r *bytes.Reader, enabledFeatures api.
 
 // These block types are defined as globals in order to avoid allocations in DecodeBlockType.
 var (
-	blockType_v_v              = &FunctionType{}
-	blockType_v_i32            = &FunctionType{Results: []ValueType{ValueTypeI32}, ResultNumInUint64: 1}
-	blockType_v_i64            = &FunctionType{Results: []ValueType{ValueTypeI64}, ResultNumInUint64: 1}
-	blockType_v_f32            = &FunctionType{Results: []ValueType{ValueTypeF32}, ResultNumInUint64: 1}
-	blockType_v_f64            = &FunctionType{Results: []ValueType{ValueTypeF64}, ResultNumInUint64: 1}
-	blockType_v_v128           = &FunctionType{Results: []ValueType{ValueTypeV128}, ResultNumInUint64: 2}
-	blockType_v_funcref        = &FunctionType{Results: []ValueType{ValueTypeFuncref}, ResultNumInUint64: 1}
-	blockType_v_externref      = &FunctionType{Results: []ValueType{ValueTypeExternref}, ResultNumInUint64: 1}
-	blockType_v_exnref         = &FunctionType{Results: []ValueType{ValueTypeExnref}, ResultNumInUint64: 1}
+	blockType_v_v         = &FunctionType{}
+	blockType_v_i32       = &FunctionType{Results: []ValueType{ValueTypeI32}, ResultNumInUint64: 1}
+	blockType_v_i64       = &FunctionType{Results: []ValueType{ValueTypeI64}, ResultNumInUint64: 1}
+	blockType_v_f32       = &FunctionType{Results: []ValueType{ValueTypeF32}, ResultNumInUint64: 1}
+	blockType_v_f64       = &FunctionType{Results: []ValueType{ValueTypeF64}, ResultNumInUint64: 1}
+	blockType_v_v128      = &FunctionType{Results: []ValueType{ValueTypeV128}, ResultNumInUint64: 2}
+	blockType_v_funcref   = &FunctionType{Results: []ValueType{ValueTypeFuncref}, ResultNumInUint64: 1}
+	blockType_v_externref = &FunctionType{Results: []ValueType{ValueTypeExternref}, ResultNumInUint64: 1}
+	blockType_v_exnref    = &FunctionType{Results: []ValueType{ValueTypeExnref}, ResultNumInUint64: 1}
 )
 
 // SplitCallStack returns the input stack resliced to the count of params and

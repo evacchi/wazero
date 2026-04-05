@@ -578,6 +578,8 @@ func (c *callEngine) callWithStack(ctx context.Context, paramResultStack []uint6
 			// Throw trampoline: (execCtx, exnref) → ().
 			// Reads the exnref from the stack, searches for a matching handler.
 			s := goCallStackView(c.execCtx.stackPointerBeforeGoCall)
+			// Read the Exception pointer directly from the uint64 value to avoid
+			// conversion from uintptr into unsafe.Pointer, which triggers checkptr.
 			exn := *(**wasm.Exception)(unsafe.Pointer(&s[0]))
 			if !c.doHandleException(exn) {
 				panic(wasmruntime.ErrRuntimeUncaughtException)
