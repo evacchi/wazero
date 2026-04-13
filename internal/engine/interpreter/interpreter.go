@@ -173,8 +173,22 @@ type thrownException struct {
 }
 
 func (t *thrownException) canRestore(ce *callEngine) restorable {
+	return t.canRestoreAtLevel(ce, 0)
+}
+
+// canRestoreAtLevel searches for a matching catch handler, considering only
+// handlers whose savedFrames length is >= minFrameCount. This prevents a
+// callWithUnwind in a callee from catching an exception destined for a handler
+// set up in an outer (grandparent) callNativeFunc invocation: those handlers
+// have savedFrames with fewer entries than the current call depth.
+func (t *thrownException) canRestoreAtLevel(ce *callEngine, minFrameCount int) restorable {
 	for i := len(ce.tryHandlers) - 1; i >= 0; i-- {
 		h := &ce.tryHandlers[i]
+		// Handlers from outer callNativeFunc invocations have savedFrames shorter
+		// than the current depth. Stop searching — they belong to outer levels.
+		if len(h.savedFrames) < minFrameCount {
+			return nil
+		}
 		for j := 0; j < h.catchCount; j++ {
 			kind := byte(h.clauses[j*4])
 			clauseTagIndex := uint32(h.clauses[j*4+1])
@@ -336,11 +350,29 @@ func (ce *callEngine) callWithUnwind(ctx context.Context, m *wasm.ModuleInstance
 		ce.callFunction(ctx, m, tf)
 		return false
 	}
+	// callerFrameCount is the number of frames before tf's frame is pushed.
+	// try_table handlers set up at this level have len(savedFrames) == callerFrameCount.
+	// Handlers with len(savedFrames) < callerFrameCount belong to outer callNativeFunc
+	// invocations and must not be caught here — they must propagate up via re-panic.
+	callerFrameCount := len(ce.frames)
 	caught := false
 	func() {
 		defer func() {
 			if r := recover(); r != nil {
 				if v, ok := r.(restorable); ok {
+					if te, ok := r.(*thrownException); ok {
+						// For wasm exceptions, only handle handlers at the current frame
+						// level or deeper. Handlers from outer callNativeFunc invocations
+						// (savedFrames length < callerFrameCount) must propagate upward.
+						if res := te.canRestoreAtLevel(ce, callerFrameCount); res != nil {
+							res.doRestore()
+							caught = true
+							return
+						}
+						// No local handler found; re-panic to outer callWithUnwind.
+						panic(r)
+					}
+					// Non-exception restorables (e.g. snapshots) use the original path.
 					if res := v.canRestore(ce); res != nil {
 						res.doRestore()
 						caught = true
