@@ -22,6 +22,9 @@ import (
 	"github.com/tetratelabs/wazero/internal/wasmruntime"
 )
 
+// debugEH enables EH tracing — set to true temporarily to diagnose issues.
+const debugEH = true
+
 // callStackCeiling is the maximum WebAssembly call frame stack height. This allows wazero to raise
 // wasm.ErrCallStackOverflow instead of overflowing the Go runtime.
 //
@@ -228,7 +231,12 @@ func (t *thrownException) doRestore() {
 	// Restore frames to the handler's snapshot level (remove callee frames that panicked).
 	ce.frames = ce.frames[:len(t.savedFrames)]
 	// Set the PC on the handler's frame to the catch target.
-	ce.frames[len(ce.frames)-1].pc = t.targetPC
+	handlerFrame := ce.frames[len(ce.frames)-1]
+	handlerFrame.pc = t.targetPC
+	if debugEH {
+		fmt.Printf("[EH doRestore] frames=%d handlerFn=%d targetPC=%d stackLen=%d\n",
+			len(ce.frames), handlerFrame.f.parent.index, t.targetPC, len(ce.stack))
+	}
 }
 
 // callEngine holds context per moduleEngine.Call, and shared across all the
@@ -257,6 +265,10 @@ type callEngine struct {
 
 func (ce *callEngine) pushTryHandler(h tryHandler) {
 	ce.tryHandlers = append(ce.tryHandlers, h)
+	if debugEH {
+		fmt.Printf("[EH push] handlers=%d savedFrames=%d savedStackLen=%d\n",
+			len(ce.tryHandlers), len(h.savedFrames), h.savedStackLen)
+	}
 }
 
 func (ce *callEngine) popTryHandler() {
@@ -1020,6 +1032,10 @@ func (ce *callEngine) callNativeFunc(ctx context.Context, m *wasm.ModuleInstance
 				frame = ce.frames[len(ce.frames)-1]
 				body = frame.f.parent.body
 				bodyLen = uint64(len(body))
+				if debugEH {
+					fmt.Printf("[EH callWithUnwind/call caught] callerFn=%d resumeFn=%d resumePC=%d\n",
+						f.parent.index, frame.f.parent.index, frame.pc)
+				}
 				continue
 			}
 			frame.pc++
@@ -1033,6 +1049,10 @@ func (ce *callEngine) callNativeFunc(ctx context.Context, m *wasm.ModuleInstance
 				frame = ce.frames[len(ce.frames)-1]
 				body = frame.f.parent.body
 				bodyLen = uint64(len(body))
+				if debugEH {
+					fmt.Printf("[EH callWithUnwind/indirect caught] callerFn=%d resumeFn=%d resumePC=%d\n",
+						f.parent.index, frame.f.parent.index, frame.pc)
+				}
 				continue
 			}
 			frame.pc++
