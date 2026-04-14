@@ -23,7 +23,6 @@ import (
 	"context"
 	_ "embed"
 	"testing"
-	"time"
 
 	"github.com/tetratelabs/wazero"
 	"github.com/tetratelabs/wazero/api"
@@ -182,37 +181,4 @@ func testBrExitsTryTable(t *testing.T, cfg wazero.RuntimeConfig) {
 	res, err := mod.ExportedFunction("test").Call(ctx)
 	require.NoError(t, err)
 	require.Equal(t, int32(1), api.DecodeI32(res[0]))
-}
-
-// testEHContextCancelStuckLoop verifies that context cancellation correctly
-// terminates a wasm function stuck in an infinite loop protected by a
-// try_table handler (the scenario exercised by go-pdfium's Kill test).
-func testEHContextCancelStuckLoop(t *testing.T, cfg wazero.RuntimeConfig) {
-	cfg = cfg.WithCloseOnContextDone(true)
-	ctx := context.Background()
-	r := wazero.NewRuntimeWithConfig(ctx, cfg)
-	defer r.Close(ctx)
-
-	// Build a minimal stuck-loop module with EH.
-	// (In real usage this is pdfium.wasm; here we use the cross-frame test module
-	// which is already loaded — the point is EH + context cancel interact correctly.)
-	mod, err := r.InstantiateWithConfig(ctx, ehCrossCallnativeWasm,
-		wazero.NewModuleConfig().WithStartFunctions())
-	require.NoError(t, err)
-
-	callCtx, cancel := context.WithTimeout(ctx, 200*time.Millisecond)
-	defer cancel()
-
-	done := make(chan error, 1)
-	go func() {
-		_, err := mod.ExportedFunction("test_cross_frame_catch").Call(callCtx)
-		done <- err
-	}()
-
-	select {
-	case <-done:
-		// Returned promptly (function completes in well under 200ms).
-	case <-time.After(2 * time.Second):
-		t.Fatal("wasm execution did not terminate within 2s")
-	}
 }
