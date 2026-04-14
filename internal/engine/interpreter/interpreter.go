@@ -4639,7 +4639,7 @@ func (ce *callEngine) callNativeFunc(ctx context.Context, m *wasm.ModuleInstance
 		case operationKindThrowRef:
 			v := ce.popValue()
 			if v == 0 {
-				panic(wasmruntime.ErrRuntimeUnreachable) // null exnref traps
+				panic(wasmruntime.ErrRuntimeNullReference) // throw_ref on null exnref traps
 			}
 			// Read the Exception pointer directly from the uint64 value to avoid
 			// conversion from uintptr into unsafe.Pointer, which triggers checkptr.
