@@ -791,7 +791,10 @@ operatorSwitch:
 		targetLabels := make([]uint64, 2+s) // (label, inclusiveRange) * (default+numTargets)
 		// pendingPops holds (intermediateLabel, actualLabel, numPops) for targets that
 		// cross try_table blocks. We emit the intermediate trampolines after the br_table.
-		type pendingPop struct{ interLabel, actualLabel label; numPops int }
+		type pendingPop struct {
+			interLabel, actualLabel label
+			numPops                 int
+		}
 		var pendingPops []pendingPop
 		for i := uint32(0); i < s; i += 2 {
 			l, n, err := leb128.DecodeUint32(r)

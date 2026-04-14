@@ -25,7 +25,7 @@ const (
 	ValueTypeV128      ValueType = 0x7b // same as wasm.ValueTypeV128
 	ValueTypeFuncref   ValueType = 0x70 // same as wasm.ValueTypeFuncref
 	ValueTypeExternref           = api.ValueTypeExternref
-	ValueTypeExnref   ValueType = 0x69 // same as wasm.ValueTypeExnref
+	ValueTypeExnref    ValueType = 0x69 // same as wasm.ValueTypeExnref
 
 	// ValueTypeMemI32 is a non-standard type which writes ValueTypeI32 from the memory offset.
 	ValueTypeMemI32 = 0xfd

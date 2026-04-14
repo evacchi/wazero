@@ -38,6 +38,12 @@ var ehCrossCallnativeWasm []byte
 //go:embed testdata/eh_pdfium.wasm
 var ehPdfiumWasm []byte
 
+//go:embed testdata/eh_throw_ref_null.wasm
+var ehThrowRefNullWasm []byte
+
+//go:embed testdata/eh_br_orphan.wasm
+var ehBrOrphanWasm []byte
+
 // TestExceptionHandlingInterpreter runs EH tests only for the interpreter.
 func TestExceptionHandlingInterpreter(t *testing.T) {
 	cfg := wazero.NewRuntimeConfigInterpreter().
@@ -64,6 +70,12 @@ func runEHTests(t *testing.T, cfg wazero.RuntimeConfig) {
 	})
 	t.Run("eh_with_context_cancel", func(t *testing.T) {
 		testEHWithContextCancel(t, cfg)
+	})
+	t.Run("throw_ref_null", func(t *testing.T) {
+		testThrowRefNull(t, cfg)
+	})
+	t.Run("br_exits_try_table", func(t *testing.T) {
+		testBrExitsTryTable(t, cfg)
 	})
 }
 
@@ -133,6 +145,43 @@ func testEHWithContextCancel(t *testing.T, cfg wazero.RuntimeConfig) {
 	require.NoError(t, err)
 	require.Equal(t, int32(1), api.DecodeI32(res[0]))
 	_ = mod
+}
+
+// testThrowRefNull verifies that throw_ref on a null exnref traps with
+// "null reference" (not "unreachable"). This was a bug where the interpreter
+// used ErrRuntimeUnreachable instead of ErrRuntimeNullReference.
+func testThrowRefNull(t *testing.T, cfg wazero.RuntimeConfig) {
+	ctx := context.Background()
+	r := wazero.NewRuntimeWithConfig(ctx, cfg)
+	defer r.Close(ctx)
+
+	mod, err := r.InstantiateWithConfig(ctx, ehThrowRefNullWasm,
+		wazero.NewModuleConfig().WithStartFunctions())
+	require.NoError(t, err)
+
+	// Call with null exnref (0) — should trap as "null reference".
+	_, err = mod.ExportedFunction("throw_ref_null").Call(ctx, 0)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "null reference")
+}
+
+// testBrExitsTryTable verifies that br/br_if that exits a try_table block
+// correctly pops the try handler. Without the fix, orphaned handlers would
+// cause a popTryHandler underflow panic ("slice bounds out of range [:-1]").
+func testBrExitsTryTable(t *testing.T, cfg wazero.RuntimeConfig) {
+	ctx := context.Background()
+	r := wazero.NewRuntimeWithConfig(ctx, cfg)
+	defer r.Close(ctx)
+
+	mod, err := r.InstantiateWithConfig(ctx, ehBrOrphanWasm,
+		wazero.NewModuleConfig().WithStartFunctions())
+	require.NoError(t, err)
+
+	// The function calls loop_with_try (which exits try_table via br_if),
+	// then catches a throw in its own try_table. Should return 1.
+	res, err := mod.ExportedFunction("test").Call(ctx)
+	require.NoError(t, err)
+	require.Equal(t, int32(1), api.DecodeI32(res[0]))
 }
 
 // testEHContextCancelStuckLoop verifies that context cancellation correctly
