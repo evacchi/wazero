@@ -124,6 +124,9 @@ pub fn run_nodiff(
     // Enable threads, which is disabled by default.
     config.threads_enabled = true;
 
+    // Enable exception handling, which is disabled by default.
+    config.exceptions_enabled = true;
+
     if check_logging {
         config.reference_types_enabled = false;
     } else {
