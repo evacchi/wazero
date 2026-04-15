@@ -48,26 +48,9 @@ func RequireNoDiffT(t *testing.T, wasmBin []byte, checkMemory, loggingCheck bool
 	RequireNoDiff(wasmBin, checkMemory, loggingCheck, func(err error) { require.NoError(t, err) })
 }
 
-// isTODOPanic returns true if the recovered value is a "TODO:" panic from an
-// unimplemented feature in wazero (e.g. "TODO: exnref"). These are not bugs —
-// just features not yet fully wired up — so the fuzzer should skip them.
-func isTODOPanic(r interface{}) bool {
-	s, ok := r.(string)
-	return ok && strings.HasPrefix(s, "TODO:")
-}
-
 // RequireNoDiff ensures that the behavior is the same between the compiler and the interpreter for any given binary.
 func RequireNoDiff(wasmBin []byte, checkMemory, loggingCheck bool, requireNoError func(err error)) {
-	// Recover from any "TODO:" panics from unimplemented features and skip.
-	defer func() {
-		if r := recover(); r != nil {
-			if isTODOPanic(r) {
-				return // skip — not a real diff
-			}
-			panic(r) // re-panic for real bugs
-		}
-	}()
-	const features = api.CoreFeaturesV2 | experimental.CoreFeaturesThreads | experimental.CoreFeaturesTailCall | experimental.CoreFeaturesExtendedConst | experimental.CoreFeaturesExceptionHandling
+	const features = api.CoreFeaturesV2 | experimental.CoreFeaturesThreads | experimental.CoreFeaturesTailCall | experimental.CoreFeaturesExtendedConst
 	compiler := wazero.NewRuntimeWithConfig(context.Background(), wazero.NewRuntimeConfigCompiler().WithCoreFeatures(features))
 	interpreter := wazero.NewRuntimeWithConfig(context.Background(), wazero.NewRuntimeConfigInterpreter().WithCoreFeatures(features))
 	defer compiler.Close(context.Background())
@@ -89,21 +72,15 @@ func RequireNoDiff(wasmBin []byte, checkMemory, loggingCheck bool, requireNoErro
 		}()
 	}
 
-	compilerCompiled, compilerCompileErr := compiler.CompileModule(compilerCtx, wasmBin)
-	if compilerCompileErr != nil && strings.Contains(compilerCompileErr.Error(), "has an empty module name") {
+	compilerCompiled, err := compiler.CompileModule(compilerCtx, wasmBin)
+	if err != nil && strings.Contains(err.Error(), "has an empty module name") {
 		// This is the limitation wazero imposes to allow special-casing of anonymous modules.
 		return
 	}
+	requireNoError(err)
 
-	interpreterCompiled, interpreterCompileErr := interpreter.CompileModule(interpreterCtx, wasmBin)
-
-	// If both engines fail to compile, the module is invalid or uses unsupported features — not a diff.
-	if compilerCompileErr != nil && interpreterCompileErr != nil {
-		return
-	}
-	// If only one engine fails to compile, that's a real discrepancy.
-	requireNoError(compilerCompileErr)
-	requireNoError(interpreterCompileErr)
+	interpreterCompiled, err := interpreter.CompileModule(interpreterCtx, wasmBin)
+	requireNoError(err)
 
 	internalMod, err := extractInternalWasmModuleFromCompiledModule(compilerCompiled)
 	requireNoError(err)
@@ -240,8 +217,6 @@ func ensureDummyImports(r wazero.Runtime, origin *wasm.Module, requireNoError fu
 						body.Write([]byte{wasm.OpcodeRefNull, wasm.RefTypeExternref})
 					case wasm.ValueTypeFuncref:
 						body.Write([]byte{wasm.OpcodeRefNull, wasm.RefTypeFuncref})
-					case wasm.ValueTypeExnref:
-						body.Write([]byte{wasm.OpcodeRefNull, wasm.ValueTypeExnref})
 					}
 				}
 				body.WriteByte(wasm.OpcodeEnd)
@@ -272,9 +247,6 @@ func ensureDummyImports(r wazero.Runtime, origin *wasm.Module, requireNoError fu
 				case wasm.ValueTypeFuncref:
 					opcode = wasm.OpcodeRefNull
 					data = []byte{wasm.RefTypeFuncref}
-				case wasm.ValueTypeExnref:
-					opcode = wasm.OpcodeRefNull
-					data = []byte{wasm.ValueTypeExnref}
 				}
 				m.GlobalSection = append(m.GlobalSection, wasm.Global{
 					Type: imp.DescGlobal, Init: wasm.NewConstantExpressionFromOpcode(opcode, data),
@@ -285,23 +257,11 @@ func ensureDummyImports(r wazero.Runtime, origin *wasm.Module, requireNoError fu
 			case wasm.ExternTypeTable:
 				index = uint32(len(m.TableSection))
 				m.TableSection = append(m.TableSection, imp.DescTable)
-			case wasm.ExternTypeTag:
-				// Add a dummy tag with the same type as the import.
-				typeIdx := uint32(len(m.TypeSection))
-				m.TypeSection = append(m.TypeSection, origin.TypeSection[imp.DescTag])
-				index = uint32(len(m.TagSection))
-				m.TagSection = append(m.TagSection, wasm.Tag{Type: typeIdx})
 			}
 			m.ExportSection = append(m.ExportSection, wasm.Export{Type: imp.Type, Name: imp.Name, Index: index})
 		}
 		_, err := r.Instantiate(context.Background(), binaryencoding.EncodeModule(m))
-		if err != nil {
-			// If we can't instantiate the dummy provider (e.g. because the module
-			// uses types not yet supported in const expressions like exnref), skip
-			// the entire case rather than reporting a false positive failure.
-			skip = true
-			return
-		}
+		requireNoError(err)
 	}
 	return
 }

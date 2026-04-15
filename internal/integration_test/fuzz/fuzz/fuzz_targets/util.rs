@@ -109,8 +109,7 @@ pub fn run_nodiff(
     config.table_max_size_required = true;
 
     // max_instructions is set to 100 by default which seems a little bit smaller.
-    // Keep it modest to avoid OOM when EH-heavy modules have deep exception stacks.
-    config.max_instructions = 1000;
+    config.max_instructions = 5000;
 
     // Without canonicalization of NaNs, the results cannot be matched among engines.
     config.canonicalize_nans = true;
@@ -124,9 +123,6 @@ pub fn run_nodiff(
 
     // Enable threads, which is disabled by default.
     config.threads_enabled = true;
-
-    // Enable exception handling, which is disabled by default.
-    config.exceptions_enabled = true;
 
     if check_logging {
         config.reference_types_enabled = false;

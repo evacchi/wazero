@@ -1085,11 +1085,3 @@ func Test2260(t *testing.T) {
 	nodiff.RequireNoDiffT(t, getWasmBinary(t, "2260"), false, false)
 }
 
-// TestEHThrowRefNull is a regression test from the EH fuzzer: throw_ref on a null
-// exnref must trap as "null reference" in both interpreter and compiler.
-func TestEHThrowRefNull(t *testing.T) {
-	if !platform.CompilerSupported() {
-		return
-	}
-	nodiff.RequireNoDiffT(t, getWasmBinary(t, "fuzz_eh_throw_ref_null"), false, false)
-}
