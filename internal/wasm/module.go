@@ -572,6 +572,9 @@ func (m *Module) validateImports(enabledFeatures api.CoreFeatures) error {
 			if int(imp.DescTag) >= len(m.TypeSection) {
 				return fmt.Errorf("invalid import[%q.%q] tag: type index out of range", imp.Module, imp.Name)
 			}
+			if len(m.TypeSection[imp.DescTag].Results) > 0 {
+				return fmt.Errorf("invalid import[%q.%q] tag: tag types must have no results", imp.Module, imp.Name)
+			}
 		}
 	}
 	return nil

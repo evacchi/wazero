@@ -3594,16 +3594,15 @@ func (c *Compiler) lowerCurrentOpcode() {
 				// Resolve the wasm target label.
 				targetBlk, _ := state.brTargetArgNumFor(cc.labelIdx)
 
-				tagType := c.resolveTagType(cc.tagIndex)
 				// Load exception params and jump to wasm target.
 				var brArgs []ssa.Value
 				switch cc.kind {
 				case wasm.CatchKindCatch:
-					if tagType != nil {
+					if tagType := c.resolveTagType(cc.tagIndex); tagType != nil {
 						brArgs = c.loadExceptionParams(tagType)
 					}
 				case wasm.CatchKindCatchRef:
-					if tagType != nil {
+					if tagType := c.resolveTagType(cc.tagIndex); tagType != nil {
 						brArgs = c.loadExceptionParams(tagType)
 					}
 					brArgs = append(brArgs, c.loadExnRef())

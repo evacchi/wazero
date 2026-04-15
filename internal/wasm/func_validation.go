@@ -549,10 +549,10 @@ func (m *Module) validateFunctionWithMaxStackValues(
 				return fmt.Errorf("read immediate: %v", err)
 			}
 			pc += num - 1
-			tagType := m.typeOfTag(tagIndex)
-			if tagType == nil {
+			if tagIndex >= uint32(len(tags)) {
 				return fmt.Errorf("invalid tag index for %s: %d", OpcodeThrowName, tagIndex)
 			}
+			tagType := &m.TypeSection[tags[tagIndex]]
 			// Pop values matching the tag's params in reverse order.
 			for i := len(tagType.Params) - 1; i >= 0; i-- {
 				if err := valueTypeStack.popAndVerifyType(tagType.Params[i]); err != nil {
@@ -600,10 +600,10 @@ func (m *Module) validateFunctionWithMaxStackValues(
 						return fmt.Errorf("read catch tag index: %v", err)
 					}
 					pc += tagNum - 1
-					tagType := m.typeOfTag(tagIdx)
-					if tagType == nil {
+					if tagIdx >= uint32(len(tags)) {
 						return fmt.Errorf("invalid tag index in catch clause: %d", tagIdx)
 					}
+					tagType := &m.TypeSection[tags[tagIdx]]
 					pc++
 					labelIdx, labelNum, err := leb128.LoadUint32(body[pc:])
 					if err != nil {

@@ -516,7 +516,8 @@ func (m *ModuleInstance) resolveImports(ctx context.Context, module *Module) (er
 				expected := &module.TypeSection[i.DescTag]
 				importedTag := importedModule.Tags[imported.Index]
 				if !importedTag.Type.EqualsType(expected) {
-					err = errorInvalidImport(i, fmt.Errorf("tag type mismatch"))
+					err = errorInvalidImport(i, fmt.Errorf("tag type mismatch: %s != %s",
+						expected, importedTag.Type))
 					return
 				}
 				m.Tags[i.IndexPerType] = importedTag

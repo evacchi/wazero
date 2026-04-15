@@ -137,8 +137,10 @@ func GoFunctionIndexFromExitCode(exitCode ExitCode) int {
 	return int(exitCode >> 8)
 }
 
+// TryTableIDFromExitCode extracts the try-table ID from an ExitCodeTryTableEnter
+// exit code. Uses the same encoding as GoFunctionIndexFromExitCode (upper 24 bits).
 func TryTableIDFromExitCode(exitCode ExitCode) int {
-	return int(exitCode >> 8)
+	return GoFunctionIndexFromExitCode(exitCode)
 }
 
 // CatchClauseInstance is a runtime catch clause with resolved tag index.

@@ -43,6 +43,10 @@ func decodeImport(
 	case wasm.ExternTypeGlobal:
 		ret.DescGlobal, err = decodeGlobalType(r)
 	case wasm.ExternTypeTag:
+		if err = enabledFeatures.RequireEnabled(api.CoreFeatureSIMD << 4); err != nil { // CoreFeaturesExceptionHandling
+			err = fmt.Errorf("tag imports require exception handling feature: %w", err)
+			break
+		}
 		// Tag import: read attribute byte (must be 0x00) then type index.
 		var attr byte
 		attr, err = r.ReadByte()

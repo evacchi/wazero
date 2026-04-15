@@ -113,15 +113,15 @@ type (
 		memoryWait64TrampolineAddress *byte
 		// memoryNotifyTrampolineAddress holds the address of the memory_notify trampoline function.
 		memoryNotifyTrampolineAddress *byte
+		// throwAllocTrampolineAddress holds the address of the throw-alloc trampoline:
+		// phase 1 of throw, which allocates the Exception heap object.
+		throwAllocTrampolineAddress *byte
 		// throwTrampolineAddress holds the address of the throw/throw_ref trampoline function.
 		throwTrampolineAddress *byte
 		// tryTableEnterTrampolineAddress holds the address of the try_table enter trampoline function.
 		tryTableEnterTrampolineAddress *byte
 		// tryTableLeaveTrampolineAddress holds the address of the try_table leave trampoline function.
 		tryTableLeaveTrampolineAddress *byte
-		// throwAllocTrampolineAddress holds the address of the throw-alloc trampoline:
-		// phase 1 of throw, which allocates the Exception heap object.
-		throwAllocTrampolineAddress *byte
 		// exceptionPtr holds the pointer to the Exception struct,
 		// used on the throw side (throwAlloc stores the new Exception)
 		// and on the catch side (catch_ref/catch_all_ref retrieve the exnref).

@@ -53,13 +53,13 @@ const (
 	ExecutionContextOffsetMemoryWait32TrampolineAddress  Offset = 1160
 	ExecutionContextOffsetMemoryWait64TrampolineAddress  Offset = 1168
 	ExecutionContextOffsetMemoryNotifyTrampolineAddress  Offset = 1176
-	ExecutionContextOffsetThrowTrampolineAddress         Offset = 1184
-	ExecutionContextOffsetTryTableEnterTrampolineAddress Offset = 1192
-	ExecutionContextOffsetTryTableLeaveTrampolineAddress Offset = 1200
 	// ExecutionContextOffsetThrowAllocTrampolineAddress is the address of the
 	// throw-alloc trampoline, which allocates the Exception heap object,
 	// sets exceptionParamsPtr, and returns the exnref.
-	ExecutionContextOffsetThrowAllocTrampolineAddress Offset = 1208
+	ExecutionContextOffsetThrowAllocTrampolineAddress    Offset = 1184
+	ExecutionContextOffsetThrowTrampolineAddress         Offset = 1192
+	ExecutionContextOffsetTryTableEnterTrampolineAddress Offset = 1200
+	ExecutionContextOffsetTryTableLeaveTrampolineAddress Offset = 1208
 	// ExecutionContextOffsetExceptionPtr holds the pointer to the Exception struct,
 	// used on the throw side and by catch_ref/catch_all_ref handlers.
 	ExecutionContextOffsetExceptionPtr Offset = 1216
