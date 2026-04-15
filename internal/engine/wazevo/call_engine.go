@@ -263,9 +263,6 @@ func (c *callEngine) callWithStack(ctx context.Context, paramResultStack []uint6
 		}
 	}
 
-	// Clear any stale try_table handlers from a previous call.
-	c.tryHandlers = c.tryHandlers[:0]
-
 	var paramResultPtr *uint64
 	if len(paramResultStack) > 0 {
 		paramResultPtr = &paramResultStack[0]
@@ -319,7 +316,6 @@ func (c *callEngine) callWithStack(ctx context.Context, paramResultStack []uint6
 		if err != nil {
 			// Ensures that we can reuse this callEngine even after an error.
 			c.execCtx.exitCode = wazevoapi.ExitCodeOK
-			c.tryHandlers = c.tryHandlers[:0]
 		}
 	}()
 

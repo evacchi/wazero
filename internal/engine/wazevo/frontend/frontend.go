@@ -4,6 +4,7 @@ package frontend
 import (
 	"bytes"
 	"math"
+	"sync"
 
 	"github.com/tetratelabs/wazero/internal/engine/wazevo/ssa"
 	"github.com/tetratelabs/wazero/internal/engine/wazevo/wazevoapi"
@@ -74,7 +75,10 @@ type Compiler struct {
 	// tryTableLeaveSig is the signature for the try_table leave trampoline.
 	tryTableLeaveSig ssa.Signature
 	// catchClauseTable accumulates catch clause info for each try_table during compilation.
-	catchClauseTable [][]wazevoapi.CatchClauseInstance
+	// When sharedCatchClauseTable is set (parallel compilation), it is used instead
+	// for thread-safe ID assignment.
+	catchClauseTable       [][]wazevoapi.CatchClauseInstance
+	sharedCatchClauseTable *SharedCatchClauseTable
 
 	// Following are reused for the known safe bounds analysis.
 
@@ -113,6 +117,55 @@ func NewFrontendCompiler(m *wasm.Module, ssaBuilder ssa.Builder, offset *wazevoa
 	}
 	c.declareSignatures(listenerOn)
 	return c
+}
+
+// SharedCatchClauseTable is a thread-safe catch clause table shared across
+// multiple frontend compilers during parallel compilation.
+type SharedCatchClauseTable struct {
+	mu    sync.Mutex
+	table [][]wazevoapi.CatchClauseInstance
+}
+
+// NewSharedCatchClauseTable creates a new SharedCatchClauseTable.
+func NewSharedCatchClauseTable() *SharedCatchClauseTable {
+	return &SharedCatchClauseTable{}
+}
+
+// Append adds a catch clause entry and returns the assigned try-table ID.
+func (s *SharedCatchClauseTable) Append(clauses []wazevoapi.CatchClauseInstance) int {
+	s.mu.Lock()
+	id := len(s.table)
+	s.table = append(s.table, clauses)
+	s.mu.Unlock()
+	return id
+}
+
+// Table returns the accumulated catch clause table.
+func (s *SharedCatchClauseTable) Table() [][]wazevoapi.CatchClauseInstance {
+	return s.table
+}
+
+// SetSharedCatchClauseTable sets a shared table for parallel compilation.
+func (c *Compiler) SetSharedCatchClauseTable(t *SharedCatchClauseTable) {
+	c.sharedCatchClauseTable = t
+}
+
+// appendCatchClauseTable adds catch clauses and returns the try-table ID.
+func (c *Compiler) appendCatchClauseTable(clauses []wazevoapi.CatchClauseInstance) int {
+	if s := c.sharedCatchClauseTable; s != nil {
+		return s.Append(clauses)
+	}
+	id := len(c.catchClauseTable)
+	c.catchClauseTable = append(c.catchClauseTable, clauses)
+	return id
+}
+
+// CatchClauseTable returns the catch clause table accumulated during compilation.
+func (c *Compiler) CatchClauseTable() [][]wazevoapi.CatchClauseInstance {
+	if s := c.sharedCatchClauseTable; s != nil {
+		return s.Table()
+	}
+	return c.catchClauseTable
 }
 
 func (c *Compiler) declareSignatures(listenerOn bool) {
@@ -276,12 +329,8 @@ func (c *Compiler) Init(idx, typIndex wasm.Index, typ *wasm.FunctionType, localT
 // Note: this assumes 64-bit platform (I believe we won't have 32-bit backend ;)).
 const executionContextPtrTyp, moduleContextPtrTyp = ssa.TypeI64, ssa.TypeI64
 
-// LowerToSSA lowers the current function to SSA function which will be held by ssaBuilder.
-// CatchClauseTable returns the catch clause table accumulated during compilation.
-func (c *Compiler) CatchClauseTable() [][]wazevoapi.CatchClauseInstance {
-	return c.catchClauseTable
-}
-
+// LowerToSSA lowers the current function to SSA IR which will be held by ssaBuilder.
+//
 // After calling this, the caller will be able to access the SSA info in *Compiler.ssaBuilder.
 //
 // Note that this only does the naive lowering, and do not do any optimization, instead the caller is expected to do so.

@@ -300,6 +300,10 @@ func (e *engine) compileModule(ctx context.Context, module *wasm.Module, listene
 		ctx, cancel := context.WithCancelCause(ctx)
 		defer cancel(nil)
 
+		// Catch clause table IDs are baked into compiled machine code, so all
+		// workers must share a single table to ensure globally unique IDs.
+		sharedCCT := frontend.NewSharedCatchClauseTable()
+
 		var count atomic.Uint32
 		var wg sync.WaitGroup
 		wg.Add(workers)
@@ -313,6 +317,7 @@ func (e *engine) compileModule(ctx context.Context, module *wasm.Module, listene
 				ssaBuilder := ssa.NewBuilder()
 				be := backend.NewCompiler(ctx, machine, ssaBuilder)
 				fe := frontend.NewFrontendCompiler(module, ssaBuilder, &cm.offsets, ensureTermination, withListener, needSourceInfo)
+				fe.SetSharedCatchClauseTable(sharedCCT)
 
 				for {
 					if err := ctx.Err(); err != nil {
@@ -359,6 +364,7 @@ func (e *engine) compileModule(ctx context.Context, module *wasm.Module, listene
 			fn := &compiledFuncs[i]
 			relocator.appendFunction(fn.fctx, module, cm, fn.fnum, fn.fidx, fn.body, fn.relsPerFunc, fn.offsPerFunc)
 		}
+		cm.catchClauseTable = sharedCCT.Table()
 	}
 
 	// Allocate executable memory and then copy the generated machine code.
