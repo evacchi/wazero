@@ -34,10 +34,7 @@ type (
 		// except that it holds the number of values on the stack in uint64.
 		originalStackLenWithoutParamUint64 int
 		blockType                          *wasm.FunctionType
-		kind                               controlFrameKind
-		// exceptionTableIdx is the index into compiler.pendingExceptionTable
-		// for try_table control frames. Used at End to record endPC.
-		exceptionTableIdx int
+		kind controlFrameKind
 	}
 	controlFrames struct{ frames []controlFrame }
 )
@@ -61,9 +58,8 @@ func (c *controlFrame) asLabel() label {
 	case controlFrameKindFunction:
 		return newLabel(labelKindReturn, 0)
 	case controlFrameKindIfWithElse,
-		controlFrameKindIfWithoutElse:
-		return newLabel(labelKindContinuation, c.frameID)
-	case controlFrameKindTryTable:
+		controlFrameKindIfWithoutElse,
+		controlFrameKindTryTable:
 		return newLabel(labelKindContinuation, c.frameID)
 	}
 	panic(fmt.Sprintf("unreachable: a bug in interpreterir implementation: %v", c.kind))
@@ -680,7 +676,8 @@ operatorSwitch:
 			// Initiate the continuation.
 			c.emit(newOperationLabel(continuationLabel))
 		case controlFrameKindBlockWithContinuationLabel,
-			controlFrameKindIfWithElse:
+			controlFrameKindIfWithElse,
+			controlFrameKindTryTable:
 			continuationLabel := newLabel(labelKindContinuation, frame.frameID)
 			c.result.LabelCallers[continuationLabel]++
 			c.emit(dropOp)
@@ -690,14 +687,6 @@ operatorSwitch:
 			c.emit(
 				dropOp,
 			)
-		case controlFrameKindTryTable:
-			// try_table block end: emit drop and jump to continuation.
-			// No runtime handler pop needed — the static exception table uses PC ranges.
-			continuationLabel := newLabel(labelKindContinuation, frame.frameID)
-			c.result.LabelCallers[continuationLabel]++
-			c.emit(dropOp)
-			c.emit(newOperationBr(continuationLabel))
-			c.emit(newOperationLabel(continuationLabel))
 		default:
 			// Should never happen. If so, there's a bug in the translation.
 			panic(fmt.Errorf("bug: invalid control frame Kind: 0x%x", frame.kind))
@@ -854,7 +843,10 @@ operatorSwitch:
 			c.unreachableState.depth++
 			// Still need to skip the catch clause bytes.
 			c.pc++
-			catchCount, catchNum, _ := leb128.LoadUint32(c.body[c.pc:])
+			catchCount, catchNum, err := leb128.LoadUint32(c.body[c.pc:])
+			if err != nil {
+				return fmt.Errorf("reading catch count for try_table: %w", err)
+			}
 			c.pc += catchNum - 1
 			// Parse and skip each catch clause.
 			// Encoding per spec: catch/catch_ref have (kind + tagIndex + labelIndex),
@@ -868,14 +860,14 @@ operatorSwitch:
 					c.pc++
 					_, n, err := leb128.LoadUint32(c.body[c.pc:])
 					if err != nil {
-						return fmt.Errorf("read catch tag index: %w", err)
+						return fmt.Errorf("reading catch tag index: %w", err)
 					}
 					c.pc += n - 1
 					// Skip label index (LEB128).
 					c.pc++
 					_, n, err = leb128.LoadUint32(c.body[c.pc:])
 					if err != nil {
-						return fmt.Errorf("read catch label index: %w", err)
+						return fmt.Errorf("reading catch label index: %w", err)
 					}
 					c.pc += n - 1
 				case wasm.CatchKindCatchAll, wasm.CatchKindCatchAllRef:
@@ -883,7 +875,7 @@ operatorSwitch:
 					c.pc++
 					_, n, err := leb128.LoadUint32(c.body[c.pc:])
 					if err != nil {
-						return fmt.Errorf("read catch_all label index: %w", err)
+						return fmt.Errorf("reading catch_all label index: %w", err)
 					}
 					c.pc += n - 1
 				}
@@ -939,7 +931,6 @@ operatorSwitch:
 
 		// Create a control frame for the try_table block.
 		frameID := c.nextFrameID()
-		entryIdx := len(c.result.PendingExceptionTable)
 		c.result.PendingExceptionTable = append(c.result.PendingExceptionTable, pendingExceptionTableEntry{
 			startOpIndex:        len(c.result.Operations),
 			continuationFrameID: frameID,
@@ -949,9 +940,8 @@ operatorSwitch:
 			frameID:                            frameID,
 			originalStackLenWithoutParam:       len(c.stack) - len(bt.Params),
 			originalStackLenWithoutParamUint64: c.stackLenInUint64 - bt.ParamNumInUint64,
-			kind:                               controlFrameKindTryTable,
-			blockType:                          bt,
-			exceptionTableIdx:                  entryIdx,
+			kind:      controlFrameKindTryTable,
+			blockType: bt,
 		}
 		c.controlFrames.push(frame)
 	case wasm.OpcodeCall:

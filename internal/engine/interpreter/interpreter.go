@@ -134,7 +134,10 @@ func (e *moduleEngine) MemoryGrown() {}
 // Both *snapshot (snapshotter API) and *thrownException (exception handling)
 // implement this interface.
 type restorable interface {
-	// canRestore checks whether this panic value can restore the given callEngine to the given stack frame depth.
+	// canRestore unwinds ce.frames to callerFrameCount and checks whether a
+	// handler exists at that depth. The frame truncation is intentional:
+	// if no handler is found, the caller re-panics, and the next outer
+	// callWithUnwind will truncate further.
 	canRestore(ce *callEngine, callerFrameCount int) bool
 	// doRestore restores the callEngine state to the given stack frame depth.
 	doRestore(ce *callEngine, callerFrameCount int)
@@ -629,14 +632,14 @@ func (e *engine) lowerIR(ir *compilationResult, ret *compiledFunction) error {
 			e.setLabelAddress(&endPC, contLabel, labelAddressResolutions)
 
 			clauses := make([]exceptionTableCatchClause, len(pe.clauses))
-			for j, pc := range pe.clauses {
+			for j, clause := range pe.clauses {
 				var targetPC uint64
-				e.setLabelAddress(&targetPC, pc.targetLabel, labelAddressResolutions)
+				e.setLabelAddress(&targetPC, clause.targetLabel, labelAddressResolutions)
 				clauses[j] = exceptionTableCatchClause{
-					kind:             pc.kind,
-					tagIndex:         pc.tagIndex,
+					kind:             clause.kind,
+					tagIndex:         clause.tagIndex,
 					targetPC:         targetPC,
-					targetStackDepth: pc.targetStackDepth,
+					targetStackDepth: clause.targetStackDepth,
 				}
 			}
 
@@ -4535,8 +4538,6 @@ func (ce *callEngine) callNativeFunc(ctx context.Context, m *wasm.ModuleInstance
 			exn := &wasm.Exception{Tag: tag, Params: params}
 			if clause, values := searchExceptionTable(exn, frame); clause != nil {
 				ce.applyExceptionHandler(frame, clause, values)
-				body = frame.f.parent.body
-				bodyLen = uint64(len(body))
 				continue
 			}
 			panic(&thrownException{exception: exn})
@@ -4551,8 +4552,6 @@ func (ce *callEngine) callNativeFunc(ctx context.Context, m *wasm.ModuleInstance
 			exn := *(**wasm.Exception)(unsafe.Pointer(&v))
 			if clause, values := searchExceptionTable(exn, frame); clause != nil {
 				ce.applyExceptionHandler(frame, clause, values)
-				body = frame.f.parent.body
-				bodyLen = uint64(len(body))
 				continue
 			}
 			panic(&thrownException{exception: exn})
