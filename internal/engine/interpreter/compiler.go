@@ -35,6 +35,9 @@ type (
 		originalStackLenWithoutParamUint64 int
 		blockType                          *wasm.FunctionType
 		kind                               controlFrameKind
+		// exceptionTableIdx is the index into compiler.pendingExceptionTable
+		// for try_table control frames. Used at End to record endPC.
+		exceptionTableIdx int
 	}
 	controlFrames struct{ frames []controlFrame }
 )
@@ -259,6 +262,9 @@ type compilationResult struct {
 	LabelCallers map[label]uint32
 	// UsesMemory is true if this function might use memory.
 	UsesMemory bool
+	// PendingExceptionTable holds unresolved exception table entries, built during
+	// compilation. Labels are resolved to final PCs in lowerIR.
+	PendingExceptionTable []pendingExceptionTableEntry
 
 	// The following fields are per-module values, not per-function.
 
@@ -349,6 +355,7 @@ func (c *compiler) Next() (*compilationResult, error) {
 		}
 	}
 	// Reset the previous states.
+	c.result.PendingExceptionTable = c.result.PendingExceptionTable[:0]
 	c.pc = 0
 	c.currentOpPC = 0
 	c.currentFrameID = 0
@@ -684,15 +691,13 @@ operatorSwitch:
 				dropOp,
 			)
 		case controlFrameKindTryTable:
-			// try_table block end: emit drop and pop the try handler.
+			// try_table block end: emit drop and jump to continuation.
+			// No runtime handler pop needed — the static exception table uses PC ranges.
 			continuationLabel := newLabel(labelKindContinuation, frame.frameID)
 			c.result.LabelCallers[continuationLabel]++
 			c.emit(dropOp)
 			c.emit(newOperationBr(continuationLabel))
-			// The pop-try-handler must be emitted at the continuation label
-			// so it runs both for normal flow and when catch branches reach here.
 			c.emit(newOperationLabel(continuationLabel))
-			c.emit(newOperationPopTryHandler())
 		default:
 			// Should never happen. If so, there's a bug in the translation.
 			panic(fmt.Errorf("bug: invalid control frame Kind: 0x%x", frame.kind))
@@ -716,10 +721,6 @@ operatorSwitch:
 		targetID := targetFrame.asLabel()
 		c.result.LabelCallers[targetID]++
 		c.emit(dropOp)
-		// Pop any try_table handlers being skipped by this branch.
-		for i := 0; i < c.tryTableFramesBetween(int(targetIndex)); i++ {
-			c.emit(newOperationPopTryHandler())
-		}
 		c.emit(newOperationBr(targetID))
 		// Br operation is stack-polymorphic, and mark the state as unreachable.
 		// That means subsequent instructions in the current control frame are "unreachable"
@@ -745,22 +746,7 @@ operatorSwitch:
 
 		continuationLabel := newLabel(labelKindHeader, c.nextFrameID())
 		c.result.LabelCallers[continuationLabel]++
-
-		numPops := c.tryTableFramesBetween(int(targetIndex))
-		if numPops == 0 {
-			// Fast path: no try_table frames crossed, use the simple form.
-			c.emit(newOperationBrIf(target, continuationLabel, drop))
-		} else {
-			// Taken path must pop try_table handlers before jumping to target.
-			takenLabel := newLabel(labelKindHeader, c.nextFrameID())
-			c.result.LabelCallers[takenLabel]++
-			c.emit(newOperationBrIf(takenLabel, continuationLabel, drop))
-			c.emit(newOperationLabel(takenLabel))
-			for i := 0; i < numPops; i++ {
-				c.emit(newOperationPopTryHandler())
-			}
-			c.emit(newOperationBr(target))
-		}
+		c.emit(newOperationBrIf(target, continuationLabel, drop))
 		// Start emitting else block operations.
 		c.emit(newOperationLabel(continuationLabel))
 	case wasm.OpcodeBrTable:
@@ -789,13 +775,6 @@ operatorSwitch:
 		// Read the branch targets.
 		s := numTargets * 2
 		targetLabels := make([]uint64, 2+s) // (label, inclusiveRange) * (default+numTargets)
-		// pendingPops holds (intermediateLabel, actualLabel, numPops) for targets that
-		// cross try_table blocks. We emit the intermediate trampolines after the br_table.
-		type pendingPop struct {
-			interLabel, actualLabel label
-			numPops                 int
-		}
-		var pendingPops []pendingPop
 		for i := uint32(0); i < s; i += 2 {
 			l, n, err := leb128.DecodeUint32(r)
 			if err != nil {
@@ -805,18 +784,9 @@ operatorSwitch:
 			targetFrame := c.controlFrames.get(int(l))
 			targetFrame.ensureContinuation()
 			drop := c.getFrameDropRange(targetFrame, false)
-			actualLabel := targetFrame.asLabel()
-			numPops := c.tryTableFramesBetween(int(l))
-			if numPops == 0 {
-				targetLabels[i] = uint64(actualLabel)
-				c.result.LabelCallers[actualLabel]++
-			} else {
-				interLabel := newLabel(labelKindHeader, c.nextFrameID())
-				c.result.LabelCallers[interLabel]++
-				c.result.LabelCallers[actualLabel]++
-				targetLabels[i] = uint64(interLabel)
-				pendingPops = append(pendingPops, pendingPop{interLabel, actualLabel, numPops})
-			}
+			targetLabel := targetFrame.asLabel()
+			targetLabels[i] = uint64(targetLabel)
+			c.result.LabelCallers[targetLabel]++
 			targetLabels[i+1] = drop.AsU64()
 		}
 
@@ -829,29 +799,11 @@ operatorSwitch:
 		defaultTargetFrame := c.controlFrames.get(int(l))
 		defaultTargetFrame.ensureContinuation()
 		defaultTargetDrop := c.getFrameDropRange(defaultTargetFrame, false)
-		actualDefaultLabel := defaultTargetFrame.asLabel()
-		numDefaultPops := c.tryTableFramesBetween(int(l))
-		if numDefaultPops == 0 {
-			c.result.LabelCallers[actualDefaultLabel]++
-			targetLabels[s] = uint64(actualDefaultLabel)
-		} else {
-			interLabel := newLabel(labelKindHeader, c.nextFrameID())
-			c.result.LabelCallers[interLabel]++
-			c.result.LabelCallers[actualDefaultLabel]++
-			targetLabels[s] = uint64(interLabel)
-			pendingPops = append(pendingPops, pendingPop{interLabel, actualDefaultLabel, numDefaultPops})
-		}
+		defaultLabel := defaultTargetFrame.asLabel()
+		c.result.LabelCallers[defaultLabel]++
+		targetLabels[s] = uint64(defaultLabel)
 		targetLabels[s+1] = defaultTargetDrop.AsU64()
 		c.emit(newOperationBrTable(targetLabels))
-
-		// Emit pop-and-branch trampolines for any targets that crossed try_table blocks.
-		for _, pp := range pendingPops {
-			c.emit(newOperationLabel(pp.interLabel))
-			for i := 0; i < pp.numPops; i++ {
-				c.emit(newOperationPopTryHandler())
-			}
-			c.emit(newOperationBr(pp.actualLabel))
-		}
 
 		// br_table operation is stack-polymorphic, and mark the state as unreachable.
 		// That means subsequent instructions in the current control frame are "unreachable"
@@ -863,12 +815,6 @@ operatorSwitch:
 
 		// Cleanup the stack and then jmp to function frame's continuation (meaning return).
 		c.emit(dropOp)
-		// Pop any try_table handlers being skipped by this return.
-		// The target depth is the full control frame stack depth minus 1 (excluding function frame itself).
-		returnDepth := len(c.controlFrames.frames) - 1
-		for i := 0; i < c.tryTableFramesBetween(returnDepth); i++ {
-			c.emit(newOperationPopTryHandler())
-		}
 		c.emit(newOperationBr(functionFrame.asLabel()))
 
 		// Return operation is stack-polymorphic, and mark the state as unreachable.
@@ -954,7 +900,7 @@ operatorSwitch:
 		c.pc += catchNum - 1
 
 		// Parse catch clauses.
-		var clauses []catchClause
+		var pendingClauses []pendingCatchClause
 		for i := uint32(0); i < catchCount; i++ {
 			c.pc++
 			kind := c.body[c.pc]
@@ -983,28 +929,31 @@ operatorSwitch:
 			targetFrame.ensureContinuation()
 			targetLabel := targetFrame.asLabel()
 			c.result.LabelCallers[targetLabel]++
-			// Compute how many stack slots to drop from the try_table's saved stack
-			// to reach the target block's stack level.
-			stackDropSize := c.stackLenInUint64 - targetFrame.originalStackLenWithoutParamUint64
-			clauses = append(clauses, catchClause{
-				kind:          kind,
-				tagIndex:      tagIdx,
-				target:        targetLabel,
-				stackDropSize: stackDropSize,
+			pendingClauses = append(pendingClauses, pendingCatchClause{
+				kind:             kind,
+				tagIndex:         tagIdx,
+				targetLabel:      targetLabel,
+				targetStackDepth: targetFrame.originalStackLenWithoutParamUint64,
 			})
 		}
 
 		// Create a control frame for the try_table block.
+		frameID := c.nextFrameID()
+		entryIdx := len(c.result.PendingExceptionTable)
+		c.result.PendingExceptionTable = append(c.result.PendingExceptionTable, pendingExceptionTableEntry{
+			startOpIndex:        len(c.result.Operations),
+			continuationFrameID: frameID,
+			clauses:             pendingClauses,
+		})
 		frame := controlFrame{
-			frameID:                            c.nextFrameID(),
+			frameID:                            frameID,
 			originalStackLenWithoutParam:       len(c.stack) - len(bt.Params),
 			originalStackLenWithoutParamUint64: c.stackLenInUint64 - bt.ParamNumInUint64,
 			kind:                               controlFrameKindTryTable,
 			blockType:                          bt,
+			exceptionTableIdx:                  entryIdx,
 		}
 		c.controlFrames.push(frame)
-
-		c.emit(newOperationTryTable(clauses))
 	case wasm.OpcodeCall:
 		c.emit(
 			newOperationCall(index),
@@ -3841,20 +3790,6 @@ func (c *compiler) localType(index wasm.Index) (t wasm.ValueType) {
 		t = c.localTypes[index-params]
 	}
 	return
-}
-
-// tryTableFramesBetween counts the number of try_table control frames strictly
-// between the current (innermost) frame and the branch target at targetDepth.
-// When a branch crosses a try_table boundary, the runtime handler must be popped
-// because the try_table's `end` (which emits operationKindPopTryHandler) is skipped.
-func (c *compiler) tryTableFramesBetween(targetDepth int) int {
-	count := 0
-	for i := 0; i < targetDepth; i++ {
-		if c.controlFrames.get(i).kind == controlFrameKindTryTable {
-			count++
-		}
-	}
-	return count
 }
 
 // getFrameDropRange returns the range (starting from top of the stack) that spans across the (uint64) stack. The range is

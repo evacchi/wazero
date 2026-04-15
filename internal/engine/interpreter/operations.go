@@ -453,10 +453,6 @@ func (o operationKind) String() (ret string) {
 		ret = "operationKindThrow"
 	case operationKindThrowRef:
 		ret = "operationKindThrowRef"
-	case operationKindTryTable:
-		ret = "operationKindTryTable"
-	case operationKindPopTryHandler:
-		ret = "operationKindPopTryHandler"
 	default:
 		panic(fmt.Errorf("unknown operation %d", o))
 	}
@@ -789,10 +785,6 @@ const (
 	operationKindThrow
 	// operationKindThrowRef is the Kind for throw_ref instruction.
 	operationKindThrowRef
-	// operationKindTryTable is the Kind for try_table instruction.
-	operationKindTryTable
-	// operationKindPopTryHandler pops the top try handler at try_table block end.
-	operationKindPopTryHandler
 
 	// operationKindEnd is always placed at the bottom of this iota definition to be used in the test.
 	operationKindEnd
@@ -1133,12 +1125,6 @@ func (o unionOperation) String() string {
 		return fmt.Sprintf("%s %d", o.Kind, o.U1)
 
 	case operationKindThrowRef:
-		return o.Kind.String()
-
-	case operationKindTryTable:
-		return fmt.Sprintf("%s (catchCount=%d)", o.Kind, o.U1)
-
-	case operationKindPopTryHandler:
 		return o.Kind.String()
 
 	default:
@@ -2873,19 +2859,6 @@ func newOperationTailCallReturnCallIndirect(typeIndex, tableIndex uint32, dropDe
 	return unionOperation{Kind: operationKindTailCallReturnCallIndirect, U1: uint64(typeIndex), U2: uint64(tableIndex), Us: []uint64{dropDepth.AsU64(), uint64(l)}}
 }
 
-// catchClause represents a catch clause within a try_table instruction.
-type catchClause struct {
-	kind          byte   // CatchKindCatch, CatchKindCatchRef, CatchKindCatchAll, CatchKindCatchAllRef
-	tagIndex      uint32 // tag index for catch/catch_ref (unused for catch_all variants)
-	target        label  // label to branch to on match
-	stackDropSize int    // number of uint64 slots to drop from savedStack to reach target block level
-}
-
-// newOperationPopTryHandler is a constructor for unionOperation with operationKindPopTryHandler.
-func newOperationPopTryHandler() unionOperation {
-	return unionOperation{Kind: operationKindPopTryHandler}
-}
-
 // newOperationThrow is a constructor for unionOperation with operationKindThrow.
 // U1 stores the tag index.
 func newOperationThrow(tagIndex uint32) unionOperation {
@@ -2897,13 +2870,34 @@ func newOperationThrowRef() unionOperation {
 	return unionOperation{Kind: operationKindThrowRef}
 }
 
-// newOperationTryTable is a constructor for unionOperation with operationKindTryTable.
-// U1 stores the number of catch clauses.
-// Us stores catch clauses encoded as quadruplets: (kind, tagIndex, targetLabel, targetStackDepth).
-func newOperationTryTable(catchClauses []catchClause) unionOperation {
-	us := make([]uint64, 0, len(catchClauses)*4)
-	for _, cc := range catchClauses {
-		us = append(us, uint64(cc.kind), uint64(cc.tagIndex), uint64(cc.target), uint64(cc.stackDropSize))
-	}
-	return unionOperation{Kind: operationKindTryTable, U1: uint64(len(catchClauses)), Us: us}
+// exceptionTableEntry represents one try_table's exception handling scope.
+// Built at compile time and stored per compiledFunction.
+type exceptionTableEntry struct {
+	startPC uint64 // first PC inside the try_table body
+	endPC   uint64 // PC of continuation label (exclusive)
+	clauses []exceptionTableCatchClause
+}
+
+// exceptionTableCatchClause is a single catch clause within an exception table entry.
+type exceptionTableCatchClause struct {
+	kind             byte   // CatchKindCatch, CatchKindCatchRef, CatchKindCatchAll, CatchKindCatchAllRef
+	tagIndex         uint32 // tag index for catch/catch_ref
+	targetPC         uint64 // resolved PC to jump to on match
+	targetStackDepth int    // = targetFrame.originalStackLenWithoutParamUint64
+}
+
+// pendingExceptionTableEntry is an unresolved exception table entry built during compilation.
+// Labels are resolved to final PCs in lowerIR.
+type pendingExceptionTableEntry struct {
+	startOpIndex        int // index in Operations[] of the first instruction inside the try_table body
+	continuationFrameID uint32
+	clauses             []pendingCatchClause
+}
+
+// pendingCatchClause is an unresolved catch clause within a pending exception table entry.
+type pendingCatchClause struct {
+	kind             byte
+	tagIndex         uint32
+	targetLabel      label // unresolved label, resolved in lowerIR
+	targetStackDepth int   // = targetFrame.originalStackLenWithoutParamUint64
 }
