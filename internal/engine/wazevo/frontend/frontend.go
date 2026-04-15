@@ -468,7 +468,7 @@ func WasmTypeToSSAType(vt wasm.ValueType) ssa.Type {
 	case wasm.ValueTypeI32:
 		return ssa.TypeI32
 	case wasm.ValueTypeI64,
-		// Both externref and funcref are represented as I64 since we only support 64-bit platforms.
+		// externref, funcref, and exnref are represented as I64 since we only support 64-bit platforms.
 		wasm.ValueTypeExternref, wasm.ValueTypeFuncref,
 		wasm.ValueTypeExnref:
 		return ssa.TypeI64

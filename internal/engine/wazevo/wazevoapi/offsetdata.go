@@ -47,12 +47,12 @@ const (
 	// ExecutionContextOffsetTableGrowTrampolineAddress is an offset of `tableGrowTrampolineAddress` field in wazevo.executionContext
 	ExecutionContextOffsetTableGrowTrampolineAddress Offset = 1128
 	// ExecutionContextOffsetRefFuncTrampolineAddress is an offset of `refFuncTrampolineAddress` field in wazevo.executionContext
-	ExecutionContextOffsetRefFuncTrampolineAddress       Offset = 1136
-	ExecutionContextOffsetMemmoveAddress                 Offset = 1144
-	ExecutionContextOffsetFramePointerBeforeGoCall       Offset = 1152
-	ExecutionContextOffsetMemoryWait32TrampolineAddress  Offset = 1160
-	ExecutionContextOffsetMemoryWait64TrampolineAddress  Offset = 1168
-	ExecutionContextOffsetMemoryNotifyTrampolineAddress  Offset = 1176
+	ExecutionContextOffsetRefFuncTrampolineAddress      Offset = 1136
+	ExecutionContextOffsetMemmoveAddress                Offset = 1144
+	ExecutionContextOffsetFramePointerBeforeGoCall      Offset = 1152
+	ExecutionContextOffsetMemoryWait32TrampolineAddress Offset = 1160
+	ExecutionContextOffsetMemoryWait64TrampolineAddress Offset = 1168
+	ExecutionContextOffsetMemoryNotifyTrampolineAddress Offset = 1176
 	// ExecutionContextOffsetThrowAllocTrampolineAddress is the address of the
 	// throw-alloc trampoline, which allocates the Exception heap object,
 	// sets exceptionParamsPtr, and returns the exnref.

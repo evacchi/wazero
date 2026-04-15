@@ -1084,4 +1084,3 @@ func Test2260(t *testing.T) {
 	}
 	nodiff.RequireNoDiffT(t, getWasmBinary(t, "2260"), false, false)
 }
-

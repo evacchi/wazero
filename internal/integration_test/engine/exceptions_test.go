@@ -29,6 +29,7 @@ import (
 	"github.com/tetratelabs/wazero/experimental"
 	"github.com/tetratelabs/wazero/internal/platform"
 	"github.com/tetratelabs/wazero/internal/testing/require"
+	"github.com/tetratelabs/wazero/internal/wasmruntime"
 )
 
 //go:embed testdata/eh_cross_callnative.wasm
@@ -69,9 +70,6 @@ func runEHTests(t *testing.T, cfg wazero.RuntimeConfig) {
 	})
 	t.Run("pdfium_rethrow_pattern", func(t *testing.T) {
 		testEHPdfiumRethrow(t, cfg)
-	})
-	t.Run("eh_with_context_cancel", func(t *testing.T) {
-		testEHWithContextCancel(t, cfg)
 	})
 	t.Run("throw_ref_null", func(t *testing.T) {
 		testThrowRefNull(t, cfg)
@@ -132,26 +130,6 @@ func testEHPdfiumRethrow(t *testing.T, cfg wazero.RuntimeConfig) {
 	require.Equal(t, int32(1), api.DecodeI32(res[0]))
 }
 
-// testEHWithContextCancel verifies that context cancellation (used by the
-// go-pdfium Kill feature) correctly interrupts a stuck wasm loop even when
-// try_table handlers are active.
-func testEHWithContextCancel(t *testing.T, cfg wazero.RuntimeConfig) {
-	cfg = cfg.WithCloseOnContextDone(true)
-	ctx := context.Background()
-	r := wazero.NewRuntimeWithConfig(ctx, cfg)
-	defer r.Close(ctx)
-
-	mod, err := r.InstantiateWithConfig(ctx, ehCrossCallnativeWasm,
-		wazero.NewModuleConfig().WithStartFunctions())
-	require.NoError(t, err)
-
-	// Verify the module works normally first.
-	res, err := mod.ExportedFunction("test_cross_frame_catch").Call(ctx)
-	require.NoError(t, err)
-	require.Equal(t, int32(1), api.DecodeI32(res[0]))
-	_ = mod
-}
-
 // testThrowRefNull verifies that throw_ref on a null exnref traps with
 // "null reference" (not "unreachable"). This was a bug where the interpreter
 // used ErrRuntimeUnreachable instead of ErrRuntimeNullReference.
@@ -166,8 +144,7 @@ func testThrowRefNull(t *testing.T, cfg wazero.RuntimeConfig) {
 
 	// Call with null exnref (0) — should trap as "null reference".
 	_, err = mod.ExportedFunction("throw_ref_null").Call(ctx, 0)
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "null reference")
+	require.ErrorIs(t, err, wasmruntime.ErrRuntimeNullReference)
 }
 
 // testBrExitsTryTable verifies that br/br_if that exits a try_table block

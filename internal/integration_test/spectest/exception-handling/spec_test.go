@@ -38,7 +38,8 @@ func runCases(t *testing.T, ctx context.Context, config wazero.RuntimeConfig) {
 	spectest.RunCase(t, testcases, "throw_ref", ctx, config, -1, 0, math.MaxInt)
 	spectest.RunCase(t, testcases, "tag", ctx, config, -1, 0, math.MaxInt)
 
-	// Run try_table.wast in two ranges, skipping lines 471 and 483:
+	// Run try_table.wast in two ranges, skipping lines 470-495
+	// (two assert_invalid blocks for try_table type validation):
 	// we desugar non-nullable ref types to nullable, so we cannot
 	// detect the type mismatch between (ref null $t) and (ref $t).
 	spectest.RunCase(t, testcases, "try_table", ctx, config, -1, 0, 470)

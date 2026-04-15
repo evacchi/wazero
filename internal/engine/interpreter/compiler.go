@@ -34,7 +34,7 @@ type (
 		// except that it holds the number of values on the stack in uint64.
 		originalStackLenWithoutParamUint64 int
 		blockType                          *wasm.FunctionType
-		kind controlFrameKind
+		kind                               controlFrameKind
 	}
 	controlFrames struct{ frames []controlFrame }
 )
@@ -940,8 +940,8 @@ operatorSwitch:
 			frameID:                            frameID,
 			originalStackLenWithoutParam:       len(c.stack) - len(bt.Params),
 			originalStackLenWithoutParamUint64: c.stackLenInUint64 - bt.ParamNumInUint64,
-			kind:      controlFrameKindTryTable,
-			blockType: bt,
+			kind:                               controlFrameKindTryTable,
+			blockType:                          bt,
 		}
 		c.controlFrames.push(frame)
 	case wasm.OpcodeCall:

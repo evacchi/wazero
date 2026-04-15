@@ -29,7 +29,7 @@ func TestCppExceptions(t *testing.T) {
 
 	tests := []struct {
 		name     string
-		expected int64
+		expected int32
 	}{
 		{"test_no_throw", 42},
 		{"test_catch_specific", -1},
@@ -41,7 +41,7 @@ func TestCppExceptions(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			res, err := mod.ExportedFunction(tc.name).Call(ctx)
 			require.NoError(t, err)
-			require.Equal(t, tc.expected, int64(api.DecodeI32(res[0])))
+			require.Equal(t, tc.expected, api.DecodeI32(res[0]))
 		})
 	}
 }

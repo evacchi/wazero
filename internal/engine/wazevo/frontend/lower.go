@@ -3465,7 +3465,7 @@ func (c *Compiler) lowerCurrentOpcode() {
 		// However, each exception might have a variable number of parameters,
 		// so we let Go allocate the reference on the heap.
 		// The Go side allocates the Exception object (Params sized to nParams)
-		// and writes stores the pointer to the backing-array into execCtx.exceptionParamsPtr.
+		// and stores the pointer to the backing-array into execCtx.exceptionParamsPtr.
 		throwAllocPtr := builder.AllocateInstruction().
 			AsLoad(c.execCtxPtrValue,
 				wazevoapi.ExecutionContextOffsetThrowAllocTrampolineAddress.U32(),
