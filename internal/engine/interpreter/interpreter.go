@@ -130,9 +130,35 @@ func (e *moduleEngine) OwnsGlobals() bool { return false }
 // MemoryGrown implements wasm.ModuleEngine.
 func (e *moduleEngine) MemoryGrown() {}
 
+// restorable is implemented by panic values that can restore callEngine state.
+// Both *snapshot (snapshotter API) and *thrownException (exception handling)
+// implement this interface, allowing a single recover block to handle both.
+type restorable interface {
+	// canRestore checks whether this panic value can restore the given callEngine.
+	canRestore(ce *callEngine, callerFrameCount int) bool
+	// doRestore restores the callEngine state.
+	doRestore(ce *callEngine, callerFrameCount int)
+}
+
 // thrownException is the panic value for wasm exception propagation.
 type thrownException struct {
 	exception *wasm.Exception
+	// Fields populated by canRestore for doRestore.
+	clause *exceptionTableCatchClause
+	values []uint64
+}
+
+func (t *thrownException) canRestore(ce *callEngine, callerFrameCount int) bool {
+	ce.frames = ce.frames[:callerFrameCount]
+	frame := ce.frames[callerFrameCount-1]
+	t.clause, t.values = searchExceptionTable(t.exception, frame)
+	return t.clause != nil
+}
+
+func (t *thrownException) doRestore(ce *callEngine, callerFrameCount int) {
+	frame := ce.frames[callerFrameCount-1]
+	ce.applyExceptionHandler(frame, t.clause, t.values)
+	t.clause, t.values = nil, nil
 }
 
 // callEngine holds context per moduleEngine.Call, and shared across all the
@@ -179,10 +205,11 @@ func matchCatchClause(kind byte, clauseTag *wasm.TagInstance, exn *wasm.Exceptio
 }
 
 // searchExceptionTable searches the compiled function's static exception table
-// for a handler matching the given exception at the current PC. Returns true if
-// a handler was found and applied. Searches backwards so inner try_tables
-// (which have higher indices) are checked first.
-func (ce *callEngine) searchExceptionTable(exn *wasm.Exception, frame *callFrame) bool {
+// for a handler matching the given exception at the current PC. Returns the
+// matched clause and catch values, or nil if no handler matches. Searches
+// backwards so inner try_tables (which have higher indices) are checked first.
+// This function is pure — it does not modify callEngine state.
+func searchExceptionTable(exn *wasm.Exception, frame *callFrame) (*exceptionTableCatchClause, []uint64) {
 	table := frame.f.parent.exceptionTable
 	pc := frame.pc
 	for i := len(table) - 1; i >= 0; i-- {
@@ -198,14 +225,18 @@ func (ce *callEngine) searchExceptionTable(exn *wasm.Exception, frame *callFrame
 			}
 			matched, values := matchCatchClause(clause.kind, clauseTag, exn)
 			if matched {
-				ce.stack = ce.stack[:frame.base-frame.f.funcType.ParamNumInUint64+clause.targetStackDepth]
-				ce.stack = append(ce.stack, values...)
-				frame.pc = clause.targetPC
-				return true
+				return clause, values
 			}
 		}
 	}
-	return false
+	return nil, nil
+}
+
+// applyExceptionHandler applies a matched exception table clause to the callEngine state.
+func (ce *callEngine) applyExceptionHandler(frame *callFrame, clause *exceptionTableCatchClause, values []uint64) {
+	ce.stack = ce.stack[:frame.base-frame.f.funcType.ParamNumInUint64+clause.targetStackDepth]
+	ce.stack = append(ce.stack, values...)
+	frame.pc = clause.targetPC
 }
 
 // callWithUnwind calls the target function with support for stack unwinding
@@ -213,31 +244,13 @@ func (ce *callEngine) searchExceptionTable(exn *wasm.Exception, frame *callFrame
 // unwound (caller should refresh frame/body/bodyLen and continue the loop).
 // Returns false on normal return (caller should do frame.pc++).
 func (ce *callEngine) callWithUnwind(ctx context.Context, m *wasm.ModuleInstance, tf *function) bool {
-	callerFrame := ce.frames[len(ce.frames)-1]
-	hasExceptionTable := len(callerFrame.f.parent.exceptionTable) > 0
-	hasSnapshotter := ctx.Value(expctxkeys.EnableSnapshotterKey{}) != nil
-	if !hasExceptionTable && !hasSnapshotter {
-		ce.callFunction(ctx, m, tf)
-		return false
-	}
 	callerFrameCount := len(ce.frames)
 	caught := false
 	func() {
 		defer func() {
 			if r := recover(); r != nil {
-				if te, ok := r.(*thrownException); ok && hasExceptionTable {
-					// Restore frames to caller level (callee frames are still on the stack after panic).
-					ce.frames = ce.frames[:callerFrameCount]
-					frame := ce.frames[callerFrameCount-1]
-					if ce.searchExceptionTable(te.exception, frame) {
-						caught = true
-						return
-					}
-					// No handler found; re-panic to propagate further.
-					panic(r)
-				}
-				if s, ok := r.(*snapshot); ok && s.ce == ce {
-					s.doRestore()
+				if v, ok := r.(restorable); ok && v.canRestore(ce, callerFrameCount) {
+					v.doRestore(ce, callerFrameCount)
 					caught = true
 					return
 				}
@@ -383,7 +396,11 @@ func (s *snapshot) Restore(ret []uint64) {
 	panic(s)
 }
 
-func (s *snapshot) doRestore() {
+func (s *snapshot) canRestore(ce *callEngine, _ int) bool {
+	return s.ce == ce
+}
+
+func (s *snapshot) doRestore(_ *callEngine, _ int) {
 	ce := s.ce
 
 	ce.stack = s.stack
@@ -4509,7 +4526,8 @@ func (ce *callEngine) callNativeFunc(ctx context.Context, m *wasm.ModuleInstance
 				params[i] = ce.popValue()
 			}
 			exn := &wasm.Exception{Tag: tag, Params: params}
-			if ce.searchExceptionTable(exn, frame) {
+			if clause, values := searchExceptionTable(exn, frame); clause != nil {
+				ce.applyExceptionHandler(frame, clause, values)
 				body = frame.f.parent.body
 				bodyLen = uint64(len(body))
 				continue
@@ -4524,7 +4542,8 @@ func (ce *callEngine) callNativeFunc(ctx context.Context, m *wasm.ModuleInstance
 			// Read the Exception pointer directly from the uint64 value to avoid
 			// conversion from uintptr into unsafe.Pointer, which triggers checkptr.
 			exn := *(**wasm.Exception)(unsafe.Pointer(&v))
-			if ce.searchExceptionTable(exn, frame) {
+			if clause, values := searchExceptionTable(exn, frame); clause != nil {
+				ce.applyExceptionHandler(frame, clause, values)
 				body = frame.f.parent.body
 				bodyLen = uint64(len(body))
 				continue
