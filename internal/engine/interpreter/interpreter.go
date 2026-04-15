@@ -132,11 +132,11 @@ func (e *moduleEngine) MemoryGrown() {}
 
 // restorable is implemented by panic values that can restore callEngine state.
 // Both *snapshot (snapshotter API) and *thrownException (exception handling)
-// implement this interface, allowing a single recover block to handle both.
+// implement this interface.
 type restorable interface {
-	// canRestore checks whether this panic value can restore the given callEngine.
+	// canRestore checks whether this panic value can restore the given callEngine to the given stack frame depth.
 	canRestore(ce *callEngine, callerFrameCount int) bool
-	// doRestore restores the callEngine state.
+	// doRestore restores the callEngine state to the given stack frame depth.
 	doRestore(ce *callEngine, callerFrameCount int)
 }
 
@@ -244,6 +244,14 @@ func (ce *callEngine) applyExceptionHandler(frame *callFrame, clause *exceptionT
 // unwound (caller should refresh frame/body/bodyLen and continue the loop).
 // Returns false on normal return (caller should do frame.pc++).
 func (ce *callEngine) callWithUnwind(ctx context.Context, m *wasm.ModuleInstance, tf *function) bool {
+	// Short-circuit: skip defer/recover overhead when neither exception
+	// handlers nor the snapshotter are active for the calling frame.
+	frame := ce.frames[len(ce.frames)-1]
+	if len(frame.f.parent.exceptionTable) == 0 && ctx.Value(expctxkeys.EnableSnapshotterKey{}) == nil {
+		ce.callFunction(ctx, m, tf)
+		return false
+	}
+
 	callerFrameCount := len(ce.frames)
 	caught := false
 	func() {
@@ -612,7 +620,7 @@ func (e *engine) lowerIR(ir *compilationResult, ret *compiledFunction) error {
 		}
 	}
 
-	// Resolve exception table entries (labels → PCs).
+	// Resolve exception table entries (translate labels to PC).
 	if len(ir.PendingExceptionTable) > 0 {
 		ret.exceptionTable = make([]exceptionTableEntry, len(ir.PendingExceptionTable))
 		for i, pe := range ir.PendingExceptionTable {
@@ -923,8 +931,7 @@ func (ce *callEngine) callNativeFunc(ctx context.Context, m *wasm.ModuleInstance
 			table := tables[op.U2]
 			tf := ce.functionForOffset(table, offset, typeIDs[op.U1])
 
-			frameUnwound := ce.callWithUnwind(ctx, f.moduleInstance, tf)
-			if frameUnwound {
+			if ce.callWithUnwind(ctx, f.moduleInstance, tf) {
 				frame = ce.frames[len(ce.frames)-1]
 				body = frame.f.parent.body
 				bodyLen = uint64(len(body))
