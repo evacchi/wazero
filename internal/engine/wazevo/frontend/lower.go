@@ -1485,6 +1485,7 @@ func (c *Compiler) lowerCurrentOpcode() {
 			break
 		}
 
+		c.emitTryTableLeavesForBranch(labelIndex)
 		targetBlk, argNum := state.brTargetArgNumFor(labelIndex)
 		args := c.nPeekDup(argNum)
 		c.insertJumpToBlock(args, targetBlk)
@@ -1502,6 +1503,21 @@ func (c *Compiler) lowerCurrentOpcode() {
 		targetBlk, argNum := state.brTargetArgNumFor(labelIndex)
 		args := c.nPeekDup(argNum)
 		var sealTargetBlk bool
+
+		// If the branch exits any try_table frames, emit TryTableLeave
+		// calls in a trampoline block that only runs on the taken path.
+		if c.branchExitsTryTable(labelIndex) {
+			current := builder.CurrentBlock()
+			trampolineBlk := builder.AllocateBasicBlock()
+			builder.SetCurrentBlock(trampolineBlk)
+			c.emitTryTableLeavesForBranch(labelIndex)
+			c.insertJumpToBlock(args, targetBlk)
+			builder.SetCurrentBlock(current)
+			targetBlk = trampolineBlk
+			sealTargetBlk = true
+			args = ssa.ValuesNil
+		}
+
 		if c.needListener && targetBlk.ReturnBlock() { // In this case, we have to call the listener before returning.
 			// Save the currently active block.
 			current := builder.CurrentBlock()
@@ -1567,6 +1583,7 @@ func (c *Compiler) lowerCurrentOpcode() {
 		if state.unreachable {
 			break
 		}
+		c.emitTryTableLeavesForReturn()
 		if c.needListener {
 			c.callListenerAfter()
 		}
@@ -4341,8 +4358,8 @@ func (c *Compiler) emitTryTableLeave() {
 }
 
 // emitTryTableLeavesForReturn emits TryTableLeave calls for all enclosing
-// try_table control frames. This is needed before return_call (tail call)
-// instructions so that try handlers are popped before the frame is replaced.
+// try_table control frames. This is needed before return and return_call
+// instructions so that try handlers are popped before the frame exits.
 func (c *Compiler) emitTryTableLeavesForReturn() {
 	state := c.state()
 	for i := len(state.controlFrames) - 1; i >= 0; i-- {
@@ -4350,6 +4367,32 @@ func (c *Compiler) emitTryTableLeavesForReturn() {
 			c.emitTryTableLeave()
 		}
 	}
+}
+
+// emitTryTableLeavesForBranch emits TryTableLeave calls for try_table frames
+// that a branch to labelIndex would exit. Frames between the top of the
+// control stack and the target (exclusive) are checked innermost-first.
+func (c *Compiler) emitTryTableLeavesForBranch(labelIndex uint32) {
+	state := c.state()
+	tail := len(state.controlFrames) - 1
+	for i := 0; i < int(labelIndex); i++ {
+		if state.controlFrames[tail-i].kind == controlFrameKindTryTable {
+			c.emitTryTableLeave()
+		}
+	}
+}
+
+// branchExitsTryTable returns true if a branch to labelIndex would exit
+// at least one try_table frame.
+func (c *Compiler) branchExitsTryTable(labelIndex uint32) bool {
+	state := c.state()
+	tail := len(state.controlFrames) - 1
+	for i := 0; i < int(labelIndex); i++ {
+		if state.controlFrames[tail-i].kind == controlFrameKindTryTable {
+			return true
+		}
+	}
+	return false
 }
 
 // catchClause holds a parsed catch clause from a try_table instruction.
@@ -4601,6 +4644,7 @@ func (c *Compiler) lowerBrTable(labels []uint32, index ssa.Value) {
 		targetBlk, _ := state.brTargetArgNumFor(l)
 		trampoline := builder.AllocateBasicBlock()
 		builder.SetCurrentBlock(trampoline)
+		c.emitTryTableLeavesForBranch(l)
 		c.insertJumpToBlock(args, targetBlk)
 		trampolineBlockIDs = trampolineBlockIDs.Append(builder.VarLengthPool(), ssa.Value(trampoline.ID()))
 	}

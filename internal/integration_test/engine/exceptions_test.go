@@ -43,6 +43,9 @@ var ehThrowRefNullWasm []byte
 //go:embed testdata/eh_br_orphan.wasm
 var ehBrOrphanWasm []byte
 
+//go:embed testdata/eh_br_stale_handler.wasm
+var ehBrStaleHandlerWasm []byte
+
 // TestExceptionHandlingInterpreter runs EH tests only for the interpreter.
 func TestExceptionHandlingInterpreter(t *testing.T) {
 	cfg := wazero.NewRuntimeConfigInterpreter().
@@ -75,6 +78,9 @@ func runEHTests(t *testing.T, cfg wazero.RuntimeConfig) {
 	})
 	t.Run("br_exits_try_table", func(t *testing.T) {
 		testBrExitsTryTable(t, cfg)
+	})
+	t.Run("br_stale_handler", func(t *testing.T) {
+		testBrStaleHandler(t, cfg)
 	})
 }
 
@@ -178,6 +184,26 @@ func testBrExitsTryTable(t *testing.T, cfg wazero.RuntimeConfig) {
 
 	// The function calls loop_with_try (which exits try_table via br_if),
 	// then catches a throw in its own try_table. Should return 1.
+	res, err := mod.ExportedFunction("test").Call(ctx)
+	require.NoError(t, err)
+	require.Equal(t, int32(1), api.DecodeI32(res[0]))
+}
+
+// testBrStaleHandler verifies that br exiting a try_table pops the handler
+// so it doesn't interfere with later exception dispatch. Without the fix,
+// the stale handler from try_table A incorrectly catches a throw meant for
+// the outer handler, returning 99 instead of 1.
+func testBrStaleHandler(t *testing.T, cfg wazero.RuntimeConfig) {
+	ctx := context.Background()
+	r := wazero.NewRuntimeWithConfig(ctx, cfg)
+	defer r.Close(ctx)
+
+	mod, err := r.InstantiateWithConfig(ctx, ehBrStaleHandlerWasm,
+		wazero.NewModuleConfig().WithStartFunctions())
+	require.NoError(t, err)
+
+	// Without fix: stale handler A catches $tag1 -> wrong checkpoint restore.
+	// With fix: outer handler catches $tag1 -> returns 1.
 	res, err := mod.ExportedFunction("test").Call(ctx)
 	require.NoError(t, err)
 	require.Equal(t, int32(1), api.DecodeI32(res[0]))
