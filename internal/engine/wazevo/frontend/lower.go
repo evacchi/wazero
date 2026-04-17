@@ -1485,7 +1485,7 @@ func (c *Compiler) lowerCurrentOpcode() {
 			break
 		}
 
-		c.emitTryTableLeavesForBranch(labelIndex)
+		c.emitTryTableLeaves(int(labelIndex))
 		targetBlk, argNum := state.brTargetArgNumFor(labelIndex)
 		args := c.nPeekDup(argNum)
 		c.insertJumpToBlock(args, targetBlk)
@@ -1506,11 +1506,11 @@ func (c *Compiler) lowerCurrentOpcode() {
 
 		// If the branch exits any try_table frames, emit TryTableLeave
 		// calls in a trampoline block that only runs on the taken path.
-		if c.branchExitsTryTable(labelIndex) {
+		if c.branchExitsTryTable(int(labelIndex)) {
 			current := builder.CurrentBlock()
 			trampolineBlk := builder.AllocateBasicBlock()
 			builder.SetCurrentBlock(trampolineBlk)
-			c.emitTryTableLeavesForBranch(labelIndex)
+			c.emitTryTableLeaves(int(labelIndex))
 			c.insertJumpToBlock(args, targetBlk)
 			builder.SetCurrentBlock(current)
 			targetBlk = trampolineBlk
@@ -1583,7 +1583,7 @@ func (c *Compiler) lowerCurrentOpcode() {
 		if state.unreachable {
 			break
 		}
-		c.emitTryTableLeavesForReturn()
+		c.emitTryTableLeaves(len(state.controlFrames))
 		if c.needListener {
 			c.callListenerAfter()
 		}
@@ -3426,7 +3426,7 @@ func (c *Compiler) lowerCurrentOpcode() {
 		}
 		// Per spec, return_call leaves the current frame, so all enclosing
 		// try_table handlers must be popped before the tail call.
-		c.emitTryTableLeavesForReturn()
+		c.emitTryTableLeaves(len(c.state().controlFrames))
 		_, _ = typeIndex, tableIndex
 		c.lowerTailCallReturnCallIndirect(typeIndex, tableIndex)
 		state.unreachable = true
@@ -3438,7 +3438,7 @@ func (c *Compiler) lowerCurrentOpcode() {
 		}
 		// Per spec, return_call leaves the current frame, so all enclosing
 		// try_table handlers must be popped before the tail call.
-		c.emitTryTableLeavesForReturn()
+		c.emitTryTableLeaves(len(c.state().controlFrames))
 		c.lowerTailCallReturnCall(fnIndex)
 		state.unreachable = true
 
@@ -4356,42 +4356,29 @@ func (c *Compiler) emitTryTableLeave() {
 		Insert(builder)
 }
 
-// emitTryTableLeavesForReturn emits TryTableLeave calls for all enclosing
-// try_table control frames. This is needed before return and return_call
-// instructions so that try handlers are popped before the frame exits.
-func (c *Compiler) emitTryTableLeavesForReturn() {
-	state := c.state()
-	for i := len(state.controlFrames) - 1; i >= 0; i-- {
-		if state.controlFrames[i].kind == controlFrameKindTryTable {
-			c.emitTryTableLeave()
-		}
-	}
-}
-
-// emitTryTableLeavesForBranch emits TryTableLeave calls for try_table frames
-// that a branch to labelIndex would exit. Frames between the top of the
-// control stack and the target (exclusive) are checked innermost-first.
-func (c *Compiler) emitTryTableLeavesForBranch(labelIndex uint32) {
+// branchExitsTryTable returns true if a branch to the given depth would
+// exit at least one try_table frame.
+func (c *Compiler) branchExitsTryTable(depth int) bool {
 	state := c.state()
 	tail := len(state.controlFrames) - 1
-	for i := 0; i < int(labelIndex); i++ {
-		if state.controlFrames[tail-i].kind == controlFrameKindTryTable {
-			c.emitTryTableLeave()
-		}
-	}
-}
-
-// branchExitsTryTable returns true if a branch to labelIndex would exit
-// at least one try_table frame.
-func (c *Compiler) branchExitsTryTable(labelIndex uint32) bool {
-	state := c.state()
-	tail := len(state.controlFrames) - 1
-	for i := 0; i < int(labelIndex); i++ {
+	for i := 0; i < depth; i++ {
 		if state.controlFrames[tail-i].kind == controlFrameKindTryTable {
 			return true
 		}
 	}
 	return false
+}
+
+// emitTryTableLeaves emits TryTableLeave calls for try_table frames
+// that would be exited by a branch to the given depth.
+func (c *Compiler) emitTryTableLeaves(depth int) {
+	state := c.state()
+	tail := len(state.controlFrames) - 1
+	for i := 0; i < depth; i++ {
+		if state.controlFrames[tail-i].kind == controlFrameKindTryTable {
+			c.emitTryTableLeave()
+		}
+	}
 }
 
 // catchClause holds a parsed catch clause from a try_table instruction.
@@ -4643,7 +4630,7 @@ func (c *Compiler) lowerBrTable(labels []uint32, index ssa.Value) {
 		targetBlk, _ := state.brTargetArgNumFor(l)
 		trampoline := builder.AllocateBasicBlock()
 		builder.SetCurrentBlock(trampoline)
-		c.emitTryTableLeavesForBranch(l)
+		c.emitTryTableLeaves(int(l))
 		c.insertJumpToBlock(args, targetBlk)
 		trampolineBlockIDs = trampolineBlockIDs.Append(builder.VarLengthPool(), ssa.Value(trampoline.ID()))
 	}
