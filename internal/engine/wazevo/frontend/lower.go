@@ -3566,7 +3566,7 @@ func (c *Compiler) lowerCurrentOpcode() {
 				TagIndex: cc.tagIndex,
 			})
 		}
-		tryTableID := c.appendCatchClauseTable(clauseInstances)
+		tryTableID := c.catchClauseTable.Append(clauseInstances)
 
 		// Allocate the following block (after try_table end) and body block.
 		followingBlk := builder.AllocateBasicBlock()

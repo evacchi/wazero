@@ -75,10 +75,7 @@ type Compiler struct {
 	// tryTableLeaveSig is the signature for the try_table leave trampoline.
 	tryTableLeaveSig ssa.Signature
 	// catchClauseTable accumulates catch clause info for each try_table during compilation.
-	// When sharedCatchClauseTable is set (parallel compilation), it is used instead
-	// for thread-safe ID assignment.
-	catchClauseTable       [][]wazevoapi.CatchClauseInstance
-	sharedCatchClauseTable *SharedCatchClauseTable
+	catchClauseTable catchClauseTable
 
 	// Following are reused for the known safe bounds analysis.
 
@@ -113,14 +110,35 @@ func NewFrontendCompiler(m *wasm.Module, ssaBuilder ssa.Builder, offset *wazevoa
 		offset:                            offset,
 		ensureTermination:                 ensureTermination,
 		needSourceOffsetInfo:              sourceInfo,
+		catchClauseTable:                  &localCatchClauseTable{},
 		varLengthKnownSafeBoundWithIDPool: wazevoapi.NewVarLengthPool[knownSafeBoundWithID](),
 	}
 	c.declareSignatures(listenerOn)
 	return c
 }
 
-// SharedCatchClauseTable is a thread-safe catch clause table shared across
-// multiple frontend compilers during parallel compilation.
+// catchClauseTable accumulates catch clause entries during compilation.
+type catchClauseTable interface {
+	Append(clauses []wazevoapi.CatchClauseInstance) int
+	Table() [][]wazevoapi.CatchClauseInstance
+}
+
+// localCatchClauseTable is the single-threaded implementation.
+type localCatchClauseTable struct {
+	table [][]wazevoapi.CatchClauseInstance
+}
+
+func (t *localCatchClauseTable) Append(clauses []wazevoapi.CatchClauseInstance) int {
+	id := len(t.table)
+	t.table = append(t.table, clauses)
+	return id
+}
+
+func (t *localCatchClauseTable) Table() [][]wazevoapi.CatchClauseInstance {
+	return t.table
+}
+
+// SharedCatchClauseTable is the thread-safe implementation for parallel compilation.
 type SharedCatchClauseTable struct {
 	mu    sync.Mutex
 	table [][]wazevoapi.CatchClauseInstance
@@ -131,7 +149,6 @@ func NewSharedCatchClauseTable() *SharedCatchClauseTable {
 	return &SharedCatchClauseTable{}
 }
 
-// Append adds a catch clause entry and returns the assigned try-table ID.
 func (s *SharedCatchClauseTable) Append(clauses []wazevoapi.CatchClauseInstance) int {
 	s.mu.Lock()
 	id := len(s.table)
@@ -140,32 +157,21 @@ func (s *SharedCatchClauseTable) Append(clauses []wazevoapi.CatchClauseInstance)
 	return id
 }
 
-// Table returns the accumulated catch clause table.
 func (s *SharedCatchClauseTable) Table() [][]wazevoapi.CatchClauseInstance {
 	return s.table
 }
 
-// SetSharedCatchClauseTable sets a shared table for parallel compilation.
-func (c *Compiler) SetSharedCatchClauseTable(t *SharedCatchClauseTable) {
-	c.sharedCatchClauseTable = t
+// WithCatchClauseTable replaces the catch clause table implementation.
+// Used by the parallel compilation path to share a single mutex-protected
+// table across workers.
+func (c *Compiler) WithCatchClauseTable(t catchClauseTable) *Compiler {
+	c.catchClauseTable = t
+	return c
 }
 
-// appendCatchClauseTable adds catch clauses and returns the try-table ID.
-func (c *Compiler) appendCatchClauseTable(clauses []wazevoapi.CatchClauseInstance) int {
-	if s := c.sharedCatchClauseTable; s != nil {
-		return s.Append(clauses)
-	}
-	id := len(c.catchClauseTable)
-	c.catchClauseTable = append(c.catchClauseTable, clauses)
-	return id
-}
-
-// CatchClauseTable returns the catch clause table accumulated during compilation.
+// CatchClauseTable returns the accumulated catch clause table.
 func (c *Compiler) CatchClauseTable() [][]wazevoapi.CatchClauseInstance {
-	if s := c.sharedCatchClauseTable; s != nil {
-		return s.Table()
-	}
-	return c.catchClauseTable
+	return c.catchClauseTable.Table()
 }
 
 func (c *Compiler) declareSignatures(listenerOn bool) {

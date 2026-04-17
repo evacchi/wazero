@@ -316,8 +316,9 @@ func (e *engine) compileModule(ctx context.Context, module *wasm.Module, listene
 				machine := newMachine()
 				ssaBuilder := ssa.NewBuilder()
 				be := backend.NewCompiler(ctx, machine, ssaBuilder)
-				fe := frontend.NewFrontendCompiler(module, ssaBuilder, &cm.offsets, ensureTermination, withListener, needSourceInfo)
-				fe.SetSharedCatchClauseTable(sharedCCT)
+				fe := frontend.NewFrontendCompiler(
+					module, ssaBuilder, &cm.offsets, ensureTermination, withListener, needSourceInfo).
+					WithCatchClauseTable(sharedCCT)
 
 				for {
 					if err := ctx.Err(); err != nil {
