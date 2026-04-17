@@ -922,7 +922,8 @@ func (ce *callEngine) callNativeFunc(ctx context.Context, m *wasm.ModuleInstance
 			ce.drop(op.Us[v+1])
 			frame.pc = op.Us[v]
 		case operationKindCall:
-			if ce.callWithUnwind(ctx, f.moduleInstance, &functions[op.U1]) {
+			frameUnwound := ce.callWithUnwind(ctx, f.moduleInstance, &functions[op.U1])
+			if frameUnwound {
 				frame = ce.frames[len(ce.frames)-1]
 				body = frame.f.parent.body
 				bodyLen = uint64(len(body))
@@ -934,7 +935,8 @@ func (ce *callEngine) callNativeFunc(ctx context.Context, m *wasm.ModuleInstance
 			table := tables[op.U2]
 			tf := ce.functionForOffset(table, offset, typeIDs[op.U1])
 
-			if ce.callWithUnwind(ctx, f.moduleInstance, tf) {
+			frameUnwound := ce.callWithUnwind(ctx, f.moduleInstance, tf)
+			if frameUnwound {
 				frame = ce.frames[len(ce.frames)-1]
 				body = frame.f.parent.body
 				bodyLen = uint64(len(body))

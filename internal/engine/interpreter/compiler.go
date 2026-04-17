@@ -775,8 +775,8 @@ operatorSwitch:
 			drop := c.getFrameDropRange(targetFrame, false)
 			targetLabel := targetFrame.asLabel()
 			targetLabels[i] = uint64(targetLabel)
-			c.result.LabelCallers[targetLabel]++
 			targetLabels[i+1] = drop.AsU64()
+			c.result.LabelCallers[targetLabel]++
 		}
 
 		// Prep default target control frame.
@@ -848,36 +848,9 @@ operatorSwitch:
 				return fmt.Errorf("reading catch count for try_table: %w", err)
 			}
 			c.pc += catchNum - 1
-			// Parse and skip each catch clause.
-			// Encoding per spec: catch/catch_ref have (kind + tagIndex + labelIndex),
-			// while catch_all/catch_all_ref have only (kind + labelIndex).
 			for i := uint32(0); i < catchCount; i++ {
-				c.pc++
-				kind := c.body[c.pc]
-				switch kind {
-				case wasm.CatchKindCatch, wasm.CatchKindCatchRef:
-					// Skip tag index (LEB128).
-					c.pc++
-					_, n, err := leb128.LoadUint32(c.body[c.pc:])
-					if err != nil {
-						return fmt.Errorf("reading catch tag index: %w", err)
-					}
-					c.pc += n - 1
-					// Skip label index (LEB128).
-					c.pc++
-					_, n, err = leb128.LoadUint32(c.body[c.pc:])
-					if err != nil {
-						return fmt.Errorf("reading catch label index: %w", err)
-					}
-					c.pc += n - 1
-				case wasm.CatchKindCatchAll, wasm.CatchKindCatchAllRef:
-					// Skip label index (LEB128); no tag index for catch_all variants.
-					c.pc++
-					_, n, err := leb128.LoadUint32(c.body[c.pc:])
-					if err != nil {
-						return fmt.Errorf("reading catch_all label index: %w", err)
-					}
-					c.pc += n - 1
+				if _, _, _, err := c.parseCatchClause(); err != nil {
+					return err
 				}
 			}
 			break operatorSwitch
@@ -894,28 +867,10 @@ operatorSwitch:
 		// Parse catch clauses.
 		var pendingClauses []pendingCatchClause
 		for i := uint32(0); i < catchCount; i++ {
-			c.pc++
-			kind := c.body[c.pc]
-			// Parse tagIdx.
-			var tagIdx uint32
-			switch kind {
-			case wasm.CatchKindCatch, wasm.CatchKindCatchRef:
-				c.pc++
-				tagIdx, num, err = leb128.LoadUint32(c.body[c.pc:])
-				if err != nil {
-					return fmt.Errorf("reading catch tag index: %w", err)
-				}
-				c.pc += num - 1
-			case wasm.CatchKindCatchAll, wasm.CatchKindCatchAllRef:
-				// No tagIdx for catch_all variants.
-			}
-			c.pc++
-			labelIdx, n, err := leb128.LoadUint32(c.body[c.pc:])
+			kind, tagIdx, labelIdx, err := c.parseCatchClause()
 			if err != nil {
-				return fmt.Errorf("reading catch label index: %w", err)
+				return err
 			}
-			c.pc += n - 1
-
 			// Resolve the label from the control frame stack.
 			targetFrame := c.controlFrames.get(int(labelIdx))
 			targetFrame.ensureContinuation()
@@ -3818,4 +3773,31 @@ func (c *compiler) readMemoryArg(tag string) (memoryArg, error) {
 	}
 	c.pc += num
 	return memoryArg{Offset: offset, Alignment: alignment}, nil
+}
+
+// parseCatchClause parses a single catch clause from the bytecode at c.pc,
+// advancing c.pc past the clause. Returns the kind, tag index (0 for catch_all
+// variants), and label index.
+func (c *compiler) parseCatchClause() (kind byte, tagIdx, labelIdx uint32, err error) {
+	var n uint64
+	c.pc++
+	kind = c.body[c.pc]
+	switch kind {
+	case wasm.CatchKindCatch, wasm.CatchKindCatchRef:
+		c.pc++
+		tagIdx, n, err = leb128.LoadUint32(c.body[c.pc:])
+		if err != nil {
+			err = fmt.Errorf("reading catch tag index: %w", err)
+			return
+		}
+		c.pc += n - 1
+	}
+	c.pc++
+	labelIdx, n, err = leb128.LoadUint32(c.body[c.pc:])
+	if err != nil {
+		err = fmt.Errorf("reading catch label index: %w", err)
+		return
+	}
+	c.pc += n - 1
+	return
 }
