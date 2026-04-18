@@ -235,38 +235,6 @@ func boolToByte(b bool) (ret byte) {
 	return
 }
 
-// typeOfTag returns the wasm.FunctionType for the given tag space index or nil.
-// Tags use the same index space as the tag section, prefixed by imported tags.
-func (m *Module) typeOfTag(tagIdx Index) *FunctionType {
-	typeSectionLength := uint32(len(m.TypeSection))
-	if tagIdx < m.ImportTagCount {
-		cur := Index(0)
-		for i := range m.ImportSection {
-			imp := &m.ImportSection[i]
-			if imp.Type != ExternTypeTag {
-				continue
-			}
-			if tagIdx == cur {
-				if imp.DescTag >= typeSectionLength {
-					return nil
-				}
-				return &m.TypeSection[imp.DescTag]
-			}
-			cur++
-		}
-	}
-
-	tagSectionIdx := tagIdx - m.ImportTagCount
-	if tagSectionIdx >= uint32(len(m.TagSection)) {
-		return nil
-	}
-	typeIdx := m.TagSection[tagSectionIdx].Type
-	if typeIdx >= typeSectionLength {
-		return nil
-	}
-	return &m.TypeSection[typeIdx]
-}
-
 // typeOfFunction returns the wasm.FunctionType for the given function space index or nil.
 func (m *Module) typeOfFunction(funcIdx Index) *FunctionType {
 	typeSectionLength, importedFunctionCount := uint32(len(m.TypeSection)), m.ImportFunctionCount
