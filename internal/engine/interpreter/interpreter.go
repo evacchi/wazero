@@ -135,9 +135,8 @@ func (e *moduleEngine) MemoryGrown() {}
 // implement this interface.
 type restorable interface {
 	// canRestore unwinds ce.frames to callerFrameCount and checks whether a
-	// handler exists at that depth. The frame truncation is intentional:
-	// if no handler is found, the caller re-panics, and the next outer
-	// callWithUnwind will truncate further.
+	// handler exists at that depth. If no handler is found, the caller
+	// re-panics and the next outer callWithUnwind unwinds further.
 	canRestore(ce *callEngine, callerFrameCount int) bool
 	// doRestore restores the callEngine state to the given stack frame depth.
 	doRestore(ce *callEngine, callerFrameCount int)
