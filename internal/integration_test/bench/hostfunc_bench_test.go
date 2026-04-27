@@ -134,8 +134,7 @@ func setupHostCallBench(requireNoError func(error)) *wasm.ModuleInstance {
 	ctx := context.Background()
 	r := wazero.NewRuntime(ctx)
 
-	const i32a, f32a = api.ValueTypeI32, api.ValueTypeF32
-	const i32, f32 = wasm.ValueTypeI32, wasm.ValueTypeF32
+	const i32, f32 = api.ValueTypeI32, api.ValueTypeF32
 	_, err := r.NewHostModuleBuilder("host").
 		NewFunctionBuilder().WithGoModuleFunction(api.GoModuleFunc(func(ctx context.Context, mod api.Module, stack []uint64) {
 		ret, ok := mod.Memory().ReadUint32Le(uint32(stack[0]))
@@ -143,7 +142,7 @@ func setupHostCallBench(requireNoError func(error)) *wasm.ModuleInstance {
 			panic("couldn't read memory")
 		}
 		stack[0] = uint64(ret)
-	}), []api.ValueType{i32a}, []api.ValueType{f32a}).Export("go").
+	}), []api.ValueType{i32}, []api.ValueType{f32}).Export("go").
 		NewFunctionBuilder().WithFunc(func(ctx context.Context, m api.Module, pos uint32) float32 {
 		ret, ok := m.Memory().ReadUint32Le(pos)
 		if !ok {
