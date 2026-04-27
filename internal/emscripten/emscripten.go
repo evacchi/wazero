@@ -61,14 +61,11 @@ var (
 const InvokePrefix = "invoke_"
 
 func NewInvokeFunc(importName string, params, results []api.ValueType) *wasm.HostFunc {
-	wParams := wasm.FromAPIValueTypes(params)
-	wResults := wasm.FromAPIValueTypes(results)
-
 	// The type we invoke is the same type as the import except without the
 	// index parameter.
-	fn := &InvokeFunc{&wasm.FunctionType{Results: wResults}}
-	if len(wParams) > 1 {
-		fn.FunctionType.Params = wParams[1:]
+	fn := &InvokeFunc{&wasm.FunctionType{Results: wasm.FromApiValueType(results)}}
+	if len(params) > 1 {
+		fn.FunctionType.Params = wasm.FromApiValueType(params[1:])
 	}
 
 	// Now, make friendly parameter names.
@@ -79,9 +76,9 @@ func NewInvokeFunc(importName string, params, results []api.ValueType) *wasm.Hos
 	}
 	return &wasm.HostFunc{
 		ExportName:  importName,
-		ParamTypes:  wParams,
+		ParamTypes:  wasm.FromApiValueType(params),
 		ParamNames:  paramNames,
-		ResultTypes: wResults,
+		ResultTypes: wasm.FromApiValueType(results),
 		Code:        wasm.Code{GoFunc: fn},
 	}
 }

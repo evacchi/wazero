@@ -1212,47 +1212,8 @@ const (
 	ValueTypeExnref    ValueType = 0x69
 )
 
-// ValueTypeFromByte creates a ValueType from a raw byte value.
-func ValueTypeFromByte(b byte) ValueType {
-	return ValueType(b)
-}
-
-// ToAPIValueType converts an internal ValueType to the public api.ValueType (byte).
-func ToAPIValueType(vt ValueType) api.ValueType {
-	return vt.Kind()
-}
-
-// FromAPIValueType converts a public api.ValueType (byte) to the internal ValueType.
-func FromAPIValueType(vt api.ValueType) ValueType {
-	return ValueType(vt)
-}
-
 // Kind returns the base type byte (bits 0-7).
 func (v ValueType) Kind() byte { return byte(v) }
-
-// toAPIValueTypes converts a slice of internal ValueType to public api.ValueType.
-func toAPIValueTypes(vts []ValueType) []api.ValueType {
-	if len(vts) == 0 {
-		return nil
-	}
-	ret := make([]api.ValueType, len(vts))
-	for i, vt := range vts {
-		ret[i] = vt.Kind()
-	}
-	return ret
-}
-
-// fromAPIValueTypes converts a slice of public api.ValueType to internal ValueType.
-func FromAPIValueTypes(vts []api.ValueType) []ValueType {
-	if len(vts) == 0 {
-		return nil
-	}
-	ret := make([]ValueType, len(vts))
-	for i, vt := range vts {
-		ret[i] = ValueType(vt)
-	}
-	return ret
-}
 
 // IsRef returns true if this is a reference type (including non-nullable variants).
 func (v ValueType) IsRef() bool {
