@@ -13,7 +13,7 @@ type ConstantExpression struct {
 	Data []byte
 }
 
-func evaluateConstExpr(e *ConstantExpression, globalResolver func(globalIndex Index) (ValueType, uint64, uint64, error), funcRefResolver func(funcIndex Index) (Reference, error)) ([]uint64, ValueType, error) {
+func evaluateConstExpr(e *ConstantExpression, globalResolver func(globalIndex Index) (ValueType, uint64, uint64, error), funcRefResolver func(funcIndex Index) (Reference, error), funcTypeIndexResolver ...func(funcIndex Index) Index) ([]uint64, ValueType, error) {
 	var stack []uint64
 	var typeStack []ValueType
 	var pc uint64
@@ -79,11 +79,27 @@ func evaluateConstExpr(e *ConstantExpression, globalResolver func(globalIndex In
 			if pc >= uint64(len(data)) {
 				return nil, 0, fmt.Errorf("read reference type for ref.null: %w", io.ErrShortBuffer)
 			}
-			valType := ValueType(data[pc])
-			if valType != RefTypeFuncref && valType != RefTypeExternref {
-				return nil, 0, fmt.Errorf("invalid type for ref.null: 0x%x", valType)
+			b := data[pc]
+			var valType ValueType
+			switch b {
+			case RefTypeFuncref.Kind():
+				valType = RefTypeFuncref
+				pc++
+			case RefTypeExternref.Kind():
+				valType = RefTypeExternref
+				pc++
+			case ValueTypeExnref.Kind():
+				valType = ValueTypeExnref
+				pc++
+			default:
+				// Concrete type index encoded as LEB128.
+				typeIdx, n, err := leb128.LoadUint32(data[pc:])
+				if err != nil {
+					return nil, 0, fmt.Errorf("invalid type for ref.null: 0x%x", b)
+				}
+				pc += n
+				valType = ConcreteRef(typeIdx, true)
 			}
-			pc += 1
 			stack = append(stack, 0)
 			typeStack = append(typeStack, valType)
 		case OpcodeRefFunc:
@@ -97,7 +113,12 @@ func evaluateConstExpr(e *ConstantExpression, globalResolver func(globalIndex In
 				return nil, 0, err
 			}
 			stack = append(stack, uint64(ref))
-			typeStack = append(typeStack, ValueTypeFuncref)
+			if len(funcTypeIndexResolver) > 0 && funcTypeIndexResolver[0] != nil {
+				typeIndex := funcTypeIndexResolver[0](Index(v))
+				typeStack = append(typeStack, ConcreteRef(typeIndex, false))
+			} else {
+				typeStack = append(typeStack, ValueTypeFuncref)
+			}
 		case OpcodeVecPrefix:
 			if data[pc] != OpcodeVecV128Const {
 				return nil, 0, fmt.Errorf("invalid vector opcode for const expression: %#x", data[pc-1])

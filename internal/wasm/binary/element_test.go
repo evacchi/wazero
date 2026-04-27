@@ -153,7 +153,14 @@ func Test_decodeElementConstExprVector_errors(t *testing.T) {
 			in:       []byte{1, wasm.OpcodeRefNull, 0xff, wasm.OpcodeEnd},
 			refType:  wasm.RefTypeExternref,
 			features: api.CoreFeaturesV2,
-			expErr:   "invalid type for ref.null: 0xff",
+			expErr:   "read const expression opcode: EOF",
+		},
+		{
+			name:     "invalid ref type leb128",
+			in:       []byte{1, wasm.OpcodeRefNull, 0x80},
+			refType:  wasm.RefTypeExternref,
+			features: api.CoreFeaturesV2,
+			expErr:   "invalid type for ref.null: 0x80",
 		},
 	}
 

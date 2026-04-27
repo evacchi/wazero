@@ -327,6 +327,7 @@ func newCompiler(enabledFeatures api.CoreFeatures, callFrameStackSizeInUint64 in
 		funcTypeToSigs: funcTypeToIRSignatures{
 			indirectCalls: make([]*signature, len(types)),
 			directCalls:   make([]*signature, len(types)),
+			callRefCalls:  make([]*signature, len(types)),
 			wasmTypes:     types,
 		},
 		needSourceOffset: module.DWARFLines != nil,
@@ -1715,7 +1716,16 @@ operatorSwitch:
 			newOperationRefFunc(index),
 		)
 	case wasm.OpcodeRefNull:
-		c.pc++ // Skip the type of reftype as every ref value is opaque pointer.
+		c.pc++
+		b := c.body[c.pc]
+		if b != wasm.ValueTypeFuncref.Kind() && b != wasm.ValueTypeExternref.Kind() && b != wasm.ValueTypeExnref.Kind() {
+			// Concrete type index encoded as LEB128; skip it.
+			_, num, err := leb128.LoadUint32(c.body[c.pc:])
+			if err != nil {
+				return fmt.Errorf("failed to read type index for ref.null: %v", err)
+			}
+			c.pc += num - 1
+		}
 		c.emit(
 			newOperationConstI64(0),
 		)
@@ -3562,6 +3572,64 @@ operatorSwitch:
 		// and can be safely removed.
 		c.markUnreachable()
 
+	case wasm.OpcodeCallRef:
+		c.emit(newOperationCallRef(index))
+
+	case wasm.OpcodeReturnCallRef:
+		functionFrame := c.controlFrames.functionFrame()
+		dropRange := c.getFrameDropRange(functionFrame, false)
+		c.emit(newOperationReturnCallRef(index, dropRange, functionFrame.asLabel()))
+		c.markUnreachable()
+
+	case wasm.OpcodeRefAsNonNull:
+		c.emit(newOperationRefAsNonNull())
+
+	case wasm.OpcodeBrOnNull:
+		targetIndex, n, err := leb128.LoadUint32(c.body[c.pc+1:])
+		if err != nil {
+			return fmt.Errorf("read the target for br_on_null: %w", err)
+		}
+		c.pc += n
+
+		if c.unreachableState.on {
+			break operatorSwitch
+		}
+
+		targetFrame := c.controlFrames.get(int(targetIndex))
+		targetFrame.ensureContinuation()
+		drop := c.getFrameDropRange(targetFrame, false)
+		target := targetFrame.asLabel()
+		c.result.LabelCallers[target]++
+
+		continuationLabel := newLabel(labelKindHeader, c.nextFrameID())
+		c.result.LabelCallers[continuationLabel]++
+		c.emit(newOperationBrOnNull(target, continuationLabel, drop))
+		c.emit(newOperationLabel(continuationLabel))
+		// On fall-through (non-null), the ref is pushed back at runtime.
+		c.stackPush(unsignedTypeI64)
+
+	case wasm.OpcodeBrOnNonNull:
+		targetIndex, n, err := leb128.LoadUint32(c.body[c.pc+1:])
+		if err != nil {
+			return fmt.Errorf("read the target for br_on_non_null: %w", err)
+		}
+		c.pc += n
+
+		if c.unreachableState.on {
+			break operatorSwitch
+		}
+
+		targetFrame := c.controlFrames.get(int(targetIndex))
+		targetFrame.ensureContinuation()
+		drop := c.getFrameDropRange(targetFrame, false)
+		target := targetFrame.asLabel()
+		c.result.LabelCallers[target]++
+
+		continuationLabel := newLabel(labelKindHeader, c.nextFrameID())
+		c.result.LabelCallers[continuationLabel]++
+		c.emit(newOperationBrOnNonNull(target, continuationLabel, drop))
+		c.emit(newOperationLabel(continuationLabel))
+
 	default:
 		return fmt.Errorf("unsupported instruction in interpreterir: 0x%x", op)
 	}
@@ -3593,7 +3661,10 @@ func (c *compiler) applyToStack(opcode wasm.Opcode) (index uint32, err error) {
 		wasm.OpcodeTailCallReturnCall,
 		wasm.OpcodeTailCallReturnCallIndirect,
 		// exception handling - throw reads tag index
-		wasm.OpcodeThrow:
+		wasm.OpcodeThrow,
+		// typed function references
+		wasm.OpcodeCallRef,
+		wasm.OpcodeReturnCallRef:
 		// Assumes that we are at the opcode now so skip it before read immediates.
 		v, num, err := leb128.LoadUint32(c.body[c.pc+1:])
 		if err != nil {
@@ -3706,7 +3777,10 @@ func (c *compiler) emitDefaultValue(t wasm.ValueType) {
 	case wasm.ValueTypeI32:
 		c.stackPush(unsignedTypeI32)
 		c.emit(newOperationConstI32(0))
-	case wasm.ValueTypeI64, wasm.ValueTypeExternref, wasm.ValueTypeFuncref, wasm.ValueTypeExnref:
+	case wasm.ValueTypeI64,
+		// From interpreter layer, ref type values are opaque 64-bit pointers.
+		wasm.ValueTypeExternref, wasm.ValueTypeFuncref,
+		wasm.ValueTypeExnref:
 		c.stackPush(unsignedTypeI64)
 		c.emit(newOperationConstI64(0))
 	case wasm.ValueTypeF32:
@@ -3718,6 +3792,12 @@ func (c *compiler) emitDefaultValue(t wasm.ValueType) {
 	case wasm.ValueTypeV128:
 		c.stackPush(unsignedTypeV128)
 		c.emit(newOperationV128Const(0, 0))
+	default:
+		// Concrete ref types (ref $t) have variable bit patterns.
+		if t.IsRef() {
+			c.stackPush(unsignedTypeI64)
+			c.emit(newOperationConstI64(0))
+		}
 	}
 }
 

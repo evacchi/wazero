@@ -28,27 +28,35 @@ func decodeValueTypes(r *bytes.Reader, num uint32) ([]wasm.ValueType, error) {
 			wasm.ValueTypeExnref.Kind():
 			ret = append(ret, wasm.ValueType(b))
 		case wasm.RefPrefixNullable, wasm.RefPrefixNonNullable:
+			nullable := b == wasm.RefPrefixNullable
 			ht, _, err := leb128.DecodeInt33AsInt64(r)
 			if err != nil {
 				return nil, fmt.Errorf("read ref heap type: %w", err)
 			}
-			// The following nullable refs are an alternative representation of the corresponding ref types:
-			// - (ref null exn) is equivalent to exnref
-			// - (ref null func) is equivalent to funcref
-			// - (ref null extern) is equivalent to externref
-			// See https://webassembly.github.io/gc/core/syntax/types.html#reference-types
-			// Current limitation: we desugar NON-NULLABLE types to NULLABLE types internally.
-			// This technically breaks type-checking in some cases, but we will fix this
-			// when we introduce proper ref types.
 			switch ht {
 			case wasm.HeapTypeExn:
-				ret = append(ret, wasm.ValueTypeExnref)
+				v := wasm.ValueTypeExnref
+				if !nullable {
+					v = v.AsNonNullable()
+				}
+				ret = append(ret, v)
 			case wasm.HeapTypeFunc:
-				ret = append(ret, wasm.ValueTypeFuncref)
+				v := wasm.ValueTypeFuncref
+				if !nullable {
+					v = v.AsNonNullable()
+				}
+				ret = append(ret, v)
 			case wasm.HeapTypeExtern:
-				ret = append(ret, wasm.ValueTypeExternref)
-			default: // concrete type index — treat as nullable funcref
-				ret = append(ret, wasm.ValueTypeFuncref)
+				v := wasm.ValueTypeExternref
+				if !nullable {
+					v = v.AsNonNullable()
+				}
+				ret = append(ret, v)
+			default:
+				if ht < 0 {
+					return nil, fmt.Errorf("unknown abstract heap type: %d", ht)
+				}
+				ret = append(ret, wasm.ConcreteRef(uint32(ht), nullable))
 			}
 		default:
 			return nil, fmt.Errorf("invalid value type: %d", b)

@@ -12,6 +12,7 @@ import (
 // TestNewHostModuleBuilder_Compile only covers a few scenarios to avoid duplicating tests in internal/wasm/host_test.go
 func TestNewHostModuleBuilder_Compile(t *testing.T) {
 	i32, i64 := wasm.ValueTypeI32, wasm.ValueTypeI64
+	i32a, i64a := api.ValueTypeI32, api.ValueTypeI64
 
 	uint32_uint32 := func(context.Context, uint32) uint32 {
 		return 0
@@ -183,7 +184,7 @@ func TestNewHostModuleBuilder_Compile(t *testing.T) {
 			input: func(r Runtime) HostModuleBuilder {
 				return r.NewHostModuleBuilder("host").
 					NewFunctionBuilder().
-					WithGoFunction(gofunc1, wasm.ToApiValueType([]wasm.ValueType{i32}), wasm.ToApiValueType([]wasm.ValueType{i32})).
+					WithGoFunction(gofunc1, []api.ValueType{i32a}, []api.ValueType{i32a}).
 					Export("1")
 			},
 			expected: &wasm.Module{
@@ -210,7 +211,7 @@ func TestNewHostModuleBuilder_Compile(t *testing.T) {
 			name: "WithGoFunction WithName WithParameterNames",
 			input: func(r Runtime) HostModuleBuilder {
 				return r.NewHostModuleBuilder("host").NewFunctionBuilder().
-					WithGoFunction(gofunc1, wasm.ToApiValueType([]wasm.ValueType{i32}), wasm.ToApiValueType([]wasm.ValueType{i32})).
+					WithGoFunction(gofunc1, []api.ValueType{i32a}, []api.ValueType{i32a}).
 					WithName("get").WithParameterNames("x").
 					Export("1")
 			},
@@ -240,10 +241,10 @@ func TestNewHostModuleBuilder_Compile(t *testing.T) {
 			input: func(r Runtime) HostModuleBuilder {
 				return r.NewHostModuleBuilder("host").
 					NewFunctionBuilder().
-					WithGoFunction(gofunc1, wasm.ToApiValueType([]wasm.ValueType{i32}), wasm.ToApiValueType([]wasm.ValueType{i32})).
+					WithGoFunction(gofunc1, []api.ValueType{i32a}, []api.ValueType{i32a}).
 					Export("1").
 					NewFunctionBuilder().
-					WithGoFunction(gofunc2, wasm.ToApiValueType([]wasm.ValueType{i64}), wasm.ToApiValueType([]wasm.ValueType{i32})).
+					WithGoFunction(gofunc2, []api.ValueType{i64a}, []api.ValueType{i32a}).
 					Export("1")
 			},
 			expected: &wasm.Module{
@@ -272,10 +273,10 @@ func TestNewHostModuleBuilder_Compile(t *testing.T) {
 				// Intentionally not in lexicographic order
 				return r.NewHostModuleBuilder("host").
 					NewFunctionBuilder().
-					WithGoFunction(gofunc2, wasm.ToApiValueType([]wasm.ValueType{i64}), wasm.ToApiValueType([]wasm.ValueType{i32})).
+					WithGoFunction(gofunc2, []api.ValueType{i64a}, []api.ValueType{i32a}).
 					Export("2").
 					NewFunctionBuilder().
-					WithGoFunction(gofunc1, wasm.ToApiValueType([]wasm.ValueType{i32}), wasm.ToApiValueType([]wasm.ValueType{i32})).
+					WithGoFunction(gofunc1, []api.ValueType{i32a}, []api.ValueType{i32a}).
 					Export("1")
 			},
 			expected: &wasm.Module{

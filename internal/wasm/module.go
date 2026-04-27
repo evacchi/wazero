@@ -238,6 +238,14 @@ func boolToByte(b bool) (ret byte) {
 
 // typeOfFunction returns the wasm.FunctionType for the given function space index or nil.
 func (m *Module) typeOfFunction(funcIdx Index) *FunctionType {
+	typeIdx, ok := m.typeIndexOfFunction(funcIdx)
+	if !ok {
+		return nil
+	}
+	return &m.TypeSection[typeIdx]
+}
+
+func (m *Module) typeIndexOfFunction(funcIdx Index) (Index, bool) {
 	typeSectionLength, importedFunctionCount := uint32(len(m.TypeSection)), m.ImportFunctionCount
 	if funcIdx < importedFunctionCount {
 		// Imports are not exclusively functions. This is the current function index in the loop.
@@ -249,9 +257,9 @@ func (m *Module) typeOfFunction(funcIdx Index) *FunctionType {
 			}
 			if funcIdx == cur {
 				if imp.DescFunc >= typeSectionLength {
-					return nil
+					return 0, false
 				}
-				return &m.TypeSection[imp.DescFunc]
+				return imp.DescFunc, true
 			}
 			cur++
 		}
@@ -259,19 +267,23 @@ func (m *Module) typeOfFunction(funcIdx Index) *FunctionType {
 
 	funcSectionIdx := funcIdx - m.ImportFunctionCount
 	if funcSectionIdx >= uint32(len(m.FunctionSection)) {
-		return nil
+		return 0, false
 	}
 	typeIdx := m.FunctionSection[funcSectionIdx]
 	if typeIdx >= typeSectionLength {
-		return nil
+		return 0, false
 	}
-	return &m.TypeSection[typeIdx]
+	return typeIdx, true
 }
 
 func (m *Module) Validate(enabledFeatures api.CoreFeatures) error {
 	for i := range m.TypeSection {
 		tp := &m.TypeSection[i]
 		tp.CacheNumInUint64()
+	}
+
+	if err := m.validateConcreteRefTypes(); err != nil {
+		return err
 	}
 
 	if err := m.validateStartSection(); err != nil {
@@ -319,6 +331,39 @@ func (m *Module) Validate(enabledFeatures api.CoreFeatures) error {
 	return nil
 }
 
+func (m *Module) validateConcreteRefTypes() error {
+	numTypes := uint32(len(m.TypeSection))
+	check := func(vt ValueType, context string) error {
+		if vt.IsConcreteRef() && vt.TypeIndex() >= numTypes {
+			return fmt.Errorf("unknown type")
+		}
+		return nil
+	}
+	for _, g := range m.GlobalSection {
+		if err := check(g.Type.ValType, "global"); err != nil {
+			return err
+		}
+	}
+	for _, t := range m.TableSection {
+		if err := check(t.Type, "table"); err != nil {
+			return err
+		}
+	}
+	for _, c := range m.CodeSection {
+		for _, lt := range c.LocalTypes {
+			if err := check(lt, "local"); err != nil {
+				return err
+			}
+		}
+	}
+	for _, e := range m.ElementSection {
+		if err := check(e.Type, "element"); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func (m *Module) validateTagSection() error {
 	for i, tag := range m.TagSection {
 		if tag.Type >= uint32(len(m.TypeSection)) {
@@ -356,9 +401,24 @@ func (m *Module) validateGlobals(globals []GlobalType, numFuncts, maxGlobals uin
 	// Global initialization constant expression can only reference the imported globals.
 	// See the note on https://www.w3.org/TR/2019/REC-wasm-core-1-20191205/#constant-expressions%E2%91%A0
 	importedGlobals := globals[:m.ImportGlobalCount]
+	funcTypeResolver := func(funcIndex Index) Index {
+		if funcIndex < m.ImportFunctionCount {
+			// Imported function — look up type from imports.
+			var importFuncIdx uint32
+			for j := range m.ImportSection {
+				if m.ImportSection[j].Type == ExternTypeFunc {
+					if importFuncIdx == funcIndex {
+						return m.ImportSection[j].DescFunc
+					}
+					importFuncIdx++
+				}
+			}
+		}
+		return m.FunctionSection[funcIndex-m.ImportFunctionCount]
+	}
 	for i := range m.GlobalSection {
 		g := &m.GlobalSection[i]
-		if err := validateConstExpression(importedGlobals, numFuncts, &g.Init, g.Type.ValType); err != nil {
+		if err := validateConstExpression(importedGlobals, numFuncts, &g.Init, g.Type.ValType, funcTypeResolver); err != nil {
 			return err
 		}
 	}
@@ -585,7 +645,7 @@ func (m *Module) validateExports(enabledFeatures api.CoreFeatures, functions []I
 	return nil
 }
 
-func validateConstExpression(globals []GlobalType, numFuncs uint32, expr *ConstantExpression, expectedType ValueType) (err error) {
+func validateConstExpression(globals []GlobalType, numFuncs uint32, expr *ConstantExpression, expectedType ValueType, funcTypeIndexResolver ...func(funcIndex Index) Index) (err error) {
 	_, typ, err := evaluateConstExpr(
 		expr,
 		func(globalIndex Index) (ValueType, uint64, uint64, error) {
@@ -600,11 +660,12 @@ func validateConstExpression(globals []GlobalType, numFuncs uint32, expr *Consta
 			}
 			return 0, nil
 		},
+		funcTypeIndexResolver...,
 	)
 	if err != nil {
 		return err
 	}
-	if typ != expectedType {
+	if typ != expectedType && !isRefSubtypeOf(typ, expectedType) {
 		return fmt.Errorf("const expression type mismatch expected %s but got %s", ValueTypeName(expectedType), ValueTypeName(typ))
 	}
 	return nil
@@ -1136,6 +1197,11 @@ func SectionIDName(sectionID SectionID) string {
 type ValueType uint64
 
 const (
+	flagNonNullable ValueType = 1 << 8
+	flagConcreteRef ValueType = 1 << 9
+)
+
+const (
 	ValueTypeI32       ValueType = 0x7f
 	ValueTypeI64       ValueType = 0x7e
 	ValueTypeF32       ValueType = 0x7d
@@ -1145,6 +1211,79 @@ const (
 	ValueTypeExternref ValueType = 0x6f
 	ValueTypeExnref    ValueType = 0x69
 )
+
+// ValueTypeFromByte creates a ValueType from a raw byte value.
+func ValueTypeFromByte(b byte) ValueType {
+	return ValueType(b)
+}
+
+// ToAPIValueType converts an internal ValueType to the public api.ValueType (byte).
+func ToAPIValueType(vt ValueType) api.ValueType {
+	return vt.Kind()
+}
+
+// FromAPIValueType converts a public api.ValueType (byte) to the internal ValueType.
+func FromAPIValueType(vt api.ValueType) ValueType {
+	return ValueType(vt)
+}
+
+// Kind returns the base type byte (bits 0-7).
+func (v ValueType) Kind() byte { return byte(v) }
+
+// toAPIValueTypes converts a slice of internal ValueType to public api.ValueType.
+func toAPIValueTypes(vts []ValueType) []api.ValueType {
+	if len(vts) == 0 {
+		return nil
+	}
+	ret := make([]api.ValueType, len(vts))
+	for i, vt := range vts {
+		ret[i] = vt.Kind()
+	}
+	return ret
+}
+
+// fromAPIValueTypes converts a slice of public api.ValueType to internal ValueType.
+func FromAPIValueTypes(vts []api.ValueType) []ValueType {
+	if len(vts) == 0 {
+		return nil
+	}
+	ret := make([]ValueType, len(vts))
+	for i, vt := range vts {
+		ret[i] = ValueType(vt)
+	}
+	return ret
+}
+
+// IsRef returns true if this is a reference type (including non-nullable variants).
+func (v ValueType) IsRef() bool {
+	k := v.Kind()
+	return k == ValueTypeFuncref.Kind() || k == ValueTypeExternref.Kind() || k == ValueTypeExnref.Kind() ||
+		v&flagConcreteRef != 0
+}
+
+// IsNullable returns true if this reference type is nullable.
+func (v ValueType) IsNullable() bool { return v&flagNonNullable == 0 }
+
+// IsConcreteRef returns true if this is a concrete reference type with a type index.
+func (v ValueType) IsConcreteRef() bool { return v&flagConcreteRef != 0 }
+
+// TypeIndex returns the concrete type index (bits 32-63).
+func (v ValueType) TypeIndex() uint32 { return uint32(v >> 32) }
+
+// AsNonNullable returns a copy with the non-nullable flag set.
+func (v ValueType) AsNonNullable() ValueType { return v | flagNonNullable }
+
+// AsNullable returns a copy with the non-nullable flag cleared.
+func (v ValueType) AsNullable() ValueType { return v &^ flagNonNullable }
+
+// ConcreteRef creates a concrete reference type with the given type index and nullability.
+func ConcreteRef(typeIndex uint32, nullable bool) ValueType {
+	v := ValueTypeFuncref | flagConcreteRef | ValueType(typeIndex)<<32
+	if !nullable {
+		v |= flagNonNullable
+	}
+	return v
+}
 
 const (
 	// RefPrefixNullable is the binary encoding prefix for nullable reference types (ref null <heaptype>).
@@ -1162,40 +1301,84 @@ const (
 	HeapTypeExn int64 = -23
 )
 
-// ValueTypeName is an alias of api.ValueTypeName defined to simplify imports.
+// ValueTypeName returns the name of a ValueType.
 func ValueTypeName(t ValueType) string {
-	if t == ValueTypeFuncref {
-		return "funcref"
-	} else if t == ValueTypeV128 {
+	if t.IsConcreteRef() {
+		if t.IsNullable() {
+			return fmt.Sprintf("(ref null %d)", t.TypeIndex())
+		}
+		return fmt.Sprintf("(ref %d)", t.TypeIndex())
+	}
+	switch t.AsNullable() {
+	case ValueTypeI32:
+		return "i32"
+	case ValueTypeI64:
+		return "i64"
+	case ValueTypeF32:
+		return "f32"
+	case ValueTypeF64:
+		return "f64"
+	case ValueTypeV128:
 		return "v128"
-	} else if t == ValueTypeExnref {
+	case ValueTypeFuncref:
+		if !t.IsNullable() {
+			return "(ref func)"
+		}
+		return "funcref"
+	case ValueTypeExternref:
+		if !t.IsNullable() {
+			return "(ref extern)"
+		}
+		return "externref"
+	case ValueTypeExnref:
+		if !t.IsNullable() {
+			return "(ref exn)"
+		}
 		return "exnref"
 	}
-	return api.ValueTypeName(api.ValueType(t))
-}
-
-func (v ValueType) Kind() byte {
-	return byte(v)
+	return "unknown"
 }
 
 func isReferenceValueType(vt ValueType) bool {
-	return vt == ValueTypeExternref || vt == ValueTypeFuncref || vt == ValueTypeExnref
+	return vt.IsRef()
 }
 
 // isRefSubtypeOf returns true if actual is assignment-compatible with expected.
-// Currently, non-nullable ref types are desugared to nullable at decode time,
-// so this reduces to equality. When non-nullable ref types are properly supported,
-// this function should allow non-nullable to match nullable and vice versa.
+// Non-nullable is a subtype of nullable. Concrete function refs are subtypes of funcref.
 func isRefSubtypeOf(actual, expected ValueType) bool {
-	return actual == expected
+	if actual == expected {
+		return true
+	}
+	// Non-nullable is subtype of nullable (same kind/index).
+	if actual.AsNullable() == expected.AsNullable() && expected.IsNullable() {
+		return true
+	}
+	// Concrete function ref is subtype of (abstract) funcref (nullable or non-nullable).
+	if actual.IsConcreteRef() && expected.Kind() == ValueTypeFuncref.Kind() {
+		if !actual.IsNullable() || expected.IsNullable() {
+			return true
+		}
+	}
+	return false
 }
 
 // isStrictRefSubtypeOf returns true if actual is a strict subtype of expected.
-// Currently, non-nullable ref types are desugared to nullable at decode time,
-// so this reduces to equality. When non-nullable ref types are properly supported,
-// non-nullable should be a subtype of nullable, but NOT vice versa.
+// Non-nullable is a subtype of nullable, but NOT vice versa.
 func isStrictRefSubtypeOf(actual, expected ValueType) bool {
-	return actual == expected
+	if actual == expected {
+		return true
+	}
+	// Non-nullable is subtype of nullable (same kind/index).
+	if actual.AsNullable() == expected.AsNullable() && expected.IsNullable() {
+		return true
+	}
+	// Concrete function ref is subtype of (abstract) funcref (nullable or non-nullable).
+	if actual.IsConcreteRef() && expected.Kind() == ValueTypeFuncref.Kind() {
+		if !actual.IsNullable() || expected.IsNullable() {
+			return true
+		}
+	}
+	return false
 }
 
 // ExternType is an alias of api.ExternType defined to simplify imports.

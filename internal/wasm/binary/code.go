@@ -45,12 +45,19 @@ func decodeCode(r *bytes.Reader, codeSectionStart uint64, ret *wasm.Code) (err e
 		}
 
 		bytesRead += n + 1
-		switch vt := b; wasm.ValueType(vt) {
-		case wasm.ValueTypeI32, wasm.ValueTypeF32, wasm.ValueTypeI64, wasm.ValueTypeF64,
-			wasm.ValueTypeFuncref, wasm.ValueTypeExternref, wasm.ValueTypeV128,
-			wasm.ValueTypeExnref:
+		switch b {
+		case wasm.ValueTypeI32.Kind(), wasm.ValueTypeF32.Kind(), wasm.ValueTypeI64.Kind(), wasm.ValueTypeF64.Kind(),
+			wasm.ValueTypeFuncref.Kind(), wasm.ValueTypeExternref.Kind(), wasm.ValueTypeV128.Kind(),
+			wasm.ValueTypeExnref.Kind():
+		case wasm.RefPrefixNullable, wasm.RefPrefixNonNullable:
+			// Read and skip the heap type.
+			_, htNum, err := leb128.DecodeInt33AsInt64(r)
+			if err != nil {
+				return fmt.Errorf("read local ref heap type: %v", err)
+			}
+			bytesRead += htNum
 		default:
-			return fmt.Errorf("invalid local type: 0x%x", vt)
+			return fmt.Errorf("invalid local type: 0x%x", b)
 		}
 	}
 
@@ -79,8 +86,34 @@ func decodeCode(r *bytes.Reader, codeSectionStart uint64, ret *wasm.Code) (err e
 			return fmt.Errorf("read type of local: %v", err)
 		}
 
+		var vt wasm.ValueType
+		switch b {
+		case wasm.RefPrefixNullable, wasm.RefPrefixNonNullable:
+			nullable := b == wasm.RefPrefixNullable
+			ht, htNum, err := leb128.DecodeInt33AsInt64(r)
+			if err != nil {
+				return fmt.Errorf("read local ref heap type: %v", err)
+			}
+			remaining -= int64(htNum)
+			switch ht {
+			case wasm.HeapTypeFunc:
+				vt = wasm.ValueTypeFuncref
+			case wasm.HeapTypeExtern:
+				vt = wasm.ValueTypeExternref
+			case wasm.HeapTypeExn:
+				vt = wasm.ValueTypeExnref
+			default:
+				vt = wasm.ConcreteRef(uint32(ht), nullable)
+			}
+			if !nullable {
+				vt = vt.AsNonNullable()
+			}
+		default:
+			vt = wasm.ValueType(b)
+		}
+
 		for j := uint32(0); j < num; j++ {
-			localTypes = append(localTypes, wasm.ValueType(b))
+			localTypes = append(localTypes, vt)
 		}
 	}
 

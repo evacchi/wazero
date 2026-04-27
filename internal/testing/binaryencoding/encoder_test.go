@@ -9,6 +9,7 @@ import (
 
 func TestModule_Encode(t *testing.T) {
 	i32, f32 := wasm.ValueTypeI32, wasm.ValueTypeF32
+	i32b, f32b := i32.Kind(), f32.Kind()
 	zero := uint32(0)
 
 	tests := []struct {
@@ -44,8 +45,8 @@ func TestModule_Encode(t *testing.T) {
 				wasm.SectionIDType, 0x12, // 18 bytes in this section
 				0x03,             // 3 types
 				0x60, 0x00, 0x00, // func=0x60 no param no result
-				0x60, 0x02, i32.Kind(), i32.Kind(), 0x01, i32.Kind(), // func=0x60 2 params and 1 result
-				0x60, 0x04, i32.Kind(), i32.Kind(), i32.Kind(), i32.Kind(), 0x01, i32.Kind(), // func=0x60 4 params and 1 result
+				0x60, 0x02, i32b, i32b, 0x01, i32b, // func=0x60 2 params and 1 result
+				0x60, 0x04, i32b, i32b, i32b, i32b, 0x01, i32b, // func=0x60 4 params and 1 result
 			),
 		},
 		{
@@ -69,9 +70,9 @@ func TestModule_Encode(t *testing.T) {
 			},
 			expected: append(append(Magic, version...),
 				wasm.SectionIDType, 0x0d, // 13 bytes in this section
-				0x02,                                                 // 2 types
-				0x60, 0x02, i32.Kind(), i32.Kind(), 0x01, i32.Kind(), // func=0x60 2 params and 1 result
-				0x60, 0x02, f32.Kind(), f32.Kind(), 0x01, f32.Kind(), // func=0x60 2 params and 1 result
+				0x02,                               // 2 types
+				0x60, 0x02, i32b, i32b, 0x01, i32b, // func=0x60 2 params and 1 result
+				0x60, 0x02, f32b, f32b, 0x01, f32b, // func=0x60 2 params and 1 result
 				wasm.SectionIDImport, 0x17, // 23 bytes in this section
 				0x02, // 2 imports
 				0x04, 'M', 'a', 't', 'h', 0x03, 'M', 'u', 'l', wasm.ExternTypeFunc,
@@ -143,8 +144,8 @@ func TestModule_Encode(t *testing.T) {
 			},
 			expected: append(append(Magic, version...),
 				wasm.SectionIDType, 0x07, // 7 bytes in this section
-				0x01,                                                 // 1 type
-				0x60, 0x02, i32.Kind(), i32.Kind(), 0x01, i32.Kind(), // func=0x60 2 params and 1 result
+				0x01,                               // 1 type
+				0x60, 0x02, i32b, i32b, 0x01, i32b, // func=0x60 2 params and 1 result
 				wasm.SectionIDFunction, 0x02, // 2 bytes in this section
 				0x01,                       // 1 function
 				0x00,                       // func[0] type index 0

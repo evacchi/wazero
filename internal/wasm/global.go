@@ -13,7 +13,7 @@ type constantGlobal struct {
 
 // Type implements api.Global.
 func (g constantGlobal) Type() api.ValueType {
-	return api.ValueType(g.g.Type.ValType)
+	return ToAPIValueType(g.g.Type.ValType)
 }
 
 // Get implements api.Global.
@@ -35,7 +35,7 @@ type mutableGlobal struct {
 
 // Type implements api.Global.
 func (g mutableGlobal) Type() api.ValueType {
-	return api.ValueType(g.g.Type.ValType)
+	return ToAPIValueType(g.g.Type.ValType)
 }
 
 // Get implements api.Global.

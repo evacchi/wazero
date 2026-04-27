@@ -15,7 +15,7 @@ type Table struct {
 	Type RefType
 }
 
-// RefType is either RefTypeFuncref or RefTypeExternref as of WebAssembly core 2.0.
+// RefType is a reference type used for table elements.
 type RefType = ValueType
 
 const (
