@@ -64,7 +64,7 @@ func TestCompile_LocalSetWithMultipleConcreteRefLocals(t *testing.T) {
 	//   (local.get 2)
 	//   (call_ref 0)
 	// )
-	concreteRefNullable := wasm.ConcreteRef(0, true)
+	concreteRefNullable := wasm.ValueTypeConcreteRef(0, true)
 	module := &wasm.Module{
 		TypeSection:     []wasm.FunctionType{i32_i32},
 		FunctionSection: []wasm.Index{0, 0, 0}, // func 0 = this, func 1 = $f, func 2 = $g

@@ -103,7 +103,7 @@ func decodeCode(r *bytes.Reader, codeSectionStart uint64, ret *wasm.Code) (err e
 			case wasm.HeapTypeExn:
 				vt = wasm.ValueTypeExnref
 			default:
-				vt = wasm.ConcreteRef(uint32(ht), nullable)
+				vt = wasm.ValueTypeConcreteRef(uint32(ht), nullable)
 			}
 			if !nullable {
 				vt = vt.AsNonNullable()

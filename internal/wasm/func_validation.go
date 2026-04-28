@@ -817,7 +817,7 @@ func (m *Module) validateFunctionWithMaxStackValues(
 				return fmt.Errorf("invalid type index at %s: %d", instructionNames[op], typeIndex)
 			}
 			// Pop the funcref operand (nullable concrete ref to the type).
-			if err := valueTypeStack.popAndVerifyType(ConcreteRef(typeIndex, true)); err != nil {
+			if err := valueTypeStack.popAndVerifyType(ValueTypeConcreteRef(typeIndex, true)); err != nil {
 				return fmt.Errorf("type mismatch on %s operation: %v", instructionNames[op], err)
 			}
 			funcType := &m.TypeSection[typeIndex]
@@ -1077,7 +1077,7 @@ func (m *Module) validateFunctionWithMaxStackValues(
 						return fmt.Errorf("unknown type for ref.null: type index %d out of range", typeIdx)
 					}
 					pc += uint64(num) - 1
-					valueTypeStack.push(ConcreteRef(typeIdx, true))
+					valueTypeStack.push(ValueTypeConcreteRef(typeIdx, true))
 				}
 			case OpcodeRefIsNull:
 				tp, err := valueTypeStack.pop()
@@ -1098,7 +1098,7 @@ func (m *Module) validateFunctionWithMaxStackValues(
 				}
 				pc += num - 1
 				if enabledFeatures.IsEnabled(experimental.CoreFeaturesTypedFunctionReferences) {
-					valueTypeStack.push(ConcreteRef(functions[index], false))
+					valueTypeStack.push(ValueTypeConcreteRef(functions[index], false))
 				} else {
 					valueTypeStack.push(ValueTypeFuncref)
 				}
@@ -2711,7 +2711,7 @@ func DecodeBlockType(types []FunctionType, r *bytes.Reader, enabledFeatures api.
 			if int64(len(types)) <= ht {
 				return nil, 0, fmt.Errorf("unknown type")
 			}
-			vt := ConcreteRef(uint32(ht), true)
+			vt := ValueTypeConcreteRef(uint32(ht), true)
 			ret = &FunctionType{Results: []ValueType{vt}, ResultNumInUint64: 1}
 		}
 	case -28: // 0x64 = ref (non-nullable)
@@ -2734,7 +2734,7 @@ func DecodeBlockType(types []FunctionType, r *bytes.Reader, enabledFeatures api.
 			if int64(len(types)) <= ht {
 				return nil, 0, fmt.Errorf("unknown type")
 			}
-			vt := ConcreteRef(uint32(ht), false)
+			vt := ValueTypeConcreteRef(uint32(ht), false)
 			ret = &FunctionType{Results: []ValueType{vt}, ResultNumInUint64: 1}
 		}
 	default:

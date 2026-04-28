@@ -27,36 +27,41 @@ func decodeValueTypes(r *bytes.Reader, num uint32) ([]wasm.ValueType, error) {
 			wasm.ValueTypeExternref.Kind(), wasm.ValueTypeFuncref.Kind(), wasm.ValueTypeV128.Kind(),
 			wasm.ValueTypeExnref.Kind():
 			ret = append(ret, wasm.ValueType(b))
-		case wasm.RefPrefixNullable, wasm.RefPrefixNonNullable:
-			nullable := b == wasm.RefPrefixNullable
+		case wasm.RefPrefixNullable:
 			ht, _, err := leb128.DecodeInt33AsInt64(r)
 			if err != nil {
 				return nil, fmt.Errorf("read ref heap type: %w", err)
 			}
 			switch ht {
 			case wasm.HeapTypeExn:
-				v := wasm.ValueTypeExnref
-				if !nullable {
-					v = v.AsNonNullable()
-				}
-				ret = append(ret, v)
+				ret = append(ret, wasm.ValueTypeExnref)
 			case wasm.HeapTypeFunc:
-				v := wasm.ValueTypeFuncref
-				if !nullable {
-					v = v.AsNonNullable()
-				}
-				ret = append(ret, v)
+				ret = append(ret, wasm.ValueTypeFuncref)
 			case wasm.HeapTypeExtern:
-				v := wasm.ValueTypeExternref
-				if !nullable {
-					v = v.AsNonNullable()
-				}
-				ret = append(ret, v)
+				ret = append(ret, wasm.ValueTypeExternref)
 			default:
 				if ht < 0 {
 					return nil, fmt.Errorf("unknown abstract heap type: %d", ht)
 				}
-				ret = append(ret, wasm.ConcreteRef(uint32(ht), nullable))
+				ret = append(ret, wasm.ValueTypeConcreteRef(uint32(ht), true))
+			}
+		case wasm.RefPrefixNonNullable:
+			ht, _, err := leb128.DecodeInt33AsInt64(r)
+			if err != nil {
+				return nil, fmt.Errorf("read ref heap type: %w", err)
+			}
+			switch ht {
+			case wasm.HeapTypeExn:
+				ret = append(ret, wasm.ValueTypeExnref.AsNonNullable())
+			case wasm.HeapTypeFunc:
+				ret = append(ret, wasm.ValueTypeFuncref.AsNonNullable())
+			case wasm.HeapTypeExtern:
+				ret = append(ret, wasm.ValueTypeExternref.AsNonNullable())
+			default:
+				if ht < 0 {
+					return nil, fmt.Errorf("unknown abstract heap type: %d", ht)
+				}
+				ret = append(ret, wasm.ValueTypeConcreteRef(uint32(ht), false))
 			}
 		default:
 			return nil, fmt.Errorf("invalid value type: %d", b)

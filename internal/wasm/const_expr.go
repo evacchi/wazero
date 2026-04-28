@@ -98,7 +98,7 @@ func evaluateConstExpr(e *ConstantExpression, globalResolver func(globalIndex In
 					return nil, 0, fmt.Errorf("invalid type for ref.null: 0x%x", b)
 				}
 				pc += n
-				valType = ConcreteRef(typeIdx, true)
+				valType = ValueTypeConcreteRef(typeIdx, true)
 			}
 			stack = append(stack, 0)
 			typeStack = append(typeStack, valType)
@@ -115,7 +115,7 @@ func evaluateConstExpr(e *ConstantExpression, globalResolver func(globalIndex In
 			stack = append(stack, uint64(ref))
 			if len(funcTypeIndexResolver) > 0 && funcTypeIndexResolver[0] != nil {
 				typeIndex := funcTypeIndexResolver[0](Index(v))
-				typeStack = append(typeStack, ConcreteRef(typeIndex, false))
+				typeStack = append(typeStack, ValueTypeConcreteRef(typeIndex, false))
 			} else {
 				typeStack = append(typeStack, ValueTypeFuncref)
 			}

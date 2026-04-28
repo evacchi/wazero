@@ -36,7 +36,7 @@ func decodeTable(r *bytes.Reader, enabledFeatures api.CoreFeatures, ret *wasm.Ta
 			if ht < 0 {
 				return fmt.Errorf("unknown abstract heap type for table: %d", ht)
 			}
-			ret.Type = wasm.ConcreteRef(uint32(ht), nullable)
+			ret.Type = wasm.ValueTypeConcreteRef(uint32(ht), nullable)
 		}
 		if !nullable {
 			ret.Type = ret.Type.AsNonNullable()

@@ -1237,8 +1237,8 @@ func (v ValueType) AsNonNullable() ValueType { return v | flagNonNullable }
 // AsNullable returns a copy with the non-nullable flag cleared.
 func (v ValueType) AsNullable() ValueType { return v &^ flagNonNullable }
 
-// ConcreteRef creates a concrete reference type with the given type index and nullability.
-func ConcreteRef(typeIndex uint32, nullable bool) ValueType {
+// ValueTypeConcreteRef creates a concrete reference type with the given type index and nullability.
+func ValueTypeConcreteRef(typeIndex uint32, nullable bool) ValueType {
 	v := ValueTypeFuncref | flagConcreteRef | ValueType(typeIndex)<<32
 	if !nullable {
 		v |= flagNonNullable
