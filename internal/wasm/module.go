@@ -333,31 +333,31 @@ func (m *Module) Validate(enabledFeatures api.CoreFeatures) error {
 
 func (m *Module) validateConcreteRefTypes() error {
 	numTypes := uint32(len(m.TypeSection))
-	check := func(vt ValueType, context string) error {
+	check := func(vt ValueType, context string, id int) error {
 		if vt.IsConcreteRef() && vt.TypeIndex() >= numTypes {
-			return fmt.Errorf("unknown type")
+			return fmt.Errorf("unknown type %d in %s[%d]", vt.TypeIndex(), context, id)
 		}
 		return nil
 	}
-	for _, g := range m.GlobalSection {
-		if err := check(g.Type.ValType, "global"); err != nil {
+	for i, g := range m.GlobalSection {
+		if err := check(g.Type.ValType, "global", i); err != nil {
 			return err
 		}
 	}
-	for _, t := range m.TableSection {
-		if err := check(t.Type, "table"); err != nil {
+	for i, t := range m.TableSection {
+		if err := check(t.Type, "table", i); err != nil {
 			return err
 		}
 	}
-	for _, c := range m.CodeSection {
-		for _, lt := range c.LocalTypes {
-			if err := check(lt, "local"); err != nil {
+	for i, c := range m.CodeSection {
+		for j, lt := range c.LocalTypes {
+			if err := check(lt, fmt.Sprintf("func[%d].local", i), j); err != nil {
 				return err
 			}
 		}
 	}
-	for _, e := range m.ElementSection {
-		if err := check(e.Type, "element"); err != nil {
+	for i, e := range m.ElementSection {
+		if err := check(e.Type, "element", i); err != nil {
 			return err
 		}
 	}
@@ -1322,7 +1322,6 @@ func isRefSubtypeOf(actual, expected ValueType) bool {
 	}
 	return false
 }
-
 
 // ExternType is an alias of api.ExternType defined to simplify imports.
 type ExternType = api.ExternType
