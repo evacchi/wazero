@@ -796,7 +796,9 @@ func (m *Module) validateFunctionWithMaxStackValues(
 				if err := enabledFeatures.RequireEnabled(experimental.CoreFeaturesTailCall); err != nil {
 					return fmt.Errorf("%s invalid as %v", OpcodeTailCallReturnCallIndirectName, err)
 				}
-				// Same formatting as OpcodeEnd on the outer-most block
+				if len(funcType.Results) != len(functionType.Results) {
+					return fmt.Errorf("type mismatch on return_call_indirect: caller returns %d values but callee returns %d", len(functionType.Results), len(funcType.Results))
+				}
 				if err := valueTypeStack.requireStackValues(false, "", functionType.Results, false); err != nil {
 					return err
 				}
@@ -832,6 +834,9 @@ func (m *Module) validateFunctionWithMaxStackValues(
 			if op == OpcodeReturnCallRef {
 				if err := enabledFeatures.RequireEnabled(experimental.CoreFeaturesTailCall); err != nil {
 					return fmt.Errorf("%s invalid as %v", OpcodeReturnCallRefName, err)
+				}
+				if len(funcType.Results) != len(functionType.Results) {
+					return fmt.Errorf("type mismatch on return_call_ref: caller returns %d values but callee returns %d", len(functionType.Results), len(funcType.Results))
 				}
 				if err := valueTypeStack.requireStackValues(false, "", functionType.Results, false); err != nil {
 					return err
