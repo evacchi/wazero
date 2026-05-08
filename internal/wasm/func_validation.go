@@ -656,7 +656,7 @@ func (m *Module) validateFunctionWithMaxStackValues(
 						return fmt.Errorf("catch clause type mismatch: catch delivers %d values but label expects %d", len(catchTypes), len(expectedTypes))
 					}
 					for j := range catchTypes {
-						if !isStrictRefSubtypeOf(catchTypes[j], expectedTypes[j]) {
+						if !isRefSubtypeOf(catchTypes[j], expectedTypes[j]) {
 							return fmt.Errorf("catch clause type mismatch at index %d: %v is not a subtype of %v", j, catchTypes[j], expectedTypes[j])
 						}
 					}
@@ -685,7 +685,7 @@ func (m *Module) validateFunctionWithMaxStackValues(
 						return fmt.Errorf("catch_all clause type mismatch: catch delivers %d values but label expects %d", len(catchTypes), len(expectedTypes))
 					}
 					for j := range catchTypes {
-						if !isStrictRefSubtypeOf(catchTypes[j], expectedTypes[j]) {
+						if !isRefSubtypeOf(catchTypes[j], expectedTypes[j]) {
 							return fmt.Errorf("catch_all clause type mismatch at index %d", j)
 						}
 					}

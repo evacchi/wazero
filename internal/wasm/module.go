@@ -1323,24 +1323,6 @@ func isRefSubtypeOf(actual, expected ValueType) bool {
 	return false
 }
 
-// isStrictRefSubtypeOf returns true if actual is a strict subtype of expected.
-// Non-nullable is a subtype of nullable, but NOT vice versa.
-func isStrictRefSubtypeOf(actual, expected ValueType) bool {
-	if actual == expected {
-		return true
-	}
-	// Non-nullable is subtype of nullable (same kind/index).
-	if actual.AsNullable() == expected.AsNullable() && expected.IsNullable() {
-		return true
-	}
-	// Concrete function ref is subtype of (abstract) funcref (nullable or non-nullable).
-	if actual.IsConcreteRef() && expected.Kind() == ValueTypeFuncref.Kind() {
-		if !actual.IsNullable() || expected.IsNullable() {
-			return true
-		}
-	}
-	return false
-}
 
 // ExternType is an alias of api.ExternType defined to simplify imports.
 type ExternType = api.ExternType
