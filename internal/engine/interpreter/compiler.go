@@ -3798,7 +3798,7 @@ func (c *compiler) emitDefaultValue(t wasm.ValueType) {
 			c.stackPush(unsignedTypeI64)
 			c.emit(newOperationConstI64(0))
 		} else {
-			panic("unreachable")
+			panic(fmt.Sprintf("bug: unsupported value type for default value: 0x%x", t))
 		}
 	}
 }
