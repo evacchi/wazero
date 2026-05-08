@@ -10,9 +10,10 @@ import (
 
 // Table describes the limits of elements and its type in a table.
 type Table struct {
-	Min  uint32
-	Max  *uint32
-	Type RefType
+	Min      uint32
+	Max      *uint32
+	Type     RefType
+	InitExpr *ConstantExpression
 }
 
 // RefType is a reference type used for table elements.
@@ -70,6 +71,10 @@ type ElementSegment struct {
 
 	// Type holds the type of this element segment, which is the RefType in WebAssembly 2.0.
 	Type RefType
+
+	// LegacyFuncrefType is true when the element type is funcref from a legacy encoding
+	// (prefixes 0-4) where the type is implicit rather than explicitly declared.
+	LegacyFuncrefType bool
 
 	// Mode is the mode of this element segment.
 	Mode ElementMode
@@ -185,9 +190,11 @@ func (m *Module) validateTable(enabledFeatures api.CoreFeatures, tables []Table,
 
 			t := tables[elem.TableIndex]
 			if !isRefSubtypeOf(elem.Type, t.Type) {
-				return fmt.Errorf("element type mismatch: table has %s but element has %s",
-					RefTypeName(t.Type), RefTypeName(elem.Type),
-				)
+				if !elem.LegacyFuncrefType || !isRefSubtypeOf(t.Type, elem.Type) {
+					return fmt.Errorf("element type mismatch: table has %s but element has %s",
+						RefTypeName(t.Type), RefTypeName(elem.Type),
+					)
+				}
 			}
 
 			hasGlobalRef := false
@@ -245,11 +252,20 @@ func (m *ModuleInstance) buildTables(module *Module, skipBoundCheck bool) (err e
 	idx := module.ImportTableCount
 	for i := range module.TableSection {
 		tsec := &module.TableSection[i]
-		// The module defining the table is the one that sets its Min/Max etc.
-		m.Tables[idx] = &TableInstance{
+		t := &TableInstance{
 			References: make([]Reference, tsec.Min), Min: tsec.Min, Max: tsec.Max,
 			Type: tsec.Type,
 		}
+		if tsec.InitExpr != nil {
+			initVals := evaluateConstExprInModuleInstance(tsec.InitExpr, m)
+			if len(initVals) > 0 && initVals[0] != 0 {
+				initRef := Reference(initVals[0])
+				for j := range t.References {
+					t.References[j] = initRef
+				}
+			}
+		}
+		m.Tables[idx] = t
 		idx++
 	}
 

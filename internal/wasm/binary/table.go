@@ -18,6 +18,23 @@ func decodeTable(r *bytes.Reader, enabledFeatures api.CoreFeatures, ret *wasm.Ta
 		return fmt.Errorf("read leading byte: %v", err)
 	}
 
+	hasInitExpr := false
+	if b == 0x40 {
+		// Table with initializer expression: 0x40 0x00 tabletype expr
+		reserved, err := r.ReadByte()
+		if err != nil {
+			return fmt.Errorf("read reserved byte after 0x40: %v", err)
+		}
+		if reserved != 0x00 {
+			return fmt.Errorf("expected 0x00 after 0x40 table prefix, got 0x%02x", reserved)
+		}
+		hasInitExpr = true
+		b, err = r.ReadByte()
+		if err != nil {
+			return fmt.Errorf("read table ref type: %v", err)
+		}
+	}
+
 	switch b {
 	case wasm.RefPrefixNullable, wasm.RefPrefixNonNullable:
 		nullable := b == wasm.RefPrefixNullable
@@ -66,6 +83,14 @@ func decodeTable(r *bytes.Reader, enabledFeatures api.CoreFeatures, ret *wasm.Ta
 	}
 	if shared {
 		return fmt.Errorf("tables cannot be marked as shared")
+	}
+
+	if hasInitExpr {
+		var initExpr wasm.ConstantExpression
+		if err := decodeConstantExpression(r, enabledFeatures, &initExpr); err != nil {
+			return fmt.Errorf("read table init expr: %v", err)
+		}
+		ret.InitExpr = &initExpr
 	}
 	return
 }

@@ -144,6 +144,7 @@ func decodeElementSegment(r *bytes.Reader, enabledFeatures api.CoreFeatures, ret
 
 		ret.Mode = wasm.ElementModeActive
 		ret.Type = wasm.RefTypeFuncref
+		ret.LegacyFuncrefType = true
 		return nil
 	case elementSegmentPrefixPassiveFuncrefValueVector:
 		// Prefix 1 requires funcref.
@@ -157,6 +158,7 @@ func decodeElementSegment(r *bytes.Reader, enabledFeatures api.CoreFeatures, ret
 		}
 		ret.Mode = wasm.ElementModePassive
 		ret.Type = wasm.RefTypeFuncref
+		ret.LegacyFuncrefType = true
 		return nil
 	case elementSegmentPrefixActiveFuncrefValueVectorWithTableIndex:
 		ret.TableIndex, _, err = leb128.DecodeUint32(r)
@@ -187,6 +189,7 @@ func decodeElementSegment(r *bytes.Reader, enabledFeatures api.CoreFeatures, ret
 
 		ret.Mode = wasm.ElementModeActive
 		ret.Type = wasm.RefTypeFuncref
+		ret.LegacyFuncrefType = true
 		return nil
 	case elementSegmentPrefixDeclarativeFuncrefValueVector:
 		// Prefix 3 requires funcref.
@@ -198,6 +201,7 @@ func decodeElementSegment(r *bytes.Reader, enabledFeatures api.CoreFeatures, ret
 			return err
 		}
 		ret.Type = wasm.RefTypeFuncref
+		ret.LegacyFuncrefType = true
 		ret.Mode = wasm.ElementModeDeclarative
 		return nil
 	case elementSegmentPrefixActiveFuncrefConstExprVector:
