@@ -8,10 +8,30 @@ import (
 	"github.com/tetratelabs/wazero"
 	"github.com/tetratelabs/wazero/api"
 	"github.com/tetratelabs/wazero/experimental"
+	"github.com/tetratelabs/wazero/internal/platform"
 	"github.com/tetratelabs/wazero/internal/testing/binaryencoding"
 	"github.com/tetratelabs/wazero/internal/testing/require"
 	"github.com/tetratelabs/wazero/internal/wasm"
 )
+
+func typedFuncRefsConfigs() []struct {
+	name   string
+	config wazero.RuntimeConfig
+} {
+	configs := []struct {
+		name   string
+		config wazero.RuntimeConfig
+	}{
+		{"interpreter", wazero.NewRuntimeConfigInterpreter().WithCoreFeatures(api.CoreFeaturesV2)},
+	}
+	if platform.CompilerSupported() {
+		configs = append(configs, struct {
+			name   string
+			config wazero.RuntimeConfig
+		}{"compiler", wazero.NewRuntimeConfigCompiler().WithCoreFeatures(api.CoreFeaturesV2)})
+	}
+	return configs
+}
 
 // TestLocalSetMultipleI32Locals validates that local.set works correctly
 // when there are multiple locals (no concrete refs). This is a baseline test
@@ -52,12 +72,7 @@ func TestLocalSetMultipleI32Locals(t *testing.T) {
 		ExportSection: []wasm.Export{{Name: "test", Type: wasm.ExternTypeFunc, Index: 0}},
 	}
 
-	for _, tc := range []struct {
-		name   string
-		config wazero.RuntimeConfig
-	}{
-		{"interpreter", wazero.NewRuntimeConfigInterpreter().WithCoreFeatures(api.CoreFeaturesV2)},
-	} {
+	for _, tc := range typedFuncRefsConfigs() {
 		t.Run(tc.name, func(t *testing.T) {
 			ctx := context.Background()
 			r := wazero.NewRuntimeWithConfig(ctx, tc.config)
@@ -120,12 +135,7 @@ func TestLocalSetMultipleFuncrefLocals(t *testing.T) {
 		ExportSection: []wasm.Export{{Name: "test", Type: wasm.ExternTypeFunc, Index: 0}},
 	}
 
-	for _, tc := range []struct {
-		name   string
-		config wazero.RuntimeConfig
-	}{
-		{"interpreter", wazero.NewRuntimeConfigInterpreter().WithCoreFeatures(api.CoreFeaturesV2)},
-	} {
+	for _, tc := range typedFuncRefsConfigs() {
 		t.Run(tc.name, func(t *testing.T) {
 			ctx := context.Background()
 			r := wazero.NewRuntimeWithConfig(ctx, tc.config)
@@ -187,12 +197,7 @@ func TestLocalSetThreeLocals(t *testing.T) {
 		ExportSection: []wasm.Export{{Name: "test", Type: wasm.ExternTypeFunc, Index: 0}},
 	}
 
-	for _, tc := range []struct {
-		name   string
-		config wazero.RuntimeConfig
-	}{
-		{"interpreter", wazero.NewRuntimeConfigInterpreter().WithCoreFeatures(api.CoreFeaturesV2)},
-	} {
+	for _, tc := range typedFuncRefsConfigs() {
 		t.Run(tc.name, func(t *testing.T) {
 			ctx := context.Background()
 			r := wazero.NewRuntimeWithConfig(ctx, tc.config)
@@ -253,12 +258,7 @@ func TestLocalSetParamAndMultipleLocals(t *testing.T) {
 		ExportSection: []wasm.Export{{Name: "test", Type: wasm.ExternTypeFunc, Index: 0}},
 	}
 
-	for _, tc := range []struct {
-		name   string
-		config wazero.RuntimeConfig
-	}{
-		{"interpreter", wazero.NewRuntimeConfigInterpreter().WithCoreFeatures(api.CoreFeaturesV2)},
-	} {
+	for _, tc := range typedFuncRefsConfigs() {
 		t.Run(tc.name, func(t *testing.T) {
 			ctx := context.Background()
 			r := wazero.NewRuntimeWithConfig(ctx, tc.config)
@@ -282,33 +282,48 @@ func TestLocalSetParamAndMultipleLocals(t *testing.T) {
 // which uses (local (ref null $ii)) concrete ref locals, sets them with ref.func,
 // and calls through them with call_ref.
 func TestCallRefWithConcreteRefLocals(t *testing.T) {
-	ctx := context.Background()
-
 	buf, err := os.ReadFile("../spectest/typed-function-references/testdata/call_ref.0.wasm")
 	if err != nil {
 		t.Skipf("could not read call_ref.0.wasm: %v", err)
 	}
 
-	config := wazero.NewRuntimeConfigInterpreter().WithCoreFeatures(
-		api.CoreFeaturesV2 | experimental.CoreFeaturesTypedFunctionReferences | experimental.CoreFeaturesTailCall,
-	)
-	r := wazero.NewRuntimeWithConfig(ctx, config)
-	defer r.Close(ctx)
+	configs := []struct {
+		name   string
+		config wazero.RuntimeConfig
+	}{
+		{"interpreter", wazero.NewRuntimeConfigInterpreter().WithCoreFeatures(
+			api.CoreFeaturesV2 | experimental.CoreFeaturesTypedFunctionReferences | experimental.CoreFeaturesTailCall,
+		)},
+	}
+	if platform.CompilerSupported() {
+		configs = append(configs, struct {
+			name   string
+			config wazero.RuntimeConfig
+		}{"compiler", wazero.NewRuntimeConfigCompiler().WithCoreFeatures(
+			api.CoreFeaturesV2 | experimental.CoreFeaturesTypedFunctionReferences | experimental.CoreFeaturesTailCall,
+		)})
+	}
 
-	inst, err := r.InstantiateWithConfig(ctx, buf, wazero.NewModuleConfig())
-	require.NoError(t, err)
+	for _, tc := range configs {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := context.Background()
+			r := wazero.NewRuntimeWithConfig(ctx, tc.config)
+			defer r.Close(ctx)
 
-	fn := inst.ExportedFunction("run")
-	require.NotNil(t, fn)
+			inst, err := r.InstantiateWithConfig(ctx, buf, wazero.NewModuleConfig())
+			require.NoError(t, err)
 
-	results, err := fn.Call(ctx, 0)
-	require.NoError(t, err)
-	t.Logf("run(0) = %v", results)
-	require.Equal(t, uint64(0), results[0])
+			fn := inst.ExportedFunction("run")
+			require.NotNil(t, fn)
 
-	results, err = fn.Call(ctx, 3)
-	require.NoError(t, err)
-	t.Logf("run(3) = %v", results)
-	expected := uint64(0xfffffff7) // -9 as i32
-	require.Equal(t, expected, results[0])
+			results, err := fn.Call(ctx, 0)
+			require.NoError(t, err)
+			require.Equal(t, uint64(0), results[0])
+
+			results, err = fn.Call(ctx, 3)
+			require.NoError(t, err)
+			expected := uint64(0xfffffff7) // -9 as i32
+			require.Equal(t, expected, results[0])
+		})
+	}
 }

@@ -1068,6 +1068,9 @@ func (m *Module) validateFunctionWithMaxStackValues(
 					valueTypeStack.push(ValueTypeExnref)
 				default:
 					// Concrete type index encoded as LEB128 u32.
+					if err := enabledFeatures.RequireEnabled(experimental.CoreFeaturesTypedFunctionReferences); err != nil {
+						return fmt.Errorf("ref.null with concrete type invalid as %v", err)
+					}
 					br.Reset(body[pc:])
 					typeIdx, num, err := leb128.DecodeUint32(br)
 					if err != nil {

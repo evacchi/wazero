@@ -3730,6 +3730,19 @@ func (c *Compiler) lowerCurrentOpcode() {
 			args = ssa.ValuesNil
 		}
 
+		if c.needListener && targetBlk.ReturnBlock() {
+			current := builder.CurrentBlock()
+			targetBlk = builder.AllocateBasicBlock()
+			builder.SetCurrentBlock(targetBlk)
+			sealTargetBlk = true
+			c.callListenerAfter()
+			instr := builder.AllocateInstruction()
+			instr.AsReturn(args)
+			builder.InsertInstruction(instr)
+			args = ssa.ValuesNil
+			builder.SetCurrentBlock(current)
+		}
+
 		brnz := builder.AllocateInstruction()
 		brnz.AsBrnz(isNull, args, targetBlk)
 		builder.InsertInstruction(brnz)
@@ -3775,6 +3788,19 @@ func (c *Compiler) lowerCurrentOpcode() {
 			targetBlk = trampolineBlk
 			sealTargetBlk = true
 			args = ssa.ValuesNil
+		}
+
+		if c.needListener && targetBlk.ReturnBlock() {
+			current := builder.CurrentBlock()
+			targetBlk = builder.AllocateBasicBlock()
+			builder.SetCurrentBlock(targetBlk)
+			sealTargetBlk = true
+			c.callListenerAfter()
+			instr := builder.AllocateInstruction()
+			instr.AsReturn(args)
+			builder.InsertInstruction(instr)
+			args = ssa.ValuesNil
+			builder.SetCurrentBlock(current)
 		}
 
 		brnz := builder.AllocateInstruction()
