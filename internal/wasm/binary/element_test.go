@@ -390,7 +390,7 @@ func TestDecodeElementSegment(t *testing.T) {
 				5, // Prefix.
 				0xff,
 			},
-			expErr:   `ref type must be funcref or externref for element as of WebAssembly 2.0`,
+			expErr:   `invalid ref type for element: 0xff`,
 			features: api.CoreFeatureBulkMemoryOperations | api.CoreFeatureReferenceTypes,
 		},
 		{

@@ -2,7 +2,6 @@ package binary
 
 import (
 	"bytes"
-	"errors"
 	"fmt"
 
 	"github.com/tetratelabs/wazero/api"
@@ -61,13 +60,37 @@ func decodeElementConstExprVector(r *bytes.Reader, elemType wasm.RefType, enable
 
 func decodeElementRefType(r *bytes.Reader) (ret wasm.RefType, err error) {
 	b, e := r.ReadByte()
-	ret = wasm.ValueType(b)
 	if e != nil {
-		err = fmt.Errorf("read element ref type: %w", e)
-		return
+		return 0, fmt.Errorf("read element ref type: %w", e)
 	}
-	if ret != wasm.RefTypeFuncref && ret != wasm.RefTypeExternref {
-		return 0, errors.New("ref type must be funcref or externref for element as of WebAssembly 2.0")
+	switch b {
+	case wasm.RefPrefixNullable, wasm.RefPrefixNonNullable:
+		nullable := b == wasm.RefPrefixNullable
+		ht, _, err := leb128.DecodeInt33AsInt64(r)
+		if err != nil {
+			return 0, fmt.Errorf("read element ref heap type: %v", err)
+		}
+		switch ht {
+		case wasm.HeapTypeFunc:
+			ret = wasm.ValueTypeFuncref
+		case wasm.HeapTypeExtern:
+			ret = wasm.ValueTypeExternref
+		case wasm.HeapTypeExn:
+			ret = wasm.ValueTypeExnref
+		default:
+			if ht < 0 {
+				return 0, fmt.Errorf("unknown abstract heap type for element: %d", ht)
+			}
+			ret = wasm.ValueTypeConcreteRef(uint32(ht), nullable)
+		}
+		if !nullable {
+			ret = ret.AsNonNullable()
+		}
+	default:
+		ret = wasm.ValueType(b)
+		if ret != wasm.RefTypeFuncref && ret != wasm.RefTypeExternref {
+			return 0, fmt.Errorf("invalid ref type for element: 0x%x", b)
+		}
 	}
 	return
 }

@@ -184,7 +184,7 @@ func (m *Module) validateTable(enabledFeatures api.CoreFeatures, tables []Table,
 			}
 
 			t := tables[elem.TableIndex]
-			if t.Type != elem.Type {
+			if !isRefSubtypeOf(elem.Type, t.Type) {
 				return fmt.Errorf("element type mismatch: table has %s but element has %s",
 					RefTypeName(t.Type), RefTypeName(elem.Type),
 				)
