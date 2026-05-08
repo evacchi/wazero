@@ -733,11 +733,12 @@ func (m *Module) validateFunctionWithMaxStackValues(
 				if err := enabledFeatures.RequireEnabled(experimental.CoreFeaturesTailCall); err != nil {
 					return fmt.Errorf("%s invalid as %v", OpcodeTailCallReturnCallName, err)
 				}
-				// Same formatting as OpcodeEnd on the outer-most block
+				if len(funcType.Results) != len(functionType.Results) {
+					return fmt.Errorf("type mismatch on return_call: caller returns %d values but callee returns %d", len(functionType.Results), len(funcType.Results))
+				}
 				if err := valueTypeStack.requireStackValues(false, "", functionType.Results, false); err != nil {
 					return err
 				}
-				// behaves as a jump.
 				valueTypeStack.unreachable()
 			}
 		} else if op == OpcodeCallIndirect || op == OpcodeTailCallReturnCallIndirect {
@@ -2288,19 +2289,51 @@ func (m *Module) validateFunctionWithMaxStackValues(
 					return fmt.Errorf("too many type immediates for %s", InstructionName(op))
 				}
 				pc++
-				tp := ValueType(body[pc])
-				if tp != ValueTypeI32 && tp != ValueTypeI64 && tp != ValueTypeF32 && tp != ValueTypeF64 &&
-					tp != ValueTypeExternref && tp != ValueTypeFuncref && tp != ValueTypeV128 {
-					return fmt.Errorf("invalid type %s for %s", ValueTypeName(tp), OpcodeTypedSelectName)
+				b := body[pc]
+				switch b {
+				case RefPrefixNullable, RefPrefixNonNullable:
+					br.Reset(body[pc+1:])
+					ht, num, err := leb128.DecodeInt33AsInt64(br)
+					if err != nil {
+						return fmt.Errorf("read heap type for %s: %v", OpcodeTypedSelectName, err)
+					}
+					pc += uint64(num)
+					switch ht {
+					case HeapTypeFunc:
+						// ok
+					case HeapTypeExtern:
+						// ok
+					case HeapTypeExn:
+						// ok
+					default:
+						if ht < 0 {
+							return fmt.Errorf("invalid heap type for %s: %d", OpcodeTypedSelectName, ht)
+						}
+						if int(ht) >= len(m.TypeSection) {
+							return fmt.Errorf("unknown type for %s: type index %d out of range", OpcodeTypedSelectName, ht)
+						}
+					}
+				default:
+					tp := ValueType(b)
+					if tp != ValueTypeI32 && tp != ValueTypeI64 && tp != ValueTypeF32 && tp != ValueTypeF64 &&
+						tp != ValueTypeExternref && tp != ValueTypeFuncref && tp != ValueTypeV128 {
+						return fmt.Errorf("invalid type %s for %s", ValueTypeName(tp), OpcodeTypedSelectName)
+					}
 				}
 			} else if isReferenceValueType(v1) || isReferenceValueType(v2) {
 				return fmt.Errorf("reference types cannot be used for non typed select instruction")
 			}
 
 			if v1 != v2 && v1 != valueTypeUnknown && v2 != valueTypeUnknown {
-				return fmt.Errorf("type mismatch on 1st and 2nd select operands")
+				if !isRefSubtypeOf(v1, v2) && !isRefSubtypeOf(v2, v1) {
+					return fmt.Errorf("type mismatch on 1st and 2nd select operands")
+				}
 			}
 			if v1 == valueTypeUnknown {
+				valueTypeStack.push(v2)
+			} else if v2 == valueTypeUnknown {
+				valueTypeStack.push(v1)
+			} else if isRefSubtypeOf(v1, v2) {
 				valueTypeStack.push(v2)
 			} else {
 				valueTypeStack.push(v1)

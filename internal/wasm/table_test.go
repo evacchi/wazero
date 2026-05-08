@@ -490,7 +490,7 @@ func TestModule_validateTable_Errors(t *testing.T) {
 		{
 			name: "concrete ref type element with incompatible externref init",
 			input: &Module{
-				TypeSection: []FunctionType{{}},
+				TypeSection:  []FunctionType{{}},
 				TableSection: []Table{{Type: ValueTypeConcreteRef(0, true)}},
 				ElementSection: []ElementSegment{
 					{

@@ -295,6 +295,10 @@ func (m *Module) Validate(enabledFeatures api.CoreFeatures) error {
 		return err
 	}
 
+	if err = m.validateTableInitExprs(globals, uint32(len(functions))); err != nil {
+		return err
+	}
+
 	if err = m.validateImports(enabledFeatures); err != nil {
 		return err
 	}
@@ -359,6 +363,21 @@ func (m *Module) validateConcreteRefTypes() error {
 	for i, e := range m.ElementSection {
 		if err := check(e.Type, "element", i); err != nil {
 			return err
+		}
+	}
+	return nil
+}
+
+func (m *Module) validateTableInitExprs(globals []GlobalType, numFuncs uint32) error {
+	importedGlobals := globals[:m.ImportGlobalCount]
+	for i, t := range m.TableSection {
+		if !t.Type.IsNullable() && t.InitExpr == nil {
+			return fmt.Errorf("type mismatch: non-nullable table[%d] requires an init expression", i)
+		}
+		if t.InitExpr != nil {
+			if err := validateConstExpression(importedGlobals, numFuncs, t.InitExpr, t.Type, m.typeIndexOfFunction); err != nil {
+				return fmt.Errorf("table[%d] init: %w", i, err)
+			}
 		}
 	}
 	return nil
