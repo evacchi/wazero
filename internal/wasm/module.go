@@ -401,24 +401,9 @@ func (m *Module) validateGlobals(globals []GlobalType, numFuncts, maxGlobals uin
 	// Global initialization constant expression can only reference the imported globals.
 	// See the note on https://www.w3.org/TR/2019/REC-wasm-core-1-20191205/#constant-expressions%E2%91%A0
 	importedGlobals := globals[:m.ImportGlobalCount]
-	funcTypeResolver := func(funcIndex Index) Index {
-		if funcIndex < m.ImportFunctionCount {
-			// Imported function — look up type from imports.
-			var importFuncIdx uint32
-			for j := range m.ImportSection {
-				if m.ImportSection[j].Type == ExternTypeFunc {
-					if importFuncIdx == funcIndex {
-						return m.ImportSection[j].DescFunc
-					}
-					importFuncIdx++
-				}
-			}
-		}
-		return m.FunctionSection[funcIndex-m.ImportFunctionCount]
-	}
 	for i := range m.GlobalSection {
 		g := &m.GlobalSection[i]
-		if err := validateConstExpression(importedGlobals, numFuncts, &g.Init, g.Type.ValType, funcTypeResolver); err != nil {
+		if err := validateConstExpression(importedGlobals, numFuncts, &g.Init, g.Type.ValType, m.typeIndexOfFunction); err != nil {
 			return err
 		}
 	}
@@ -508,6 +493,7 @@ func (m *Module) declaredFunctionIndexes(enabledFeatures api.CoreFeatures) (ret 
 				ret[funcIndex] = struct{}{}
 				return 0, nil
 			},
+			untypedFuncRefResolver,
 		)
 
 		if initErr != nil {
@@ -529,6 +515,7 @@ func (m *Module) declaredFunctionIndexes(enabledFeatures api.CoreFeatures) (ret 
 					ret[funcIndex] = struct{}{}
 					return 0, nil
 				},
+				untypedFuncRefResolver,
 			)
 		}
 	}
@@ -571,7 +558,7 @@ func (m *Module) validateMemory(memory *Memory, globals []GlobalType, _ api.Core
 	for i := range m.DataSection {
 		d := &m.DataSection[i]
 		if !d.IsPassive() {
-			if err := validateConstExpression(importedGlobals, 0, &d.OffsetExpression, ValueTypeI32); err != nil {
+			if err := validateConstExpression(importedGlobals, 0, &d.OffsetExpression, ValueTypeI32, nil); err != nil {
 				return fmt.Errorf("calculate offset: %w", err)
 			}
 		}
@@ -645,7 +632,7 @@ func (m *Module) validateExports(enabledFeatures api.CoreFeatures, functions []I
 	return nil
 }
 
-func validateConstExpression(globals []GlobalType, numFuncs uint32, expr *ConstantExpression, expectedType ValueType, funcTypeIndexResolver ...func(funcIndex Index) Index) (err error) {
+func validateConstExpression(globals []GlobalType, numFuncs uint32, expr *ConstantExpression, expectedType ValueType, funcTypeIndexResolver func(funcIndex Index) (Index, bool)) (err error) {
 	_, typ, err := evaluateConstExpr(
 		expr,
 		func(globalIndex Index) (ValueType, uint64, uint64, error) {
@@ -660,7 +647,7 @@ func validateConstExpression(globals []GlobalType, numFuncs uint32, expr *Consta
 			}
 			return 0, nil
 		},
-		funcTypeIndexResolver...,
+		funcTypeIndexResolver,
 	)
 	if err != nil {
 		return err
