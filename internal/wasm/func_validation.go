@@ -530,9 +530,8 @@ func (m *Module) validateFunctionWithMaxStackValues(
 						return err
 					}
 					if actual == valueTypeUnknown {
-						// Re-assign the expected type to unknown.
 						defaultLabelType[index] = valueTypeUnknown
-					} else if actual != exp {
+					} else if actual != exp && !isRefSubtypeOf(actual, exp) {
 						return typeMismatchError(true, OpcodeBrTableName, actual, exp, i)
 					}
 				}
@@ -557,7 +556,8 @@ func (m *Module) validateFunctionWithMaxStackValues(
 					return fmt.Errorf("inconsistent block type length for %s at %d; %v (ln=%d) != %v (l=%d)", OpcodeBrTableName, l, defaultLabelType, ln, tableLabelType, l)
 				}
 				for i := range defaultLabelType {
-					if defaultLabelType[i] != valueTypeUnknown && defaultLabelType[i] != tableLabelType[i] {
+					if defaultLabelType[i] != valueTypeUnknown && defaultLabelType[i] != tableLabelType[i] &&
+						!isRefSubtypeOf(defaultLabelType[i], tableLabelType[i]) && !isRefSubtypeOf(tableLabelType[i], defaultLabelType[i]) {
 						return fmt.Errorf("incosistent block type for %s at %d", OpcodeBrTableName, l)
 					}
 				}

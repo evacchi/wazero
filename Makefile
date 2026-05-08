@@ -135,7 +135,12 @@ spec_version_exception_handling := 13734f8fb871a5dab939070f893adbd90bffe28c
 spectest_typed_function_references_dir := $(spectest_base_dir)/typed-function-references
 spectest_typed_function_references_testdata_dir := $(spectest_typed_function_references_dir)/testdata
 spec_version_typed_function_references := 74d2ec81d15efd3c0f2fba46a023f376101d8e46
-typed_function_references_wast_files := br_on_non_null.wast br_on_null.wast call_ref.wast return_call_ref.wast ref.wast ref_as_non_null.wast ref_func.wast ref_is_null.wast ref_null.wast local_init.wast type-equivalence.wast table-sub.wast unreached-valid.wast table.wast elem.wast select.wast func.wast return_call.wast return_call_indirect.wast
+typed_function_references_wast_files := \
+	br_on_non_null.wast br_on_null.wast br_table.wast call_ref.wast elem.wast \
+	func.wast linking.wast local_init.wast ref.wast ref_as_non_null.wast \
+	ref_func.wast ref_is_null.wast ref_null.wast return_call_indirect.wast \
+	return_call_ref.wast return_call.wast select.wast table-sub.wast table.wast \
+	type-equivalence.wast unreached-invalid.wast unreached-valid.wast
 
 .PHONY: build.spectest
 build.spectest:
