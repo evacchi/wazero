@@ -3797,6 +3797,8 @@ func (c *compiler) emitDefaultValue(t wasm.ValueType) {
 		if t.IsRef() {
 			c.stackPush(unsignedTypeI64)
 			c.emit(newOperationConstI64(0))
+		} else {
+			panic("unreachable")
 		}
 	}
 }

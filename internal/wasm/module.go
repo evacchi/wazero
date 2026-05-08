@@ -1228,8 +1228,8 @@ func (v ValueType) IsRef() bool {
 		v&flagConcreteRef != 0
 }
 
-// IsNullable returns true if this reference type is nullable.
-func (v ValueType) IsNullable() bool { return v&flagNonNullable == 0 }
+// IsNullable returns true if this reference type is nullable. Must only be called on ref types.
+func (v ValueType) IsNullable() bool { return v.IsRef() && v&flagNonNullable == 0 }
 
 // IsConcreteRef returns true if this is a concrete reference type with a type index.
 func (v ValueType) IsConcreteRef() bool { return v&flagConcreteRef != 0 }
