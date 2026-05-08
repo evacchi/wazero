@@ -531,7 +531,7 @@ func (m *Module) validateFunctionWithMaxStackValues(
 					}
 					if actual == valueTypeUnknown {
 						defaultLabelType[index] = valueTypeUnknown
-					} else if actual != exp && !isRefSubtypeOf(actual, exp) {
+					} else if !isRefSubtypeOf(actual, exp) {
 						return typeMismatchError(true, OpcodeBrTableName, actual, exp, i)
 					}
 				}
@@ -556,8 +556,7 @@ func (m *Module) validateFunctionWithMaxStackValues(
 					return fmt.Errorf("inconsistent block type length for %s at %d; %v (ln=%d) != %v (l=%d)", OpcodeBrTableName, l, defaultLabelType, ln, tableLabelType, l)
 				}
 				for i := range defaultLabelType {
-					if defaultLabelType[i] != valueTypeUnknown && defaultLabelType[i] != tableLabelType[i] &&
-						!isRefSubtypeOf(defaultLabelType[i], tableLabelType[i]) && !isRefSubtypeOf(tableLabelType[i], defaultLabelType[i]) {
+					if defaultLabelType[i] != valueTypeUnknown && !areRefTypesCompatible(defaultLabelType[i], tableLabelType[i]) {
 						return fmt.Errorf("incosistent block type for %s at %d", OpcodeBrTableName, l)
 					}
 				}
@@ -2324,10 +2323,8 @@ func (m *Module) validateFunctionWithMaxStackValues(
 				return fmt.Errorf("reference types cannot be used for non typed select instruction")
 			}
 
-			if v1 != v2 && v1 != valueTypeUnknown && v2 != valueTypeUnknown {
-				if !isRefSubtypeOf(v1, v2) && !isRefSubtypeOf(v2, v1) {
-					return fmt.Errorf("type mismatch on 1st and 2nd select operands")
-				}
+			if v1 != valueTypeUnknown && v2 != valueTypeUnknown && !areRefTypesCompatible(v1, v2) {
+				return fmt.Errorf("type mismatch on 1st and 2nd select operands")
 			}
 			if v1 == valueTypeUnknown {
 				valueTypeStack.push(v2)
@@ -2512,7 +2509,7 @@ func (s *valueTypeStack) popAndVerifyType(expected ValueType) error {
 	if !ok {
 		return fmt.Errorf("%s missing", ValueTypeName(expected))
 	}
-	if have != expected && have != valueTypeUnknown && expected != valueTypeUnknown && !isRefSubtypeOf(have, expected) {
+	if have != valueTypeUnknown && expected != valueTypeUnknown && !isRefSubtypeOf(have, expected) {
 		return fmt.Errorf("type mismatch: expected %s, but was %s", ValueTypeName(expected), ValueTypeName(have))
 	}
 	return nil
@@ -2594,7 +2591,7 @@ func (s *valueTypeStack) requireStackValues(
 	// Finally, check the types of the values:
 	for i, v := range s.requireStackValuesTmp {
 		nextWant := want[countWanted-i-1] // have is in reverse order (stack)
-		if v != nextWant && v != valueTypeUnknown && nextWant != valueTypeUnknown && !isRefSubtypeOf(v, nextWant) {
+		if v != valueTypeUnknown && nextWant != valueTypeUnknown && !isRefSubtypeOf(v, nextWant) {
 			return typeMismatchError(isParam, context, v, nextWant, i)
 		}
 	}

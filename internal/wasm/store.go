@@ -515,8 +515,8 @@ func (m *ModuleInstance) resolveImports(ctx context.Context, module *Module) (er
 					return
 				}
 
-				if expected.ValType != importedGlobal.Type.ValType &&
-					(expected.Mutable || !isRefSubtypeOf(importedGlobal.Type.ValType, expected.ValType)) {
+				if expected.Mutable && expected.ValType != importedGlobal.Type.ValType ||
+					!expected.Mutable && !isRefSubtypeOf(importedGlobal.Type.ValType, expected.ValType) {
 					err = errorInvalidImport(i, fmt.Errorf("value type mismatch: %s != %s",
 						ValueTypeName(expected.ValType), ValueTypeName(importedGlobal.Type.ValType)))
 					return

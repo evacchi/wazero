@@ -671,7 +671,7 @@ func validateConstExpression(globals []GlobalType, numFuncs uint32, expr *Consta
 	if err != nil {
 		return err
 	}
-	if typ != expectedType && !isRefSubtypeOf(typ, expectedType) {
+	if !isRefSubtypeOf(typ, expectedType) {
 		return fmt.Errorf("const expression type mismatch expected %s but got %s", ValueTypeName(expectedType), ValueTypeName(typ))
 	}
 	return nil
@@ -1310,7 +1310,7 @@ func isReferenceValueType(vt ValueType) bool {
 	return vt.IsRef()
 }
 
-// isRefSubtypeOf returns true if actual is assignment-compatible with expected.
+// isRefSubtypeOf returns true if actual is a subtype of (or equal to) expected.
 // Non-nullable is a subtype of nullable. Concrete function refs are subtypes of funcref.
 func isRefSubtypeOf(actual, expected ValueType) bool {
 	if actual == expected {
@@ -1327,6 +1327,11 @@ func isRefSubtypeOf(actual, expected ValueType) bool {
 		}
 	}
 	return false
+}
+
+// areRefTypesCompatible returns true if either type is a subtype of the other.
+func areRefTypesCompatible(a, b ValueType) bool {
+	return isRefSubtypeOf(a, b) || isRefSubtypeOf(b, a)
 }
 
 // ExternType is an alias of api.ExternType defined to simplify imports.
