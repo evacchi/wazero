@@ -1370,7 +1370,7 @@ func (m *Module) validateFunctionWithMaxStackValues(
 						return fmt.Errorf("table of index %d not found", tableIndex)
 					}
 
-					if m.ElementSection[elementIndex].Type != tables[tableIndex].Type {
+					if !isRefSubtypeOf(m.ElementSection[elementIndex].Type, tables[tableIndex].Type) {
 						return fmt.Errorf("type mismatch for table.init: element type %s does not match table type %s",
 							RefTypeName(m.ElementSection[elementIndex].Type),
 							RefTypeName(tables[tableIndex].Type),

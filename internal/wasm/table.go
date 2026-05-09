@@ -72,10 +72,6 @@ type ElementSegment struct {
 	// Type holds the type of this element segment, which is the RefType in WebAssembly 2.0.
 	Type RefType
 
-	// LegacyFuncrefType is true when the element type is funcref from a legacy encoding
-	// (prefixes 0-4) where the type is implicit rather than explicitly declared.
-	LegacyFuncrefType bool
-
 	// Mode is the mode of this element segment.
 	Mode ElementMode
 }
@@ -190,11 +186,9 @@ func (m *Module) validateTable(enabledFeatures api.CoreFeatures, tables []Table,
 
 			t := tables[elem.TableIndex]
 			if !isRefSubtypeOf(elem.Type, t.Type) {
-				if !elem.LegacyFuncrefType || !isRefSubtypeOf(t.Type, elem.Type) {
-					return fmt.Errorf("element type mismatch: table has %s but element has %s",
-						RefTypeName(t.Type), RefTypeName(elem.Type),
-					)
-				}
+				return fmt.Errorf("element type mismatch: table has %s but element has %s",
+					RefTypeName(t.Type), RefTypeName(elem.Type),
+				)
 			}
 
 			hasGlobalRef := false
