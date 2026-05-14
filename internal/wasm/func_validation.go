@@ -349,13 +349,8 @@ func (m *Module) validateFunctionWithMaxStackValues(
 					return fmt.Errorf("invalid local index for %s %d >= %d(=len(locals)+len(parameters))",
 						OpcodeLocalGetName, index, l)
 				}
-				if index >= inputLen {
-					lt := localTypes[index-inputLen]
-					if lt.IsRef() && !lt.IsNullable() {
-						if _, ok := sts.initLocals[index]; !ok {
-							return fmt.Errorf("uninitialized local %d", index)
-						}
-					}
+				if err := sts.requireLocalInit(index, inputLen, localTypes); err != nil {
+					return err
 				}
 				if index < inputLen {
 					valueTypeStack.push(functionType.Params[index])
@@ -377,12 +372,7 @@ func (m *Module) validateFunctionWithMaxStackValues(
 				if err := valueTypeStack.popAndVerifyType(expType); err != nil {
 					return err
 				}
-				if index >= inputLen {
-					lt := localTypes[index-inputLen]
-					if lt.IsRef() && !lt.IsNullable() {
-						sts.initLocals[index] = struct{}{}
-					}
-				}
+				sts.markLocalInit(index, inputLen, localTypes)
 			case OpcodeLocalTee:
 				inputLen := uint32(len(functionType.Params))
 				if l := uint32(len(localTypes)) + inputLen; index >= l {
@@ -399,12 +389,7 @@ func (m *Module) validateFunctionWithMaxStackValues(
 					return err
 				}
 				valueTypeStack.push(expType)
-				if index >= inputLen {
-					lt := localTypes[index-inputLen]
-					if lt.IsRef() && !lt.IsNullable() {
-						sts.initLocals[index] = struct{}{}
-					}
-				}
+				sts.markLocalInit(index, inputLen, localTypes)
 			case OpcodeGlobalGet:
 				if index >= uint32(len(globals)) {
 					return fmt.Errorf("invalid index for %s", OpcodeGlobalGetName)
@@ -2437,6 +2422,27 @@ func (sts *stacks) reset(functionType *FunctionType) {
 
 type controlBlockStack struct {
 	stack []controlBlock
+}
+
+func (sts *stacks) requireLocalInit(index, inputLen uint32, localTypes []ValueType) error {
+	if index >= inputLen {
+		lt := localTypes[index-inputLen]
+		if lt.IsRef() && !lt.IsNullable() {
+			if _, ok := sts.initLocals[index]; !ok {
+				return fmt.Errorf("uninitialized local %d", index)
+			}
+		}
+	}
+	return nil
+}
+
+func (sts *stacks) markLocalInit(index, inputLen uint32, localTypes []ValueType) {
+	if index >= inputLen {
+		lt := localTypes[index-inputLen]
+		if lt.IsRef() && !lt.IsNullable() {
+			sts.initLocals[index] = struct{}{}
+		}
+	}
 }
 
 func (s *controlBlockStack) pop() *controlBlock {
