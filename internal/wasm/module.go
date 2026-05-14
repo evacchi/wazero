@@ -245,6 +245,8 @@ func (m *Module) typeOfFunction(funcIdx Index) *FunctionType {
 	return &m.TypeSection[typeIdx]
 }
 
+// typeIndexOfFunction returns the type section index for the given function
+// space index, or false if the index is out of range.
 func (m *Module) typeIndexOfFunction(funcIdx Index) (Index, bool) {
 	typeSectionLength, importedFunctionCount := uint32(len(m.TypeSection)), m.ImportFunctionCount
 	if funcIdx < importedFunctionCount {
@@ -337,32 +339,26 @@ func (m *Module) Validate(enabledFeatures api.CoreFeatures) error {
 
 func (m *Module) validateConcreteRefTypes() error {
 	numTypes := uint32(len(m.TypeSection))
-	check := func(vt ValueType, context string, id int) error {
-		if vt.IsConcreteRef() && vt.TypeIndex() >= numTypes {
-			return fmt.Errorf("unknown type %d in %s[%d]", vt.TypeIndex(), context, id)
-		}
-		return nil
-	}
 	for i, g := range m.GlobalSection {
-		if err := check(g.Type.ValType, "global", i); err != nil {
-			return err
+		if vt := g.Type.ValType; vt.IsConcreteRef() && vt.TypeIndex() >= numTypes {
+			return fmt.Errorf("unknown type %d in global[%d]", vt.TypeIndex(), i)
 		}
 	}
 	for i, t := range m.TableSection {
-		if err := check(t.Type, "table", i); err != nil {
-			return err
+		if vt := t.Type; vt.IsConcreteRef() && vt.TypeIndex() >= numTypes {
+			return fmt.Errorf("unknown type %d in table[%d]", vt.TypeIndex(), i)
 		}
 	}
 	for i, c := range m.CodeSection {
 		for j, lt := range c.LocalTypes {
-			if err := check(lt, fmt.Sprintf("func[%d].local", i), j); err != nil {
-				return err
+			if lt.IsConcreteRef() && lt.TypeIndex() >= numTypes {
+				return fmt.Errorf("unknown type %d in func[%d].local[%d]", lt.TypeIndex(), i, j)
 			}
 		}
 	}
 	for i, e := range m.ElementSection {
-		if err := check(e.Type, "element", i); err != nil {
-			return err
+		if vt := e.Type; vt.IsConcreteRef() && vt.TypeIndex() >= numTypes {
+			return fmt.Errorf("unknown type %d in element[%d]", vt.TypeIndex(), i)
 		}
 	}
 	return nil

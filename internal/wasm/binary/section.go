@@ -62,6 +62,10 @@ func decodeTypeSection(enabledFeatures api.CoreFeatures, r *bytes.Reader) ([]was
 	return result, nil
 }
 
+// validateTypeForwardRefs rejects concrete reference types (ref $t) whose type
+// index is not yet defined. For standalone types, maxTypeIndex is the count of
+// types decoded so far; for rec groups, it is the index after the last member,
+// allowing mutual references within the group.
 func validateTypeForwardRefs(ft *wasm.FunctionType, maxTypeIndex uint32) error {
 	for _, vt := range ft.Params {
 		if vt.IsConcreteRef() && vt.TypeIndex() >= maxTypeIndex {
