@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"maps"
 	"slices"
 	"strconv"
 	"strings"
@@ -379,9 +380,6 @@ func (m *Module) validateFunctionWithMaxStackValues(
 				if index >= inputLen {
 					lt := localTypes[index-inputLen]
 					if lt.IsRef() && !lt.IsNullable() {
-						if sts.initLocals == nil {
-							sts.initLocals = make(map[uint32]struct{})
-						}
 						sts.initLocals[index] = struct{}{}
 					}
 				}
@@ -404,9 +402,6 @@ func (m *Module) validateFunctionWithMaxStackValues(
 				if index >= inputLen {
 					lt := localTypes[index-inputLen]
 					if lt.IsRef() && !lt.IsNullable() {
-						if sts.initLocals == nil {
-							sts.initLocals = make(map[uint32]struct{})
-						}
 						sts.initLocals[index] = struct{}{}
 					}
 				}
@@ -1778,7 +1773,7 @@ func (m *Module) validateFunctionWithMaxStackValues(
 				return fmt.Errorf("read block: %w", err)
 			}
 			controlBlockStack.push(pc, 0, 0, bt, num, 0)
-			controlBlockStack.stack[len(controlBlockStack.stack)-1].savedInitLocals = copyInitLocals(sts.initLocals)
+			controlBlockStack.stack[len(controlBlockStack.stack)-1].savedInitLocals = maps.Clone(sts.initLocals)
 			if err = valueTypeStack.popParams(op, bt.Params, false); err != nil {
 				return err
 			}
@@ -2167,7 +2162,7 @@ func (m *Module) validateFunctionWithMaxStackValues(
 				return fmt.Errorf("read block: %w", err)
 			}
 			controlBlockStack.push(pc, 0, 0, bt, num, op)
-			controlBlockStack.stack[len(controlBlockStack.stack)-1].savedInitLocals = copyInitLocals(sts.initLocals)
+			controlBlockStack.stack[len(controlBlockStack.stack)-1].savedInitLocals = maps.Clone(sts.initLocals)
 			if err = valueTypeStack.popParams(op, bt.Params, false); err != nil {
 				return err
 			}
@@ -2184,7 +2179,7 @@ func (m *Module) validateFunctionWithMaxStackValues(
 				return fmt.Errorf("read block: %w", err)
 			}
 			controlBlockStack.push(pc, 0, 0, bt, num, op)
-			controlBlockStack.stack[len(controlBlockStack.stack)-1].savedInitLocals = copyInitLocals(sts.initLocals)
+			controlBlockStack.stack[len(controlBlockStack.stack)-1].savedInitLocals = maps.Clone(sts.initLocals)
 			if err = valueTypeStack.popAndVerifyType(ValueTypeI32); err != nil {
 				return fmt.Errorf("cannot pop the operand for 'if': %v", err)
 			}
@@ -2209,7 +2204,7 @@ func (m *Module) validateFunctionWithMaxStackValues(
 				return err
 			}
 			// Restore init locals to the state at if-entry for the else branch.
-			sts.initLocals = copyInitLocals(bl.savedInitLocals)
+			sts.initLocals = maps.Clone(bl.savedInitLocals)
 			// Before entering instructions inside else, we pop all the values pushed by then block.
 			valueTypeStack.resetAtStackLimit()
 			// Plus we have to push any block params again.
@@ -2434,18 +2429,10 @@ func (sts *stacks) reset(functionType *FunctionType) {
 	sts.cs.stack = sts.cs.stack[:0]
 	sts.cs.stack = append(sts.cs.stack, controlBlock{blockType: functionType})
 	sts.ls = sts.ls[:0]
-	sts.initLocals = nil
-}
-
-func copyInitLocals(m map[uint32]struct{}) map[uint32]struct{} {
-	if m == nil {
-		return nil
+	clear(sts.initLocals)
+	if sts.initLocals == nil {
+		sts.initLocals = make(map[uint32]struct{})
 	}
-	c := make(map[uint32]struct{}, len(m))
-	for k := range m {
-		c[k] = struct{}{}
-	}
-	return c
 }
 
 type controlBlockStack struct {
