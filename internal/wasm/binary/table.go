@@ -5,7 +5,6 @@ import (
 	"fmt"
 
 	"github.com/tetratelabs/wazero/api"
-	"github.com/tetratelabs/wazero/internal/leb128"
 	"github.com/tetratelabs/wazero/internal/wasm"
 )
 
@@ -37,27 +36,11 @@ func decodeTable(r *bytes.Reader, enabledFeatures api.CoreFeatures, ret *wasm.Ta
 
 	switch b {
 	case wasm.RefPrefixNullable, wasm.RefPrefixNonNullable:
-		nullable := b == wasm.RefPrefixNullable
-		ht, _, err := leb128.DecodeInt33AsInt64(r)
+		vt, err := decodeRefType(r, b == wasm.RefPrefixNullable)
 		if err != nil {
-			return fmt.Errorf("read table ref heap type: %v", err)
+			return err
 		}
-		switch ht {
-		case wasm.HeapTypeFunc:
-			ret.Type = wasm.ValueTypeFuncref
-		case wasm.HeapTypeExtern:
-			ret.Type = wasm.ValueTypeExternref
-		case wasm.HeapTypeExn:
-			ret.Type = wasm.ValueTypeExnref
-		default:
-			if ht < 0 {
-				return fmt.Errorf("unknown abstract heap type for table: %d", ht)
-			}
-			ret.Type = wasm.ValueTypeConcreteRef(uint32(ht), nullable)
-		}
-		if !nullable {
-			ret.Type = ret.Type.AsNonNullable()
-		}
+		ret.Type = vt
 	default:
 		ret.Type = wasm.ValueType(b)
 	}

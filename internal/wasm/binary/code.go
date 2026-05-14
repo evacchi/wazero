@@ -92,25 +92,12 @@ func decodeCode(r *bytes.Reader, codeSectionStart uint64, ret *wasm.Code) (err e
 		var vt wasm.ValueType
 		switch b {
 		case wasm.RefPrefixNullable, wasm.RefPrefixNonNullable:
-			nullable := b == wasm.RefPrefixNullable
-			ht, htNum, err := leb128.DecodeInt33AsInt64(r)
+			before := r.Len()
+			vt, err = decodeRefType(r, b == wasm.RefPrefixNullable)
 			if err != nil {
-				return fmt.Errorf("read local ref heap type: %v", err)
+				return err
 			}
-			remaining -= int64(htNum)
-			switch ht {
-			case wasm.HeapTypeFunc:
-				vt = wasm.ValueTypeFuncref
-			case wasm.HeapTypeExtern:
-				vt = wasm.ValueTypeExternref
-			case wasm.HeapTypeExn:
-				vt = wasm.ValueTypeExnref
-			default:
-				vt = wasm.ValueTypeConcreteRef(uint32(ht), nullable)
-			}
-			if !nullable {
-				vt = vt.AsNonNullable()
-			}
+			remaining -= int64(before - r.Len())
 		default:
 			vt = wasm.ValueType(b)
 		}

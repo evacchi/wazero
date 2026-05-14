@@ -27,47 +27,48 @@ func decodeValueTypes(r *bytes.Reader, num uint32) ([]wasm.ValueType, error) {
 			wasm.ValueTypeExternref.Kind(), wasm.ValueTypeFuncref.Kind(), wasm.ValueTypeV128.Kind(),
 			wasm.ValueTypeExnref.Kind():
 			ret = append(ret, wasm.ValueType(b))
-		case wasm.RefPrefixNullable:
-			ht, _, err := leb128.DecodeInt33AsInt64(r)
+		case wasm.RefPrefixNullable, wasm.RefPrefixNonNullable:
+			vt, err := decodeRefType(r, b == wasm.RefPrefixNullable)
 			if err != nil {
-				return nil, fmt.Errorf("read ref heap type: %w", err)
+				return nil, err
 			}
-			switch ht {
-			case wasm.HeapTypeExn:
-				ret = append(ret, wasm.ValueTypeExnref)
-			case wasm.HeapTypeFunc:
-				ret = append(ret, wasm.ValueTypeFuncref)
-			case wasm.HeapTypeExtern:
-				ret = append(ret, wasm.ValueTypeExternref)
-			default:
-				if ht < 0 {
-					return nil, fmt.Errorf("unknown abstract heap type: %d", ht)
-				}
-				ret = append(ret, wasm.ValueTypeConcreteRef(uint32(ht), true))
-			}
-		case wasm.RefPrefixNonNullable:
-			ht, _, err := leb128.DecodeInt33AsInt64(r)
-			if err != nil {
-				return nil, fmt.Errorf("read ref heap type: %w", err)
-			}
-			switch ht {
-			case wasm.HeapTypeExn:
-				ret = append(ret, wasm.ValueTypeExnref.AsNonNullable())
-			case wasm.HeapTypeFunc:
-				ret = append(ret, wasm.ValueTypeFuncref.AsNonNullable())
-			case wasm.HeapTypeExtern:
-				ret = append(ret, wasm.ValueTypeExternref.AsNonNullable())
-			default:
-				if ht < 0 {
-					return nil, fmt.Errorf("unknown abstract heap type: %d", ht)
-				}
-				ret = append(ret, wasm.ValueTypeConcreteRef(uint32(ht), false))
-			}
+			ret = append(ret, vt)
 		default:
 			return nil, fmt.Errorf("invalid value type: %d", b)
 		}
 	}
 	return ret, nil
+}
+
+// decodeRefType decodes a heap type from r and returns the corresponding
+// ValueType with the given nullability. Abstract nullable refs are desugared
+// to their short forms:
+//   - (ref null func)   -> funcref
+//   - (ref null extern) -> externref
+//   - (ref null exn)    -> exnref
+func decodeRefType(r *bytes.Reader, nullable bool) (wasm.ValueType, error) {
+	ht, _, err := leb128.DecodeInt33AsInt64(r)
+	if err != nil {
+		return 0, fmt.Errorf("read ref heap type: %w", err)
+	}
+	var vt wasm.ValueType
+	switch ht {
+	case wasm.HeapTypeFunc:
+		vt = wasm.ValueTypeFuncref
+	case wasm.HeapTypeExtern:
+		vt = wasm.ValueTypeExternref
+	case wasm.HeapTypeExn:
+		vt = wasm.ValueTypeExnref
+	default:
+		if ht < 0 {
+			return 0, fmt.Errorf("unknown abstract heap type: %d", ht)
+		}
+		vt = wasm.ValueTypeConcreteRef(uint32(ht), nullable)
+	}
+	if !nullable {
+		vt = vt.AsNonNullable()
+	}
+	return vt, nil
 }
 
 // decodeUTF8 decodes a size prefixed string from the reader, returning it and the count of bytes read.

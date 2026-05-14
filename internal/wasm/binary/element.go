@@ -58,41 +58,21 @@ func decodeElementConstExprVector(r *bytes.Reader, elemType wasm.RefType, enable
 	return vec, nil
 }
 
-func decodeElementRefType(r *bytes.Reader) (ret wasm.RefType, err error) {
-	b, e := r.ReadByte()
-	if e != nil {
-		return 0, fmt.Errorf("read element ref type: %w", e)
+func decodeElementRefType(r *bytes.Reader) (wasm.RefType, error) {
+	b, err := r.ReadByte()
+	if err != nil {
+		return 0, fmt.Errorf("read element ref type: %w", err)
 	}
 	switch b {
 	case wasm.RefPrefixNullable, wasm.RefPrefixNonNullable:
-		nullable := b == wasm.RefPrefixNullable
-		ht, _, err := leb128.DecodeInt33AsInt64(r)
-		if err != nil {
-			return 0, fmt.Errorf("read element ref heap type: %v", err)
-		}
-		switch ht {
-		case wasm.HeapTypeFunc:
-			ret = wasm.ValueTypeFuncref
-		case wasm.HeapTypeExtern:
-			ret = wasm.ValueTypeExternref
-		case wasm.HeapTypeExn:
-			ret = wasm.ValueTypeExnref
-		default:
-			if ht < 0 {
-				return 0, fmt.Errorf("unknown abstract heap type for element: %d", ht)
-			}
-			ret = wasm.ValueTypeConcreteRef(uint32(ht), nullable)
-		}
-		if !nullable {
-			ret = ret.AsNonNullable()
-		}
+		return decodeRefType(r, b == wasm.RefPrefixNullable)
 	default:
-		ret = wasm.ValueType(b)
+		ret := wasm.ValueType(b)
 		if ret != wasm.RefTypeFuncref && ret != wasm.RefTypeExternref {
 			return 0, fmt.Errorf("invalid ref type for element: 0x%x", b)
 		}
+		return ret, nil
 	}
-	return
 }
 
 const (
