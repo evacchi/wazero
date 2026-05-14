@@ -619,6 +619,9 @@ func (s *Store) GetFunctionTypeIDs(ts []FunctionType) ([]FunctionTypeID, error) 
 	return ret, nil
 }
 
+// structuralValueTypeName returns a string representation of a ValueType where
+// concrete ref type indices are replaced with their FunctionTypeID. This makes
+// the name independent of module-local type index numbering.
 func structuralValueTypeName(vt ValueType, typeIDs []FunctionTypeID) string {
 	if vt.IsConcreteRef() {
 		idx := vt.TypeIndex()
@@ -632,6 +635,12 @@ func structuralValueTypeName(vt ValueType, typeIDs []FunctionTypeID) string {
 	return ValueTypeName(vt)
 }
 
+// structuralTypeKey returns a string key for a FunctionType that is stable
+// across modules. For signatures without concrete ref types it falls back to
+// FunctionType.key(). When concrete refs are present, local type indices are
+// replaced with their already-assigned FunctionTypeID so that two modules
+// defining structurally identical types at different indices produce the same
+// key and share a single FunctionTypeID.
 func structuralTypeKey(ft *FunctionType, typeIDs []FunctionTypeID) string {
 	hasConcreteRef := false
 	for _, p := range ft.Params {
