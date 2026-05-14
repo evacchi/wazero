@@ -700,24 +700,14 @@ func (m *Module) validateFunctionWithMaxStackValues(
 			}
 
 			funcType := &m.TypeSection[functions[index]]
-			for i := 0; i < len(funcType.Params); i++ {
-				if err := valueTypeStack.popAndVerifyType(funcType.Params[len(funcType.Params)-1-i]); err != nil {
-					return fmt.Errorf("type mismatch on %s operation param type: %v", opcodeName, err)
-				}
-			}
-			for _, exp := range funcType.Results {
-				valueTypeStack.push(exp)
+			if err := sts.validateCallSignature(opcodeName, funcType); err != nil {
+				return err
 			}
 			if op == OpcodeTailCallReturnCall {
-				if err := enabledFeatures.RequireEnabled(experimental.CoreFeaturesTailCall); err != nil {
-					return fmt.Errorf("%s invalid as %v", OpcodeTailCallReturnCallName, err)
-				}
-				if len(funcType.Results) != len(functionType.Results) {
-					return fmt.Errorf("type mismatch on return_call: caller returns %d values but callee returns %d", len(functionType.Results), len(funcType.Results))
-				}
-				if err := valueTypeStack.requireStackValues(false, "", functionType.Results, false); err != nil {
+				if err := sts.validateReturnCall(OpcodeTailCallReturnCallName, enabledFeatures, funcType, functionType); err != nil {
 					return err
 				}
+				// behaves as a jump.
 				valueTypeStack.unreachable()
 			}
 		} else if op == OpcodeCallIndirect || op == OpcodeTailCallReturnCallIndirect {
@@ -763,23 +753,11 @@ func (m *Module) validateFunctionWithMaxStackValues(
 				return fmt.Errorf("cannot pop the offset in table for %s", opcodeName)
 			}
 			funcType := &m.TypeSection[typeIndex]
-			for i := 0; i < len(funcType.Params); i++ {
-				if err = valueTypeStack.popAndVerifyType(funcType.Params[len(funcType.Params)-1-i]); err != nil {
-					return fmt.Errorf("type mismatch on %s operation input type", opcodeName)
-				}
+			if err := sts.validateCallSignature(opcodeName, funcType); err != nil {
+				return err
 			}
-			for _, exp := range funcType.Results {
-				valueTypeStack.push(exp)
-			}
-
 			if op == OpcodeTailCallReturnCallIndirect {
-				if err := enabledFeatures.RequireEnabled(experimental.CoreFeaturesTailCall); err != nil {
-					return fmt.Errorf("%s invalid as %v", OpcodeTailCallReturnCallIndirectName, err)
-				}
-				if len(funcType.Results) != len(functionType.Results) {
-					return fmt.Errorf("type mismatch on return_call_indirect: caller returns %d values but callee returns %d", len(functionType.Results), len(funcType.Results))
-				}
-				if err := valueTypeStack.requireStackValues(false, "", functionType.Results, false); err != nil {
+				if err := sts.validateReturnCall(OpcodeTailCallReturnCallIndirectName, enabledFeatures, funcType, functionType); err != nil {
 					return err
 				}
 				// behaves as a jump.
@@ -803,24 +781,14 @@ func (m *Module) validateFunctionWithMaxStackValues(
 				return fmt.Errorf("type mismatch on %s operation: %v", instructionNames[op], err)
 			}
 			funcType := &m.TypeSection[typeIndex]
-			for i := 0; i < len(funcType.Params); i++ {
-				if err := valueTypeStack.popAndVerifyType(funcType.Params[len(funcType.Params)-1-i]); err != nil {
-					return fmt.Errorf("type mismatch on %s operation param type: %v", instructionNames[op], err)
-				}
-			}
-			for _, exp := range funcType.Results {
-				valueTypeStack.push(exp)
+			if err := sts.validateCallSignature(instructionNames[op], funcType); err != nil {
+				return err
 			}
 			if op == OpcodeReturnCallRef {
-				if err := enabledFeatures.RequireEnabled(experimental.CoreFeaturesTailCall); err != nil {
-					return fmt.Errorf("%s invalid as %v", OpcodeReturnCallRefName, err)
-				}
-				if len(funcType.Results) != len(functionType.Results) {
-					return fmt.Errorf("type mismatch on return_call_ref: caller returns %d values but callee returns %d", len(functionType.Results), len(funcType.Results))
-				}
-				if err := valueTypeStack.requireStackValues(false, "", functionType.Results, false); err != nil {
+				if err := sts.validateReturnCall(OpcodeReturnCallRefName, enabledFeatures, funcType, functionType); err != nil {
 					return err
 				}
+				// behaves as a jump.
 				valueTypeStack.unreachable()
 			}
 		} else if OpcodeI32Eqz <= op && op <= OpcodeI64Extend32S {
@@ -1043,13 +1011,12 @@ func (m *Module) validateFunctionWithMaxStackValues(
 			switch op {
 			case OpcodeRefNull:
 				pc++
-				b := body[pc]
-				switch b {
-				case ValueTypeExternref.Kind():
+				switch reftype := body[pc]; ValueType(reftype) {
+				case ValueTypeExternref:
 					valueTypeStack.push(ValueTypeExternref)
-				case ValueTypeFuncref.Kind():
+				case ValueTypeFuncref:
 					valueTypeStack.push(ValueTypeFuncref)
-				case ValueTypeExnref.Kind():
+				case ValueTypeExnref:
 					valueTypeStack.push(ValueTypeExnref)
 				default:
 					// Concrete type index encoded as LEB128 u32.
@@ -1059,7 +1026,7 @@ func (m *Module) validateFunctionWithMaxStackValues(
 					br.Reset(body[pc:])
 					typeIdx, num, err := leb128.DecodeUint32(br)
 					if err != nil {
-						return fmt.Errorf("unknown type for ref.null: 0x%x", b)
+						return fmt.Errorf("unknown type for ref.null: 0x%x", reftype)
 					}
 					if int(typeIdx) >= len(m.TypeSection) {
 						return fmt.Errorf("unknown type for ref.null: type index %d out of range", typeIdx)
@@ -1397,8 +1364,7 @@ func (m *Module) validateFunctionWithMaxStackValues(
 						return fmt.Errorf("table of index %d not found", srcTableIndex)
 					}
 
-					if tables[srcTableIndex].Type != tables[dstTableIndex].Type &&
-						!isRefSubtypeOf(tables[srcTableIndex].Type, tables[dstTableIndex].Type) {
+					if !isRefSubtypeOf(tables[srcTableIndex].Type, tables[dstTableIndex].Type) {
 						return fmt.Errorf("table type mismatch for table.copy: %s (src) != %s (dst)",
 							RefTypeName(tables[srcTableIndex].Type), RefTypeName(tables[dstTableIndex].Type))
 					}
@@ -2418,6 +2384,33 @@ func (sts *stacks) reset(functionType *FunctionType) {
 	if sts.initLocals == nil {
 		sts.initLocals = make(map[uint32]struct{})
 	}
+}
+
+func (sts *stacks) validateCallSignature(opName string, funcType *FunctionType) error {
+	for i := len(funcType.Params) - 1; i >= 0; i-- {
+		if err := sts.vs.popAndVerifyType(funcType.Params[i]); err != nil {
+			return fmt.Errorf("type mismatch on %s operation param type: %v", opName, err)
+		}
+	}
+	for _, exp := range funcType.Results {
+		sts.vs.push(exp)
+	}
+	return nil
+}
+
+func (sts *stacks) validateReturnCall(
+	opName string,
+	enabledFeatures api.CoreFeatures,
+	calleeFuncType, callerFuncType *FunctionType,
+) error {
+	if err := enabledFeatures.RequireEnabled(experimental.CoreFeaturesTailCall); err != nil {
+		return fmt.Errorf("%s invalid as %v", opName, err)
+	}
+	if len(calleeFuncType.Results) != len(callerFuncType.Results) {
+		return fmt.Errorf("type mismatch on %s: caller returns %d values but callee returns %d",
+			opName, len(callerFuncType.Results), len(calleeFuncType.Results))
+	}
+	return sts.vs.requireStackValues(false, "", callerFuncType.Results, false)
 }
 
 type controlBlockStack struct {
