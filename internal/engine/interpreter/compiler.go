@@ -1717,8 +1717,10 @@ operatorSwitch:
 		)
 	case wasm.OpcodeRefNull:
 		c.pc++
-		b := c.body[c.pc]
-		if b != wasm.ValueTypeFuncref.Kind() && b != wasm.ValueTypeExternref.Kind() && b != wasm.ValueTypeExnref.Kind() {
+		switch reftype := c.body[c.pc]; wasm.ValueType(reftype) {
+		case wasm.ValueTypeFuncref, wasm.ValueTypeExternref, wasm.ValueTypeExnref:
+			// Abstract ref types are a single byte; already skipped.
+		default:
 			// Concrete type index encoded as LEB128; skip it.
 			_, num, err := leb128.LoadUint32(c.body[c.pc:])
 			if err != nil {
@@ -3777,10 +3779,7 @@ func (c *compiler) emitDefaultValue(t wasm.ValueType) {
 	case wasm.ValueTypeI32:
 		c.stackPush(unsignedTypeI32)
 		c.emit(newOperationConstI32(0))
-	case wasm.ValueTypeI64,
-		// From interpreter layer, ref type values are opaque 64-bit pointers.
-		wasm.ValueTypeExternref, wasm.ValueTypeFuncref,
-		wasm.ValueTypeExnref:
+	case wasm.ValueTypeI64, wasm.ValueTypeExternref, wasm.ValueTypeFuncref, wasm.ValueTypeExnref:
 		c.stackPush(unsignedTypeI64)
 		c.emit(newOperationConstI64(0))
 	case wasm.ValueTypeF32:

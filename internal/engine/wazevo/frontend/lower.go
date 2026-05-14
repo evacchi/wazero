@@ -3380,12 +3380,10 @@ func (c *Compiler) lowerCurrentOpcode() {
 		state.push(refFuncRet)
 
 	case wasm.OpcodeRefNull:
-		// The type immediate is a single byte for abstract types (funcref, externref, exnref)
-		// or a LEB128 type index for concrete ref types.
-		b := c.wasmFunctionBody[c.loweringState.pc+1]
-		if b == wasm.ValueTypeFuncref.Kind() || b == wasm.ValueTypeExternref.Kind() || b == wasm.ValueTypeExnref.Kind() {
+		switch reftype := c.wasmFunctionBody[c.loweringState.pc+1]; wasm.ValueType(reftype) {
+		case wasm.ValueTypeFuncref, wasm.ValueTypeExternref, wasm.ValueTypeExnref:
 			c.loweringState.pc++
-		} else {
+		default:
 			c.readI32u()
 		}
 		if state.unreachable {
