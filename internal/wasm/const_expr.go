@@ -13,11 +13,7 @@ type ConstantExpression struct {
 	Data []byte
 }
 
-// untypedFuncRefResolver always returns false, causing ref.func to produce
-// an untyped funcref rather than a concrete (ref $t).
-var untypedFuncRefResolver = func(Index) (Index, bool) { return 0, false }
-
-func evaluateConstExpr(e *ConstantExpression, globalResolver func(globalIndex Index) (ValueType, uint64, uint64, error), funcRefResolver func(funcIndex Index) (Reference, error), funcTypeIndexResolver func(funcIndex Index) (Index, bool)) ([]uint64, ValueType, error) {
+func evaluateConstExpr(e *ConstantExpression, globalResolver func(globalIndex Index) (ValueType, uint64, uint64, error), funcRefResolver func(funcIndex Index) (Reference, error)) ([]uint64, ValueType, error) {
 	var stack []uint64
 	var typeStack []ValueType
 	var pc uint64
@@ -117,11 +113,7 @@ func evaluateConstExpr(e *ConstantExpression, globalResolver func(globalIndex In
 				return nil, 0, err
 			}
 			stack = append(stack, uint64(ref))
-			if typeIndex, ok := funcTypeIndexResolver(Index(v)); ok {
-				typeStack = append(typeStack, ValueTypeConcreteRef(typeIndex, false))
-			} else {
-				typeStack = append(typeStack, ValueTypeFuncref)
-			}
+			typeStack = append(typeStack, ValueTypeFuncref)
 		case OpcodeVecPrefix:
 			if data[pc] != OpcodeVecV128Const {
 				return nil, 0, fmt.Errorf("invalid vector opcode for const expression: %#x", data[pc-1])
@@ -241,7 +233,6 @@ func evaluateConstExprInModuleInstance(e *ConstantExpression, m *ModuleInstance)
 		func(funcIndex Index) (Reference, error) {
 			return m.Engine.FunctionInstanceReference(funcIndex), nil
 		},
-		untypedFuncRefResolver,
 	)
 	return v
 }

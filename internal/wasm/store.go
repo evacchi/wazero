@@ -249,7 +249,6 @@ func (m *ModuleInstance) validateData(data []DataSegment) (err error) {
 				func(funcIndex Index) (Reference, error) {
 					return m.Engine.FunctionInstanceReference(funcIndex), nil
 				},
-				untypedFuncRefResolver,
 			)
 			if err != nil {
 				return fmt.Errorf("%s[%d] failed to evaluate offset expression: %w", SectionIDName(SectionIDData), i, err)
@@ -568,7 +567,6 @@ func (g *GlobalInstance) initialize(importedGlobals []*GlobalInstance, expr *Con
 		func(funcIndex Index) (Reference, error) {
 			return funcRefResolver(funcIndex), nil
 		},
-		untypedFuncRefResolver,
 	)
 	switch len(result) {
 	case 1:

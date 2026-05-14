@@ -371,7 +371,7 @@ func (m *Module) validateTableInitExprs(globals []GlobalType, numFuncs uint32) e
 			return fmt.Errorf("type mismatch: non-nullable table[%d] requires an init expression", i)
 		}
 		if t.InitExpr != nil {
-			if err := validateConstExpression(importedGlobals, numFuncs, t.InitExpr, t.Type, m.typeIndexOfFunction); err != nil {
+			if err := m.validateConstExpression(importedGlobals, numFuncs, t.InitExpr, t.Type); err != nil {
 				return fmt.Errorf("table[%d] init: %w", i, err)
 			}
 		}
@@ -418,7 +418,7 @@ func (m *Module) validateGlobals(globals []GlobalType, numFuncts, maxGlobals uin
 	importedGlobals := globals[:m.ImportGlobalCount]
 	for i := range m.GlobalSection {
 		g := &m.GlobalSection[i]
-		if err := validateConstExpression(importedGlobals, numFuncts, &g.Init, g.Type.ValType, m.typeIndexOfFunction); err != nil {
+		if err := m.validateConstExpression(importedGlobals, numFuncts, &g.Init, g.Type.ValType); err != nil {
 			return err
 		}
 	}
@@ -508,7 +508,6 @@ func (m *Module) declaredFunctionIndexes(enabledFeatures api.CoreFeatures) (ret 
 				ret[funcIndex] = struct{}{}
 				return 0, nil
 			},
-			untypedFuncRefResolver,
 		)
 
 		if initErr != nil {
@@ -530,7 +529,6 @@ func (m *Module) declaredFunctionIndexes(enabledFeatures api.CoreFeatures) (ret 
 					ret[funcIndex] = struct{}{}
 					return 0, nil
 				},
-				untypedFuncRefResolver,
 			)
 		}
 	}
@@ -573,7 +571,7 @@ func (m *Module) validateMemory(memory *Memory, globals []GlobalType, _ api.Core
 	for i := range m.DataSection {
 		d := &m.DataSection[i]
 		if !d.IsPassive() {
-			if err := validateConstExpression(importedGlobals, 0, &d.OffsetExpression, ValueTypeI32, nil); err != nil {
+			if err := m.validateConstExpression(importedGlobals, 0, &d.OffsetExpression, ValueTypeI32); err != nil {
 				return fmt.Errorf("calculate offset: %w", err)
 			}
 		}
@@ -647,7 +645,8 @@ func (m *Module) validateExports(enabledFeatures api.CoreFeatures, functions []I
 	return nil
 }
 
-func validateConstExpression(globals []GlobalType, numFuncs uint32, expr *ConstantExpression, expectedType ValueType, funcTypeIndexResolver func(funcIndex Index) (Index, bool)) (err error) {
+func (m *Module) validateConstExpression(globals []GlobalType, numFuncs uint32, expr *ConstantExpression, expectedType ValueType) (err error) {
+	var lastRefFuncIdx Index
 	_, typ, err := evaluateConstExpr(
 		expr,
 		func(globalIndex Index) (ValueType, uint64, uint64, error) {
@@ -660,12 +659,17 @@ func validateConstExpression(globals []GlobalType, numFuncs uint32, expr *Consta
 			if funcIndex >= numFuncs {
 				return 0, fmt.Errorf("ref.func index out of range [%d] with length %d", funcIndex, numFuncs-1)
 			}
+			lastRefFuncIdx = funcIndex
 			return 0, nil
 		},
-		funcTypeIndexResolver,
 	)
 	if err != nil {
 		return err
+	}
+	if typ == ValueTypeFuncref {
+		if typeIndex, ok := m.typeIndexOfFunction(lastRefFuncIdx); ok {
+			typ = ValueTypeConcreteRef(typeIndex, false)
+		}
 	}
 	if !isRefSubtypeOf(typ, expectedType) {
 		return fmt.Errorf("const expression type mismatch expected %s but got %s", ValueTypeName(expectedType), ValueTypeName(typ))
