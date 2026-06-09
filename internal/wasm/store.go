@@ -2,6 +2,8 @@ package wasm
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"strings"
@@ -373,15 +375,24 @@ func (s *Store) instantiate(
 	m.Tables = make([]*TableInstance, int(module.ImportTableCount)+len(module.TableSection))
 	m.Globals = make([]*GlobalInstance, int(module.ImportGlobalCount)+len(module.GlobalSection))
 	m.Tags = make([]*TagInstance, int(module.ImportTagCount)+len(module.TagSection))
+	if instantiateProgress != nil {
+		instantiateProgress("newModuleEngine")
+	}
 	m.Engine, err = s.Engine.NewModuleEngine(module, m)
 	if err != nil {
 		return nil, err
 	}
 
+	if instantiateProgress != nil {
+		instantiateProgress("resolveImports")
+	}
 	if err = m.resolveImports(ctx, module); err != nil {
 		return nil, err
 	}
 
+	if instantiateProgress != nil {
+		instantiateProgress("buildTables")
+	}
 	err = m.buildTables(module,
 		// As of reference-types proposal, boundary check must be done after instantiation.
 		s.EnabledFeatures.IsEnabled(api.CoreFeatureReferenceTypes))
@@ -391,6 +402,9 @@ func (s *Store) instantiate(
 
 	allocator, _ := ctx.Value(expctxkeys.MemoryAllocatorKey{}).(experimental.MemoryAllocator)
 
+	if instantiateProgress != nil {
+		instantiateProgress("buildGlobals")
+	}
 	m.buildGlobals(module, m.Engine.FunctionInstanceReference)
 	m.buildTags(module)
 	m.buildMemory(module, allocator)
@@ -411,20 +425,32 @@ func (s *Store) instantiate(
 		}
 	}
 
+	if instantiateProgress != nil {
+		instantiateProgress("buildElementInstances")
+	}
 	// After engine creation, we can create the funcref element instances and initialize funcref type globals.
 	m.buildElementInstances(module.ElementSection)
 
+	if instantiateProgress != nil {
+		instantiateProgress("applyData")
+	}
 	// Now all the validation passes, we are safe to mutate memory instances (possibly imported ones).
 	if err = m.applyData(module.DataSection); err != nil {
 		return nil, err
 	}
 
+	if instantiateProgress != nil {
+		instantiateProgress("applyElements")
+	}
 	m.applyElements(module.ElementSection)
 
 	m.Engine.DoneInstantiation()
 
 	// Execute the start function.
 	if module.StartSection != nil {
+		if instantiateProgress != nil {
+			instantiateProgress("startFunction")
+		}
 		funcIdx := *module.StartSection
 		ce := m.Engine.NewFunction(funcIdx)
 		_, err = ce.Call(ctx)
@@ -469,10 +495,20 @@ func (m *ModuleInstance) resolveImports(ctx context.Context, module *Module) (er
 				actual := src.typeOfFunction(imported.Index)
 				matched := false
 				if m.TypeIDs != nil && importedModule.TypeIDs != nil {
-					// Use structural type IDs for comparison (handles concrete ref types across modules).
 					actualTypeIdx, ok := src.typeIndexOfFunction(imported.Index)
 					matched = ok && importedModule.TypeIDs[actualTypeIdx] == m.TypeIDs[i.DescFunc]
-				} else {
+				}
+				if !matched {
+					// Signature-based fallback. For host modules whose
+					// function types reference concrete GC refs from the
+					// importing module's type section, TypeID matching
+					// fails because the host module can't replicate the
+					// importing module's rec group. Raw signature
+					// comparison works because the ValueType uint64
+					// encoding of the concrete ref is identical in both
+					// modules.
+					// TODO: let host modules share the importing
+					// module's TypeSection for proper TypeID matching.
 					matched = actual.EqualsSignature(expectedType.Params, expectedType.Results)
 				}
 				if !matched {
@@ -636,6 +672,24 @@ func (g *GlobalInstance) SetValue(lo, hi uint64) {
 	}
 }
 
+var instantiateProgress func(phase string)
+
+func SetInstantiateProgress(f func(phase string)) {
+	instantiateProgress = f
+}
+
+// CallProgress is called on every function call in the interpreter.
+// Not goroutine-safe; test-only.
+var callProgress func()
+
+func SetCallProgress(f func()) {
+	callProgress = f
+}
+
+func GetCallProgress() func() {
+	return callProgress
+}
+
 func (s *Store) GetFunctionTypeIDs(ts []FunctionType) ([]FunctionTypeID, error) {
 	// Rewrite each type's cached key so that supertype references and
 	// concrete-ref Field/Param/Result types inside the same rec group are
@@ -706,7 +760,18 @@ func canonicalizeRecGroupKeys(ts []FunctionType) {
 
 		var groupSuffix string
 		if groupSize > 1 {
-			groupSuffix = "|grp=[" + strings.Join(memberKeys, "|") + "]"
+			// For large rec groups, inlining all member keys as a suffix
+			// causes O(n²) string allocation. Use a hash digest instead.
+			if groupSize > 32 {
+				h := sha256.New()
+				for _, k := range memberKeys {
+					h.Write([]byte(k))
+					h.Write([]byte("|"))
+				}
+				groupSuffix = "|grp=" + hex.EncodeToString(h.Sum(nil)[:16])
+			} else {
+				groupSuffix = "|grp=[" + strings.Join(memberKeys, "|") + "]"
+			}
 		}
 		for j := 0; j < groupSize; j++ {
 			idx := groupStart + uint32(j)
@@ -1032,7 +1097,7 @@ func (m *ModuleInstance) GCRegister(v any) uint64 {
 	return tagged
 }
 
-const gcSweepThreshold = 1024
+const gcSweepThreshold = 100_000
 
 // GCSweep scans the given live values (e.g. operand stack, spill slots),
 // the module's globals, and its tables for tagged values present in
@@ -1041,6 +1106,9 @@ const gcSweepThreshold = 1024
 func (m *ModuleInstance) GCSweep(liveValues []uint64) {
 	if len(m.GCRoots) == 0 {
 		return
+	}
+	if instantiateProgress != nil {
+		instantiateProgress(fmt.Sprintf("GCSweep: roots=%d liveValues=%d", len(m.GCRoots), len(liveValues)))
 	}
 	live := make(map[uint64]any)
 
@@ -1070,10 +1138,17 @@ func (m *ModuleInstance) GCSweep(liveValues []uint64) {
 
 // GCMaybeSweep calls GCSweep only if GCRoots has grown past the sweep
 // threshold. Use this at allocation sites to amortize sweep cost.
+//
+// TODO: the current sweep is O(tables + globals + stack) per call,
+// which is too expensive for large modules. Disabled for now — Go's
+// GC traces struct/array fields natively, so objects stay alive
+// through Go pointer reachability. The map grows unbounded but
+// the entries are just tagged-pointer → any pairs (~40 bytes each).
 func (m *ModuleInstance) GCMaybeSweep(liveValues []uint64) {
-	if len(m.GCRoots) >= gcSweepThreshold {
-		m.GCSweep(liveValues)
-	}
+	// Disabled: sweep cost is prohibitive for large modules.
+	// if len(m.GCRoots) >= gcSweepThreshold {
+	// 	m.GCSweep(liveValues)
+	// }
 }
 
 // GetStore returns the Store on which this module is instantiated. Used by

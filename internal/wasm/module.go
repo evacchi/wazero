@@ -284,31 +284,52 @@ func (m *Module) Validate(enabledFeatures api.CoreFeatures) error {
 		tp.CacheNumInUint64()
 	}
 
+	if validateProgress != nil {
+		validateProgress(-10, 0)
+	}
 	if err := m.validateConcreteRefTypes(); err != nil {
 		return err
 	}
 
+	if validateProgress != nil {
+		validateProgress(-11, 0)
+	}
 	if err := m.validateTypeSection(enabledFeatures); err != nil {
 		return err
 	}
 
+	if validateProgress != nil {
+		validateProgress(-12, 0)
+	}
 	if err := m.validateStartSection(); err != nil {
 		return err
 	}
 
+	if validateProgress != nil {
+		validateProgress(-13, 0)
+	}
 	functions, globals, memory, tables, tags, err := m.AllDeclarations()
 	if err != nil {
 		return err
 	}
 
+	if validateProgress != nil {
+		validateProgress(-1, 0) // signal: starting table init exprs
+	}
 	if err = m.validateTableInitExprs(globals, uint32(len(functions))); err != nil {
 		return err
 	}
 
+	if validateProgress != nil {
+		validateProgress(-2, 0) // signal: starting imports
+	}
 	if err = m.validateImports(enabledFeatures); err != nil {
 		return err
 	}
 
+	if validateProgress != nil {
+		validateProgress(-3, 0) // signal: starting globals
+	}
 	if err = m.validateGlobals(enabledFeatures, globals, uint32(len(functions)), MaximumGlobals); err != nil {
 		return err
 	}
@@ -327,6 +348,9 @@ func (m *Module) Validate(enabledFeatures api.CoreFeatures) error {
 		}
 	} // No need to validate host functions as NewHostModule validates
 
+	if validateProgress != nil {
+		validateProgress(-4, 0) // signal: starting table validation
+	}
 	if err = m.validateTable(enabledFeatures, tables, MaximumTableIndex); err != nil {
 		return err
 	}
@@ -339,6 +363,14 @@ func (m *Module) Validate(enabledFeatures api.CoreFeatures) error {
 		return err
 	}
 	return nil
+}
+
+// validateProgress is called periodically during function validation to report
+// progress on large modules. Override in tests to trace compilation.
+var validateProgress func(funcIndex, totalFuncs int)
+
+func SetValidateProgress(f func(funcIndex, totalFuncs int)) {
+	validateProgress = f
 }
 
 func (m *Module) validateConcreteRefTypes() error {
@@ -540,7 +572,11 @@ func (m *Module) validateFunctions(enabledFeatures api.CoreFeatures, functions [
 	br := bytes.NewReader(nil)
 	// Also, we reuse the stacks across multiple function validations to reduce allocations.
 	vs := &stacks{}
+	totalFuncs := len(m.FunctionSection)
 	for idx, typeIndex := range m.FunctionSection {
+		if validateProgress != nil && (idx%500 == 0 || idx == totalFuncs-1) {
+			validateProgress(idx, totalFuncs)
+		}
 		if typeIndex >= typeCount {
 			return fmt.Errorf("invalid %s: type section index %d out of range", m.funcDesc(SectionIDFunction, Index(idx)), typeIndex)
 		}
@@ -610,7 +646,7 @@ func (m *Module) declaredFunctionIndexes(enabledFeatures api.CoreFeatures) (ret 
 	for i := range m.ElementSection {
 		elem := &m.ElementSection[i]
 		for _, initExpr := range elem.Init {
-			_, _, _ = evaluateConstExpr(
+			_, _, _ = evaluateConstExprWithModule(
 				&initExpr,
 				func(globalIndex Index) (ValueType, uint64, uint64, error) {
 					vt, err := m.resolveConstExprGlobalType(enabledFeatures, SectionIDElement, Index(i), globalIndex)
@@ -620,6 +656,8 @@ func (m *Module) declaredFunctionIndexes(enabledFeatures api.CoreFeatures) (ret 
 					ret[funcIndex] = struct{}{}
 					return 0, nil
 				},
+				m,
+				nil,
 			)
 		}
 	}
@@ -1849,6 +1887,22 @@ func isRefSubtypeOfInModule(actual, expected ValueType, m *Module) bool {
 // concreteCanonicalEqual reports whether the types at indices a and b are
 // structurally equivalent under iso-recursive equivalence: their canonical
 // (rec-relative, supertype-refined) keys match.
+// canonicalKeysCache caches the result of canonicalizeForValidation so that
+// concreteCanonicalEqual doesn't re-canonicalize the entire type section
+// on every call. The cache is built lazily on first use and invalidated
+// when the type section pointer changes (different module).
+//
+// Not goroutine-safe: the compiler validates functions concurrently,
+// but this cache is populated during validateTypeSection (before
+// per-function validation) and only read afterwards, so no race
+// within a single module. Concurrent compilation of different
+// modules could race. TODO: guard with a mutex or move to a
+// per-module field.
+var canonicalKeysCache struct {
+	ts   *FunctionType // pointer to first element of the slice that was canonicalized
+	keys []string      // canonical key per type index
+}
+
 func concreteCanonicalEqual(ts []FunctionType, a, b uint32) bool {
 	if a == b {
 		return true
@@ -1856,17 +1910,23 @@ func concreteCanonicalEqual(ts []FunctionType, a, b uint32) bool {
 	if int(a) >= len(ts) || int(b) >= len(ts) {
 		return false
 	}
-	// Canonicalize a copy so we don't mutate caller state mid-validation.
-	// The cached .string from key() is a per-type partial key (no
-	// rec-relative refinement) and can't be trusted for iso-recursive
-	// comparison; canonicalizeForValidation rebuilds refined keys.
-	copyTs := make([]FunctionType, len(ts))
-	copy(copyTs, ts)
-	for i := range copyTs {
-		copyTs[i].string = ""
+	cache := &canonicalKeysCache
+	tsPtr := &ts[0]
+	if cache.ts != tsPtr || len(cache.keys) != len(ts) {
+		copyTs := make([]FunctionType, len(ts))
+		copy(copyTs, ts)
+		for i := range copyTs {
+			copyTs[i].string = ""
+		}
+		canonicalizeForValidation(copyTs)
+		keys := make([]string, len(copyTs))
+		for i := range copyTs {
+			keys[i] = copyTs[i].string
+		}
+		cache.ts = tsPtr
+		cache.keys = keys
 	}
-	canonicalizeForValidation(copyTs)
-	return copyTs[a].string == copyTs[b].string
+	return cache.keys[a] == cache.keys[b]
 }
 
 // canonicalizeForValidation is wired by store.go (canonicalizeRecGroupKeys)

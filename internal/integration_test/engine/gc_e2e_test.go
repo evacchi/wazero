@@ -31,6 +31,12 @@ var gcNullRefSubtypeWasm []byte
 //go:embed testdata/gc_global_ref_global.wasm
 var gcGlobalRefGlobalWasm []byte
 
+//go:embed testdata/gc_elem_struct_new.wasm
+var gcElemStructNewWasm []byte
+
+//go:embed testdata/gc_elem_ref_func_subtype.wasm
+var gcElemRefFuncSubtypeWasm []byte
+
 //go:embed testdata/hello_world_kt.wasm
 var helloWorldKtWasm []byte
 
@@ -143,3 +149,36 @@ func TestGcE2EKotlinWasmInterpreter(t *testing.T) {
 	require.NoError(t, err)
 	require.Contains(t, stdout.String(), "Hello from Kotlin via WASI")
 }
+
+func TestGcElemRefFuncSubtype(t *testing.T) {
+	ctx := context.Background()
+	cfg := wazero.NewRuntimeConfigInterpreter().
+		WithCoreFeatures(api.CoreFeaturesV2 | experimental.CoreFeaturesGC)
+	r := wazero.NewRuntimeWithConfig(ctx, cfg)
+	defer r.Close(ctx)
+
+	mod, err := r.InstantiateWithConfig(ctx, gcElemRefFuncSubtypeWasm,
+		wazero.NewModuleConfig().WithStartFunctions())
+	require.NoError(t, err)
+
+	res, err := mod.ExportedFunction("call_indirect").Call(ctx)
+	require.NoError(t, err)
+	require.Equal(t, int32(42), api.DecodeI32(res[0]))
+}
+
+func TestGcElemStructNew(t *testing.T) {
+	ctx := context.Background()
+	cfg := wazero.NewRuntimeConfigInterpreter().
+		WithCoreFeatures(api.CoreFeaturesV2 | experimental.CoreFeaturesGC)
+	r := wazero.NewRuntimeWithConfig(ctx, cfg)
+	defer r.Close(ctx)
+
+	mod, err := r.InstantiateWithConfig(ctx, gcElemStructNewWasm,
+		wazero.NewModuleConfig().WithStartFunctions())
+	require.NoError(t, err)
+
+	res, err := mod.ExportedFunction("get_x").Call(ctx)
+	require.NoError(t, err)
+	require.Equal(t, int32(10), api.DecodeI32(res[0]))
+}
+

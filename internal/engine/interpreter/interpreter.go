@@ -910,7 +910,11 @@ func (ce *callEngine) callNativeFunc(ctx context.Context, m *wasm.ModuleInstance
 	ce.pushFrame(frame)
 	body := frame.f.parent.body
 	bodyLen := uint64(len(body))
+	callProgressFn := wasm.GetCallProgress()
 	for frame.pc < bodyLen {
+		if callProgressFn != nil {
+			callProgressFn()
+		}
 		op := &body[frame.pc]
 		// TODO: add description of each operation/case
 		// on, for example, how many args are used,

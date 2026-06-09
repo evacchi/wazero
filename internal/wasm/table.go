@@ -141,7 +141,7 @@ func (m *Module) validateTable(enabledFeatures api.CoreFeatures, tables []Table,
 
 		// Any offset applied is to the element, not the function index: validate here if the funcidx is sound.
 		for ei, init := range elem.Init {
-			_, initType, err := evaluateConstExpr(
+			_, initType, err := evaluateConstExprWithModule(
 				&init,
 				func(globalIndex Index) (ValueType, uint64, uint64, error) {
 					if globalIndex >= Index(globalsCount) {
@@ -156,25 +156,16 @@ func (m *Module) validateTable(enabledFeatures api.CoreFeatures, tables []Table,
 					}
 					return 0, nil
 				},
+				m,
+				nil,
 			)
 			if err != nil {
 				return err
 			}
 
-			switch elem.Type {
-			case RefTypeFuncref:
-				if initType != ValueTypeFuncref {
-					return fmt.Errorf("%s[%d].init[%d] must be funcref but was %s", SectionIDName(SectionIDElement), idx, ei, ValueTypeName(initType))
-				}
-			case RefTypeExternref:
-				if initType != ValueTypeExternref {
-					return fmt.Errorf("%s[%d].init[%d] must be externref but was %s", SectionIDName(SectionIDElement), idx, ei, ValueTypeName(initType))
-				}
-			default:
-				if !isRefSubtypeOf(initType, elem.Type) && initType != ValueTypeFuncref {
-					return fmt.Errorf("%s[%d].init[%d] must be %s but was %s",
-						SectionIDName(SectionIDElement), idx, ei, ValueTypeName(elem.Type), ValueTypeName(initType))
-				}
+			if !isRefSubtypeOf(initType, elem.Type) {
+				return fmt.Errorf("%s[%d].init[%d] must be %s but was %s",
+					SectionIDName(SectionIDElement), idx, ei, ValueTypeName(elem.Type), ValueTypeName(initType))
 			}
 		}
 
