@@ -4728,8 +4728,15 @@ func (ce *callEngine) callNativeFunc(ctx context.Context, m *wasm.ModuleInstance
 			// Tag the externref bit pattern so refMatches can later
 			// distinguish "externref wrapped as anyref" from genuine
 			// heap-pointer anyrefs. Null passes through unchanged.
+			// If the value is already a GC ref (struct/array pointer
+			// returned by a host function via externref), pass it
+			// through — it's already a valid anyref.
 			v := ce.popValue()
-			ce.pushValue(wasm.PackExternAsAny(v))
+			if wasm.IsGCRef(v) || wasm.IsTaggedI31(v) {
+				ce.pushValue(v)
+			} else {
+				ce.pushValue(wasm.PackExternAsAny(v))
+			}
 			frame.pc++
 
 		case operationKindExternConvertAny:
@@ -5426,7 +5433,7 @@ func encodeFieldValue(f wasm.FieldType, raw uint64) any {
 		}
 		return raw
 	}
-	panic(fmt.Sprintf("unsupported struct/array field type %#x", f.Kind()))
+	panic(fmt.Sprintf("unsupported struct/array field type %#x (full=%#x isRef=%v)", f.Kind(), uint64(f), f.IsRef()))
 }
 
 // decodeFieldValueRead reads a stored field value and converts it to the

@@ -450,9 +450,78 @@ func TestGcE2EJavacWebImageInstantiate(t *testing.T) {
 
 	refs := newExternRefStore()
 
+	// Helper: create a Java String GC struct from a Go string via wasm exports.
+	// Must be called after the guest module is instantiated, but we declare
+	// it early so interop host functions can reference it. It will panic if
+	// called before the guest module is available — that's fine, the interop
+	// module is instantiated first but these closures are only invoked when
+	// the guest module calls back into them.
+	var guestMod api.Module
+	javaStringToGcRef := func(mod api.Module, s string) uint64 {
+		m := mod
+		if m == nil {
+			m = guestMod
+		}
+		charArray, _ := m.ExportedFunction("array.char.create").Call(ctx, uint64(len(s)))
+		for i, c := range s {
+			m.ExportedFunction("array.char.write").Call(ctx, charArray[0], uint64(i), uint64(c))
+		}
+		result, _ := m.ExportedFunction("string.fromchars").Call(ctx, charArray[0])
+		return result[0]
+	}
+
+	// Helper: extract a Go string from a JS externref or GC String ref.
+	jsValueToString := func(mod api.Module, ref uint64) string {
+		if obj := refs.load(uintptr(ref)); obj != nil {
+			if s, ok := obj.(string); ok {
+				return s
+			}
+			if chars, ok := obj.([]uint16); ok {
+				b := make([]byte, len(chars))
+				for i, c := range chars {
+					b[i] = byte(c)
+				}
+				return string(b)
+			}
+		}
+		// Try extracting via string.tochars export (GC String ref)
+		m := mod
+		if m == nil {
+			m = guestMod
+		}
+		if fn := m.ExportedFunction("string.tochars"); fn != nil {
+			if result, err := fn.Call(ctx, ref); err == nil {
+				raw := result[0]
+				if raw != 0 && wasm.IsGCRef(raw) {
+					s := (*wasm.WasmStruct)(wasm.UntagGCPointer(raw))
+					if len(s.Fields) > 2 {
+						if arr, ok := s.Fields[2].(*wasm.WasmArray); ok && arr != nil {
+							chars := make([]uint16, arr.Len())
+							for i := range chars {
+								switch v := arr.Get(uint32(i)).(type) {
+								case uint16:
+									chars[i] = v
+								case int32:
+									chars[i] = uint16(v)
+								}
+							}
+							b := make([]byte, len(chars))
+							for i, c := range chars {
+								b[i] = byte(c)
+							}
+							return string(b)
+						}
+					}
+				}
+			}
+		}
+		return fmt.Sprintf("%d", ref)
+	}
+
 	// --- interop module (superset of hello-world) ---
 	_, err = r.NewHostModuleBuilder("interop").
 		NewFunctionBuilder().WithFunc(func(_ context.Context) uintptr {
+		t.Logf("[host] genBacktrace")
 		return refs.store("")
 	}).Export("genBacktrace").
 		NewFunctionBuilder().WithFunc(func(_ context.Context) float64 {
@@ -485,6 +554,7 @@ func TestGcE2EJavacWebImageInstantiate(t *testing.T) {
 				stderr.WriteString(s)
 			}
 		}
+		t.Logf("[host] stderrWriter.printChars stderr=%q", stderr.String())
 	}).Export("stderrWriter.printChars").
 		NewFunctionBuilder().WithFunc(func(_ context.Context) {
 	}).Export("stderrWriter.flush").
@@ -495,14 +565,17 @@ func TestGcE2EJavacWebImageInstantiate(t *testing.T) {
 		NewFunctionBuilder().WithFunc(func(_ context.Context) {
 	}).Export("stderrWriter.close").
 		NewFunctionBuilder().WithFunc(func(_ context.Context, ref uintptr) {
-		t.Logf("[wasm:log] %v", refs.load(ref))
+		t.Logf("[host] llog: %v", refs.load(ref))
 	}).Export("llog").
-		NewFunctionBuilder().WithFunc(func(_ context.Context, _ uintptr) uintptr {
-		return refs.store("<stack trace>")
-	}).Export("formatStackTrace").
-		NewFunctionBuilder().WithFunc(func(_ context.Context) uintptr {
-		return refs.store(".")
-	}).Export("getCurrentWorkingDirectory").
+		NewFunctionBuilder().WithGoModuleFunction(api.GoModuleFunc(func(_ context.Context, mod api.Module, stack []uint64) {
+		t.Logf("[host] formatStackTrace")
+		stack[0] = javaStringToGcRef(mod, "<stack trace>")
+	}), []api.ValueType{api.ValueTypeExternref}, []api.ValueType{api.ValueTypeExternref}).Export("formatStackTrace").
+		NewFunctionBuilder().WithGoModuleFunction(api.GoModuleFunc(func(_ context.Context, mod api.Module, stack []uint64) {
+		cwd, _ := os.Getwd()
+		t.Logf("[host] getCurrentWorkingDirectory -> %s", cwd)
+		stack[0] = javaStringToGcRef(mod, cwd)
+	}), nil, []api.ValueType{api.ValueTypeExternref}).Export("getCurrentWorkingDirectory").
 		Instantiate(ctx)
 	require.NoError(t, err)
 
@@ -526,60 +599,6 @@ func TestGcE2EJavacWebImageInstantiate(t *testing.T) {
 		Instantiate(ctx)
 	require.NoError(t, err)
 
-	// Helper: create a Java String GC struct from a Go string via wasm exports.
-	javaStringToGcRef := func(mod api.Module, s string) uint64 {
-		charArray, _ := mod.ExportedFunction("array.char.create").Call(ctx, uint64(len(s)))
-		for i, c := range s {
-			mod.ExportedFunction("array.char.write").Call(ctx, charArray[0], uint64(i), uint64(c))
-		}
-		result, _ := mod.ExportedFunction("string.fromchars").Call(ctx, charArray[0])
-		return result[0]
-	}
-
-	// Helper: extract a Go string from a JS externref or GC String ref.
-	jsValueToString := func(mod api.Module, ref uint64) string {
-		if obj := refs.load(uintptr(ref)); obj != nil {
-			if s, ok := obj.(string); ok {
-				return s
-			}
-			if chars, ok := obj.([]uint16); ok {
-				b := make([]byte, len(chars))
-				for i, c := range chars {
-					b[i] = byte(c)
-				}
-				return string(b)
-			}
-		}
-		// Try extracting via string.tochars export (GC String ref)
-		if fn := mod.ExportedFunction("string.tochars"); fn != nil {
-			if result, err := fn.Call(ctx, ref); err == nil {
-				raw := result[0]
-				if raw != 0 && wasm.IsGCRef(raw) {
-					s := (*wasm.WasmStruct)(wasm.UntagGCPointer(raw))
-					if len(s.Fields) > 2 {
-						if arr, ok := s.Fields[2].(*wasm.WasmArray); ok && arr != nil {
-							chars := make([]uint16, arr.Len())
-							for i := range chars {
-								switch v := arr.Get(uint32(i)).(type) {
-								case uint16:
-									chars[i] = v
-								case int32:
-									chars[i] = uint16(v)
-								}
-							}
-							b := make([]byte, len(chars))
-							for i, c := range chars {
-								b[i] = byte(c)
-							}
-							return string(b)
-						}
-					}
-				}
-			}
-		}
-		return fmt.Sprintf("%d", ref)
-	}
-
 	// --- jsbody module ---
 	e := api.ValueTypeExternref
 	_ = api.ValueTypeI32
@@ -591,7 +610,8 @@ func TestGcE2EJavacWebImageInstantiate(t *testing.T) {
 	}), []api.ValueType{e}, []api.ValueType{f64}).Export("_WebImageUtil.random___D").
 		// FileSystemInitializer: return map with length=0
 		NewFunctionBuilder().WithGoModuleFunction(api.GoModuleFunc(func(_ context.Context, mod api.Module, stack []uint64) {
-		m := map[string]any{"length": 0}
+		t.Logf("[host] prefetchedLibraryNames called")
+		m := map[string]any{"length": float64(0)}
 		stack[0] = uint64(refs.store(m))
 	}), []api.ValueType{e}, []api.ValueType{e}).Export("_FileSystemInitializer.prefetchedLibraryNames___JSObject").
 		NewFunctionBuilder().WithFunc(func(_ context.Context, _, _ uintptr) uintptr {
@@ -662,6 +682,23 @@ func TestGcE2EJavacWebImageInstantiate(t *testing.T) {
 			stack[0] = r[0]
 			return
 		}
+		if n, ok := val.(float64); ok {
+			numRef := uint64(refs.store(n))
+			numWrapped, _ := wrapExtern.Call(ctx, numRef)
+			r, _ := mod.ExportedFunction("convert.create.jsnumber").Call(ctx, numWrapped[0])
+			stack[0] = r[0]
+			return
+		}
+		if b, ok := val.(bool); ok {
+			var bv uint64
+			if b {
+				bv = 1
+			}
+			bWrapped, _ := wrapExtern.Call(ctx, uint64(refs.store(b)))
+			r, _ := mod.ExportedFunction("convert.create.jsboolean").Call(ctx, bWrapped[0], bv)
+			stack[0] = r[0]
+			return
+		}
 		if _, ok := val.(map[string]any); ok {
 			r, _ := mod.ExportedFunction("convert.create.jsobject").Call(ctx, wrapped[0])
 			stack[0] = r[0]
@@ -670,6 +707,8 @@ func TestGcE2EJavacWebImageInstantiate(t *testing.T) {
 		r2, _ := mod.ExportedFunction("convert.create.jsobject").Call(ctx, wrapped[0])
 		stack[0] = r2[0]
 	}), []api.ValueType{e, e}, []api.ValueType{e}).Export("_JSConversion.javaScriptToJava___Object_Object").
+		// extractJavaScriptString (logging)
+		// (already defined above, this won't be reached)
 		// unproxy: pass through
 		NewFunctionBuilder().WithFunc(func(_ context.Context, _ uintptr, v uintptr) uintptr {
 		return v
@@ -810,13 +849,14 @@ func TestGcE2EJavacWebImageInstantiate(t *testing.T) {
 	mod, err := r.InstantiateWithConfig(ctx, wasmBytes,
 		wazero.NewModuleConfig().
 			WithStdout(&stdout).
-			WithStderr(&stderr).
-			WithStartFunctions())
+			WithStderr(&stderr))
 	require.NoError(t, err)
+	guestMod = mod
 	t.Logf("instantiate total: %v", time.Since(instStart))
 
-	// Build args: ["javac", "HelloWorld.java"]
-	javaArgs := []string{"javac", "HelloWorld.java"}
+	// Build args: [filename, sourceCode] — the WebImage javac expects
+	// the filename and the Java source code as separate arguments.
+	javaArgs := []string{"HelloWorld.java", "public class HelloWorld { public static void main(String[] args) { System.out.println(42); } }"}
 
 	arrayStringCreate := mod.ExportedFunction("array.string.create")
 	arrayCharCreate := mod.ExportedFunction("array.char.create")

@@ -37,6 +37,9 @@ var gcElemStructNewWasm []byte
 //go:embed testdata/gc_elem_ref_func_subtype.wasm
 var gcElemRefFuncSubtypeWasm []byte
 
+//go:embed testdata/gc_struct_funcref_field.wasm
+var gcStructFuncrefFieldWasm []byte
+
 //go:embed testdata/hello_world_kt.wasm
 var helloWorldKtWasm []byte
 
@@ -148,6 +151,22 @@ func TestGcE2EKotlinWasmInterpreter(t *testing.T) {
 	_, err = mod.ExportedFunction("_initialize").Call(ctx)
 	require.NoError(t, err)
 	require.Contains(t, stdout.String(), "Hello from Kotlin via WASI")
+}
+
+func TestGcStructFuncrefField(t *testing.T) {
+	ctx := context.Background()
+	cfg := wazero.NewRuntimeConfigInterpreter().
+		WithCoreFeatures(api.CoreFeaturesV2 | experimental.CoreFeaturesGC)
+	r := wazero.NewRuntimeWithConfig(ctx, cfg)
+	defer r.Close(ctx)
+
+	mod, err := r.InstantiateWithConfig(ctx, gcStructFuncrefFieldWasm,
+		wazero.NewModuleConfig().WithStartFunctions())
+	require.NoError(t, err)
+
+	res, err := mod.ExportedFunction("test").Call(ctx)
+	require.NoError(t, err)
+	require.Equal(t, int32(42), api.DecodeI32(res[0]))
 }
 
 func TestGcElemRefFuncSubtype(t *testing.T) {
