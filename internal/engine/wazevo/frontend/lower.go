@@ -3391,6 +3391,15 @@ func (c *Compiler) lowerCurrentOpcode() {
 		}
 		ret := builder.AllocateInstruction().AsIconst64(0).Insert(builder).Return()
 		state.push(ret)
+	case wasm.OpcodeRefEq:
+		if state.unreachable {
+			break
+		}
+		b := state.pop()
+		a := state.pop()
+		eq := builder.AllocateInstruction().AsIcmp(a, b, ssa.IntegerCmpCondEqual).Insert(builder).Return()
+		state.push(eq)
+
 	case wasm.OpcodeRefIsNull:
 		if state.unreachable {
 			break
@@ -3830,6 +3839,9 @@ func (c *Compiler) lowerCurrentOpcode() {
 		c.emitTryTableLeaves(len(c.state().controlFrames))
 		c.lowerTailCallReturnCallRef(typeIndex)
 		state.unreachable = true
+
+	case wasm.OpcodeGCPrefix:
+		c.lowerGCOpcodes()
 
 	default:
 		panic("TODO: unsupported in wazevo yet: " + wasm.InstructionName(op))
@@ -5042,4 +5054,493 @@ func (c *Compiler) boundsCheckInMemory(memLen, offset, size ssa.Value) {
 	builder.AllocateInstruction().
 		AsExitIfTrueWithCode(c.execCtxPtrValue, cmp, wazevoapi.ExitCodeMemoryOutOfBounds).
 		Insert(builder)
+}
+
+// lowerGCOpcodes handles all OpcodeGCPrefix sub-opcodes.
+func (c *Compiler) lowerGCOpcodes() {
+	state := c.state()
+	builder := c.ssaBuilder
+
+	state.pc++
+	gcOpUint, num, err := leb128.LoadUint32(c.wasmFunctionBody[state.pc:])
+	if err != nil {
+		panic(fmt.Sprintf("failed to read GC opcode: %v", err))
+	}
+	state.pc += int(num - 1)
+	gcOp := wasm.OpcodeGC(gcOpUint)
+
+	switch gcOp {
+	case wasm.OpcodeGCRefI31:
+		if state.unreachable {
+			break
+		}
+		raw := state.pop()
+		// Widen i32 to i64 if needed (ref.i31 takes i32 per wasm spec).
+		if raw.Type() == ssa.TypeI32 {
+			raw = builder.AllocateInstruction().AsUExtend(raw, 32, 64).Insert(builder).Return()
+		}
+		mask := builder.AllocateInstruction().AsIconst64(uint64(wasm.I31RefMask)).Insert(builder).Return()
+		masked := builder.AllocateInstruction().AsBand(raw, mask).Insert(builder).Return()
+		tag := builder.AllocateInstruction().AsIconst64(1 << 63).Insert(builder).Return()
+		borInst := builder.AllocateInstruction()
+		borInst.AsBor(masked, tag)
+		builder.InsertInstruction(borInst)
+		state.push(borInst.Return())
+
+	case wasm.OpcodeGCI31GetS:
+		if state.unreachable {
+			break
+		}
+		v := state.pop()
+		c.emitNullRefCheck(v)
+		mask := builder.AllocateInstruction().AsIconst64(uint64(wasm.I31RefMask)).Insert(builder).Return()
+		masked := builder.AllocateInstruction().AsBand(v, mask).Insert(builder).Return()
+		// Sign extend from bit 30: shift left 33, then arithmetic shift right 33.
+		shiftAmt := builder.AllocateInstruction().AsIconst64(33).Insert(builder).Return()
+		shl := builder.AllocateInstruction().AsIshl(masked, shiftAmt).Insert(builder).Return()
+		sar := builder.AllocateInstruction().AsSshr(shl, shiftAmt).Insert(builder).Return()
+		state.push(sar)
+
+	case wasm.OpcodeGCI31GetU:
+		if state.unreachable {
+			break
+		}
+		v := state.pop()
+		c.emitNullRefCheck(v)
+		mask := builder.AllocateInstruction().AsIconst64(uint64(wasm.I31RefMask)).Insert(builder).Return()
+		masked := builder.AllocateInstruction().AsBand(v, mask).Insert(builder).Return()
+		state.push(masked)
+
+	case wasm.OpcodeGCAnyConvertExtern:
+		if state.unreachable {
+			break
+		}
+		// Pass through — the runtime refMatches handler already handles
+		// all tag variants. Full tagging can be added later as an optimization.
+		// The value stays on the stack unchanged.
+
+	case wasm.OpcodeGCExternConvertAny:
+		if state.unreachable {
+			break
+		}
+		// Pass through — symmetric with any.convert_extern above.
+
+	case wasm.OpcodeGCArrayLen:
+		if state.unreachable {
+			break
+		}
+		v := state.pop()
+		c.emitNullRefCheck(v)
+		// Untag GC pointer: clear bits 60-61.
+		clearMask := builder.AllocateInstruction().AsIconst64(^uint64((1 << 61) | (1 << 60))).Insert(builder).Return()
+		ptr := builder.AllocateInstruction().AsBand(v, clearMask).Insert(builder).Return()
+		// WasmArray layout: TypeID(4) + pad(4) + Elements.Data(8) + Elements.Len(8)
+		// Length is at offset 16 from struct base.
+		length := builder.AllocateInstruction().AsLoad(ptr, 16, ssa.TypeI64).Insert(builder).Return()
+		state.push(length)
+
+	case wasm.OpcodeGCStructNew:
+		typeIdx := c.readI32u()
+		if state.unreachable {
+			break
+		}
+		fieldCount := len(c.m.TypeSection[typeIdx].Fields)
+		c.storeCallerModuleContext()
+		// Store field values into scratch buffer (in reverse order since they're popped).
+		for i := fieldCount - 1; i >= 0; i-- {
+			val := state.pop()
+			c.storeScratch(i, val)
+		}
+		result := c.callGCAllocTrampoline(wazevoapi.GCAllocStructNew, typeIdx)
+		state.push(result)
+
+	case wasm.OpcodeGCStructNewDefault:
+		typeIdx := c.readI32u()
+		if state.unreachable {
+			break
+		}
+		c.storeCallerModuleContext()
+		result := c.callGCAllocTrampoline(wazevoapi.GCAllocStructNewDefault, typeIdx)
+		state.push(result)
+
+	case wasm.OpcodeGCStructGet, wasm.OpcodeGCStructGetS, wasm.OpcodeGCStructGetU:
+		typeIdx := c.readI32u()
+		fieldIdx := c.readI32u()
+		if state.unreachable {
+			break
+		}
+		c.storeCallerModuleContext()
+		ref := state.pop()
+		var subOp int
+		switch gcOp {
+		case wasm.OpcodeGCStructGet:
+			subOp = wazevoapi.GCFieldOpStructGet
+		case wasm.OpcodeGCStructGetS:
+			subOp = wazevoapi.GCFieldOpStructGetS
+		case wasm.OpcodeGCStructGetU:
+			subOp = wazevoapi.GCFieldOpStructGetU
+		}
+		fieldIdxVal := builder.AllocateInstruction().AsIconst64(uint64(fieldIdx)).Insert(builder).Return()
+		unused := builder.AllocateInstruction().AsIconst64(0).Insert(builder).Return()
+		result := c.callGCFieldOpTrampoline(subOp, ref, typeIdx, fieldIdxVal, unused)
+		state.push(result)
+
+	case wasm.OpcodeGCStructSet:
+		typeIdx := c.readI32u()
+		fieldIdx := c.readI32u()
+		if state.unreachable {
+			break
+		}
+		c.storeCallerModuleContext()
+		val := state.pop()
+		ref := state.pop()
+		fieldIdxVal := builder.AllocateInstruction().AsIconst64(uint64(fieldIdx)).Insert(builder).Return()
+		c.callGCFieldOpTrampoline(wazevoapi.GCFieldOpStructSet, ref, typeIdx, fieldIdxVal, val)
+
+	case wasm.OpcodeGCArrayNew:
+		typeIdx := c.readI32u()
+		if state.unreachable {
+			break
+		}
+		c.storeCallerModuleContext()
+		length := state.pop()
+		val := state.pop()
+		c.storeScratch(0, val)
+		c.storeScratch(1, length)
+		result := c.callGCAllocTrampoline(wazevoapi.GCAllocArrayNew, typeIdx)
+		state.push(result)
+
+	case wasm.OpcodeGCArrayNewDefault:
+		typeIdx := c.readI32u()
+		if state.unreachable {
+			break
+		}
+		c.storeCallerModuleContext()
+		length := state.pop()
+		c.storeScratch(0, length)
+		result := c.callGCAllocTrampoline(wazevoapi.GCAllocArrayNewDefault, typeIdx)
+		state.push(result)
+
+	case wasm.OpcodeGCArrayNewFixed:
+		typeIdx := c.readI32u()
+		count := c.readI32u()
+		if state.unreachable {
+			break
+		}
+		c.storeCallerModuleContext()
+		countVal := builder.AllocateInstruction().AsIconst64(uint64(count)).Insert(builder).Return()
+		c.storeScratch(0, countVal)
+		for i := int(count) - 1; i >= 0; i-- {
+			val := state.pop()
+			c.storeScratch(1+i, val)
+		}
+		result := c.callGCAllocTrampoline(wazevoapi.GCAllocArrayNewFixed, typeIdx)
+		state.push(result)
+
+	case wasm.OpcodeGCArrayNewData:
+		typeIdx := c.readI32u()
+		segIdx := c.readI32u()
+		if state.unreachable {
+			break
+		}
+		c.storeCallerModuleContext()
+		count := state.pop()
+		srcOff := state.pop()
+		segIdxVal := builder.AllocateInstruction().AsIconst64(uint64(segIdx)).Insert(builder).Return()
+		c.storeScratch(0, segIdxVal)
+		c.storeScratch(1, srcOff)
+		c.storeScratch(2, count)
+		result := c.callGCAllocTrampoline(wazevoapi.GCAllocArrayNewData, typeIdx)
+		state.push(result)
+
+	case wasm.OpcodeGCArrayNewElem:
+		typeIdx := c.readI32u()
+		segIdx := c.readI32u()
+		if state.unreachable {
+			break
+		}
+		c.storeCallerModuleContext()
+		count := state.pop()
+		srcOff := state.pop()
+		segIdxVal := builder.AllocateInstruction().AsIconst64(uint64(segIdx)).Insert(builder).Return()
+		c.storeScratch(0, segIdxVal)
+		c.storeScratch(1, srcOff)
+		c.storeScratch(2, count)
+		result := c.callGCAllocTrampoline(wazevoapi.GCAllocArrayNewElem, typeIdx)
+		state.push(result)
+
+	case wasm.OpcodeGCArrayGet, wasm.OpcodeGCArrayGetS, wasm.OpcodeGCArrayGetU:
+		typeIdx := c.readI32u()
+		if state.unreachable {
+			break
+		}
+		c.storeCallerModuleContext()
+		idx := state.pop()
+		ref := state.pop()
+		var subOp int
+		switch gcOp {
+		case wasm.OpcodeGCArrayGet:
+			subOp = wazevoapi.GCFieldOpArrayGet
+		case wasm.OpcodeGCArrayGetS:
+			subOp = wazevoapi.GCFieldOpArrayGetS
+		case wasm.OpcodeGCArrayGetU:
+			subOp = wazevoapi.GCFieldOpArrayGetU
+		}
+		unused := builder.AllocateInstruction().AsIconst64(0).Insert(builder).Return()
+		result := c.callGCFieldOpTrampoline(subOp, ref, typeIdx, idx, unused)
+		state.push(result)
+
+	case wasm.OpcodeGCArraySet:
+		typeIdx := c.readI32u()
+		if state.unreachable {
+			break
+		}
+		c.storeCallerModuleContext()
+		val := state.pop()
+		idx := state.pop()
+		ref := state.pop()
+		c.callGCFieldOpTrampoline(wazevoapi.GCFieldOpArraySet, ref, typeIdx, idx, val)
+
+	case wasm.OpcodeGCArrayFill:
+		typeIdx := c.readI32u()
+		if state.unreachable {
+			break
+		}
+		c.storeCallerModuleContext()
+		count := state.pop()
+		val := state.pop()
+		idx := state.pop()
+		ref := state.pop()
+		c.storeScratch(0, ref)
+		typeIdxVal := builder.AllocateInstruction().AsIconst64(uint64(typeIdx)).Insert(builder).Return()
+		c.storeScratch(1, typeIdxVal)
+		c.storeScratch(2, idx)
+		c.storeScratch(3, val)
+		c.storeScratch(4, count)
+		c.callGCArrayBulkTrampoline(wazevoapi.GCArrayBulkFill)
+
+	case wasm.OpcodeGCArrayCopy:
+		_ = c.readI32u() // dst type index (unused at runtime — element types are compatible by validation)
+		_ = c.readI32u() // src type index
+		if state.unreachable {
+			break
+		}
+		c.storeCallerModuleContext()
+		count := state.pop()
+		srcIdx := state.pop()
+		srcRef := state.pop()
+		dstIdx := state.pop()
+		dstRef := state.pop()
+		c.storeScratch(0, dstRef)
+		c.storeScratch(1, dstIdx)
+		c.storeScratch(2, srcRef)
+		c.storeScratch(3, srcIdx)
+		c.storeScratch(4, count)
+		c.callGCArrayBulkTrampoline(wazevoapi.GCArrayBulkCopy)
+
+	case wasm.OpcodeGCArrayInitData:
+		typeIdx := c.readI32u()
+		segIdx := c.readI32u()
+		if state.unreachable {
+			break
+		}
+		c.storeCallerModuleContext()
+		count := state.pop()
+		srcOff := state.pop()
+		dstOff := state.pop()
+		ref := state.pop()
+		c.storeScratch(0, ref)
+		typeIdxVal := builder.AllocateInstruction().AsIconst64(uint64(typeIdx)).Insert(builder).Return()
+		c.storeScratch(1, typeIdxVal)
+		segIdxVal := builder.AllocateInstruction().AsIconst64(uint64(segIdx)).Insert(builder).Return()
+		c.storeScratch(2, segIdxVal)
+		c.storeScratch(3, dstOff)
+		c.storeScratch(4, srcOff)
+		c.storeScratch(5, count)
+		c.callGCArrayBulkTrampoline(wazevoapi.GCArrayBulkInitData)
+
+	case wasm.OpcodeGCArrayInitElem:
+		typeIdx := c.readI32u()
+		segIdx := c.readI32u()
+		if state.unreachable {
+			break
+		}
+		c.storeCallerModuleContext()
+		count := state.pop()
+		srcOff := state.pop()
+		dstOff := state.pop()
+		ref := state.pop()
+		c.storeScratch(0, ref)
+		typeIdxVal := builder.AllocateInstruction().AsIconst64(uint64(typeIdx)).Insert(builder).Return()
+		c.storeScratch(1, typeIdxVal)
+		segIdxVal := builder.AllocateInstruction().AsIconst64(uint64(segIdx)).Insert(builder).Return()
+		c.storeScratch(2, segIdxVal)
+		c.storeScratch(3, dstOff)
+		c.storeScratch(4, srcOff)
+		c.storeScratch(5, count)
+		c.callGCArrayBulkTrampoline(wazevoapi.GCArrayBulkInitElem)
+
+	case wasm.OpcodeGCRefTest, wasm.OpcodeGCRefTestNull:
+		ht := c.readI64s()
+		if state.unreachable {
+			break
+		}
+		c.storeCallerModuleContext()
+		ref := state.pop()
+		kindByte, typeIdx, isConcrete, _ := wasm.HeapTypeKindFromBinary(ht)
+		nullable := gcOp == wasm.OpcodeGCRefTestNull
+		var subOp int
+		if nullable {
+			subOp = wazevoapi.GCRefCastRefTestNull
+		} else {
+			subOp = wazevoapi.GCRefCastRefTest
+		}
+		result := c.callGCRefCastTrampoline(subOp, ref, kindByte, nullable, isConcrete, typeIdx)
+		state.push(result)
+
+	case wasm.OpcodeGCRefCast, wasm.OpcodeGCRefCastNull:
+		ht := c.readI64s()
+		if state.unreachable {
+			break
+		}
+		c.storeCallerModuleContext()
+		ref := state.pop()
+		kindByte, typeIdx, isConcrete, _ := wasm.HeapTypeKindFromBinary(ht)
+		nullable := gcOp == wasm.OpcodeGCRefCastNull
+		var subOp int
+		if nullable {
+			subOp = wazevoapi.GCRefCastRefCastNull
+		} else {
+			subOp = wazevoapi.GCRefCastRefCast
+		}
+		result := c.callGCRefCastTrampoline(subOp, ref, kindByte, nullable, isConcrete, typeIdx)
+		state.push(result)
+
+	case wasm.OpcodeGCBrOnCast, wasm.OpcodeGCBrOnCastFail:
+		flags := c.readByte()
+		labelIdx := c.readI32u()
+		_ = c.readI64s() // src heap type (unused)
+		dstHt := c.readI64s()
+		if state.unreachable {
+			break
+		}
+		c.storeCallerModuleContext()
+		dstKindByte, dstTypeIdx, dstIsConcrete, _ := wasm.HeapTypeKindFromBinary(dstHt)
+		dstNullable := flags&wasm.BrOnCastFlagDstNullable != 0
+
+		ref := state.pop()
+		// Call ref.test trampoline to determine whether the cast matches.
+		testResult := c.callGCRefCastTrampoline(wazevoapi.GCRefCastRefTest, ref, dstKindByte, dstNullable, dstIsConcrete, dstTypeIdx)
+
+		zero := builder.AllocateInstruction().AsIconst64(0).Insert(builder).Return()
+		matches := builder.AllocateInstruction().AsIcmp(testResult, zero, ssa.IntegerCmpCondNotEqual).Insert(builder).Return()
+
+		// Push ref back onto the stack so that nPeekDup includes it in branch args.
+		state.push(ref)
+		targetBlk, argNum := state.brTargetArgNumFor(labelIdx)
+		args := c.nPeekDup(argNum)
+
+		if gcOp == wasm.OpcodeGCBrOnCast {
+			// br_on_cast: branch if matches
+			builder.AllocateInstruction().AsBrnz(matches, args, targetBlk).Insert(builder)
+		} else {
+			// br_on_cast_fail: branch if NOT matches
+			brz := builder.AllocateInstruction()
+			brz.AsBrz(matches, args, targetBlk)
+			builder.InsertInstruction(brz)
+		}
+
+		fallthroughBlk := builder.AllocateBasicBlock()
+		c.insertJumpToBlock(ssa.ValuesNil, fallthroughBlk)
+		builder.Seal(fallthroughBlk)
+		builder.SetCurrentBlock(fallthroughBlk)
+		// ref is already on the stack for the fall-through path
+
+	default:
+		panic(fmt.Sprintf("unsupported GC opcode: 0xfb 0x%x", gcOp))
+	}
+}
+
+// emitNullRefCheck emits a null reference check that traps on null.
+func (c *Compiler) emitNullRefCheck(v ssa.Value) {
+	builder := c.ssaBuilder
+	zero := builder.AllocateInstruction().AsIconst64(0).Insert(builder).Return()
+	isNull := builder.AllocateInstruction().AsIcmp(v, zero, ssa.IntegerCmpCondEqual).Insert(builder).Return()
+	exitIfNull := builder.AllocateInstruction()
+	exitIfNull.AsExitIfTrueWithCode(c.execCtxPtrValue, isNull, wazevoapi.ExitCodeNullReference)
+	builder.InsertInstruction(exitIfNull)
+}
+
+// storeScratch stores a value to the GC scratch buffer at the given slot index.
+func (c *Compiler) storeScratch(slotIndex int, v ssa.Value) {
+	builder := c.ssaBuilder
+	offset := wazevoapi.ExecutionContextOffsetGCScratchBuffer.U32() + uint32(slotIndex)*8
+	builder.AllocateInstruction().AsStore(ssa.OpcodeStore, v, c.execCtxPtrValue, offset).Insert(builder)
+}
+
+// callGCAllocTrampoline calls the GC alloc trampoline with the given sub-opcode and type index.
+func (c *Compiler) callGCAllocTrampoline(subOp int, typeIdx uint32) ssa.Value {
+	builder := c.ssaBuilder
+	subOpVal := builder.AllocateInstruction().AsIconst64(uint64(subOp)).Insert(builder).Return()
+	typeIdxVal := builder.AllocateInstruction().AsIconst64(uint64(typeIdx)).Insert(builder).Return()
+	trampolinePtr := builder.AllocateInstruction().
+		AsLoad(c.execCtxPtrValue, wazevoapi.ExecutionContextOffsetGCAllocTrampolineAddress.U32(), ssa.TypeI64).
+		Insert(builder).Return()
+	args := c.allocateVarLengthValues(3, c.execCtxPtrValue, subOpVal, typeIdxVal)
+	return builder.AllocateInstruction().
+		AsCallIndirect(trampolinePtr, &c.gcAllocSig, args).
+		Insert(builder).Return()
+}
+
+// callGCFieldOpTrampoline calls the GC field-op trampoline.
+// fieldOrIdx is the struct field index (compile-time const for struct ops)
+// or the array element index (runtime value for array ops) as an SSA value.
+func (c *Compiler) callGCFieldOpTrampoline(subOp int, ref ssa.Value, typeIdx uint32, fieldOrIdx, value ssa.Value) ssa.Value {
+	builder := c.ssaBuilder
+	subOpVal := builder.AllocateInstruction().AsIconst64(uint64(subOp)).Insert(builder).Return()
+	typeIdxVal := builder.AllocateInstruction().AsIconst64(uint64(typeIdx)).Insert(builder).Return()
+	trampolinePtr := builder.AllocateInstruction().
+		AsLoad(c.execCtxPtrValue, wazevoapi.ExecutionContextOffsetGCFieldOpTrampolineAddress.U32(), ssa.TypeI64).
+		Insert(builder).Return()
+	args := c.allocateVarLengthValues(6, c.execCtxPtrValue, subOpVal, ref, typeIdxVal, fieldOrIdx, value)
+	return builder.AllocateInstruction().
+		AsCallIndirect(trampolinePtr, &c.gcFieldOpSig, args).
+		Insert(builder).Return()
+}
+
+// callGCArrayBulkTrampoline calls the GC array-bulk trampoline.
+func (c *Compiler) callGCArrayBulkTrampoline(subOp int) {
+	builder := c.ssaBuilder
+	subOpVal := builder.AllocateInstruction().AsIconst64(uint64(subOp)).Insert(builder).Return()
+	trampolinePtr := builder.AllocateInstruction().
+		AsLoad(c.execCtxPtrValue, wazevoapi.ExecutionContextOffsetGCArrayBulkTrampolineAddress.U32(), ssa.TypeI64).
+		Insert(builder).Return()
+	args := c.allocateVarLengthValues(2, c.execCtxPtrValue, subOpVal)
+	builder.AllocateInstruction().
+		AsCallIndirect(trampolinePtr, &c.gcArrayBulkSig, args).
+		Insert(builder)
+}
+
+// callGCRefCastTrampoline calls the GC ref-cast trampoline.
+func (c *Compiler) callGCRefCastTrampoline(subOp int, ref ssa.Value, kindByte byte, nullable, isConcrete bool, typeIdx uint32) ssa.Value {
+	builder := c.ssaBuilder
+	subOpVal := builder.AllocateInstruction().AsIconst64(uint64(subOp)).Insert(builder).Return()
+	// Pack kindByte, nullable, and isConcrete into one i64:
+	// bits 0-7: kindByte, bit 8: nullable, bit 9: isConcrete
+	packed := uint64(kindByte)
+	if nullable {
+		packed |= 1 << 8
+	}
+	if isConcrete {
+		packed |= 1 << 9
+	}
+	kindVal := builder.AllocateInstruction().AsIconst64(packed).Insert(builder).Return()
+	typeIdxVal := builder.AllocateInstruction().AsIconst64(uint64(typeIdx)).Insert(builder).Return()
+	trampolinePtr := builder.AllocateInstruction().
+		AsLoad(c.execCtxPtrValue, wazevoapi.ExecutionContextOffsetGCRefCastTrampolineAddress.U32(), ssa.TypeI64).
+		Insert(builder).Return()
+	args := c.allocateVarLengthValues(5, c.execCtxPtrValue, subOpVal, ref, kindVal, typeIdxVal)
+	return builder.AllocateInstruction().
+		AsCallIndirect(trampolinePtr, &c.gcRefCastSig, args).
+		Insert(builder).Return()
 }

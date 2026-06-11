@@ -74,6 +74,18 @@ type Compiler struct {
 	tryTableEnterSig ssa.Signature
 	// tryTableLeaveSig is the signature for the try_table leave trampoline.
 	tryTableLeaveSig ssa.Signature
+	// gcAllocSig is the signature for the GC alloc trampoline:
+	// (execCtx, subOpcode, typeIdx) → (tagged ref).
+	gcAllocSig ssa.Signature
+	// gcFieldOpSig is the signature for the GC field-op trampoline:
+	// (execCtx, subOpcode, ref, typeIdx, fieldIdx, value) → (result).
+	gcFieldOpSig ssa.Signature
+	// gcArrayBulkSig is the signature for the GC array-bulk trampoline:
+	// (execCtx, subOpcode) → (). All data via scratch buffer.
+	gcArrayBulkSig ssa.Signature
+	// gcRefCastSig is the signature for the GC ref-cast trampoline:
+	// (execCtx, subOpcode, ref, kindByte, typeIdx) → (result).
+	gcRefCastSig ssa.Signature
 	// catchClauseTable accumulates catch clause info for each try_table during compilation.
 	catchClauseTable catchClauseTable
 
@@ -300,6 +312,34 @@ func (c *Compiler) declareSignatures(listenerOn bool) {
 		Results: []ssa.Type{},
 	}
 	c.ssaBuilder.DeclareSignature(&c.tryTableLeaveSig)
+
+	c.gcAllocSig = ssa.Signature{
+		ID:      c.tryTableLeaveSig.ID + 1,
+		Params:  []ssa.Type{ssa.TypeI64 /* exec context */, ssa.TypeI64 /* sub-opcode */, ssa.TypeI64 /* type index */},
+		Results: []ssa.Type{ssa.TypeI64 /* tagged ref */},
+	}
+	c.ssaBuilder.DeclareSignature(&c.gcAllocSig)
+
+	c.gcFieldOpSig = ssa.Signature{
+		ID:      c.gcAllocSig.ID + 1,
+		Params:  []ssa.Type{ssa.TypeI64 /* exec context */, ssa.TypeI64 /* sub-opcode */, ssa.TypeI64 /* ref */, ssa.TypeI64 /* type index */, ssa.TypeI64 /* field/elem index */, ssa.TypeI64 /* value */},
+		Results: []ssa.Type{ssa.TypeI64 /* result */},
+	}
+	c.ssaBuilder.DeclareSignature(&c.gcFieldOpSig)
+
+	c.gcArrayBulkSig = ssa.Signature{
+		ID:      c.gcFieldOpSig.ID + 1,
+		Params:  []ssa.Type{ssa.TypeI64 /* exec context */, ssa.TypeI64 /* sub-opcode */},
+		Results: []ssa.Type{},
+	}
+	c.ssaBuilder.DeclareSignature(&c.gcArrayBulkSig)
+
+	c.gcRefCastSig = ssa.Signature{
+		ID:      c.gcArrayBulkSig.ID + 1,
+		Params:  []ssa.Type{ssa.TypeI64 /* exec context */, ssa.TypeI64 /* sub-opcode */, ssa.TypeI64 /* ref */, ssa.TypeI64 /* kindByte */, ssa.TypeI64 /* type index */},
+		Results: []ssa.Type{ssa.TypeI64 /* result */},
+	}
+	c.ssaBuilder.DeclareSignature(&c.gcRefCastSig)
 }
 
 // SignatureForWasmFunctionType returns the ssa.Signature for the given wasm.FunctionType.

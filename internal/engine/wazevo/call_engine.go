@@ -136,6 +136,17 @@ type (
 		// when an exception is caught. Compiled code loads this from execCtx
 		// after the trampoline call to decide which handler to dispatch to.
 		caughtExceptionClauseIdx int64
+		// gcAllocTrampolineAddress holds the address of the GC alloc trampoline.
+		gcAllocTrampolineAddress *byte
+		// gcFieldOpTrampolineAddress holds the address of the GC field-op trampoline.
+		gcFieldOpTrampolineAddress *byte
+		// gcArrayBulkTrampolineAddress holds the address of the GC array-bulk trampoline.
+		gcArrayBulkTrampolineAddress *byte
+		// gcRefCastTrampolineAddress holds the address of the GC ref-cast trampoline.
+		gcRefCastTrampolineAddress *byte
+		// gcScratchBuffer is used to pass variable-length data (struct fields,
+		// array elements) between compiled code and GC trampoline handlers.
+		gcScratchBuffer [wazevoapi.ExecutionContextOffsetGCScratchBufferSize]uint64
 	}
 )
 
@@ -632,6 +643,26 @@ func (c *callEngine) callWithStack(ctx context.Context, paramResultStack []uint6
 			if len(c.tryHandlers) > 0 {
 				c.tryHandlers = c.tryHandlers[:len(c.tryHandlers)-1]
 			}
+			c.execCtx.exitCode = wazevoapi.ExitCodeOK
+			afterGoFunctionCallEntrypoint(c.execCtx.goCallReturnAddress, c.execCtxPtr,
+				uintptr(unsafe.Pointer(c.execCtx.stackPointerBeforeGoCall)), c.execCtx.framePointerBeforeGoCall)
+		case wazevoapi.ExitCodeGCAlloc:
+			c.handleGCAlloc()
+			c.execCtx.exitCode = wazevoapi.ExitCodeOK
+			afterGoFunctionCallEntrypoint(c.execCtx.goCallReturnAddress, c.execCtxPtr,
+				uintptr(unsafe.Pointer(c.execCtx.stackPointerBeforeGoCall)), c.execCtx.framePointerBeforeGoCall)
+		case wazevoapi.ExitCodeGCFieldOp:
+			c.handleGCFieldOp()
+			c.execCtx.exitCode = wazevoapi.ExitCodeOK
+			afterGoFunctionCallEntrypoint(c.execCtx.goCallReturnAddress, c.execCtxPtr,
+				uintptr(unsafe.Pointer(c.execCtx.stackPointerBeforeGoCall)), c.execCtx.framePointerBeforeGoCall)
+		case wazevoapi.ExitCodeGCArrayBulk:
+			c.handleGCArrayBulk()
+			c.execCtx.exitCode = wazevoapi.ExitCodeOK
+			afterGoFunctionCallEntrypoint(c.execCtx.goCallReturnAddress, c.execCtxPtr,
+				uintptr(unsafe.Pointer(c.execCtx.stackPointerBeforeGoCall)), c.execCtx.framePointerBeforeGoCall)
+		case wazevoapi.ExitCodeGCRefCast:
+			c.handleGCRefCast()
 			c.execCtx.exitCode = wazevoapi.ExitCodeOK
 			afterGoFunctionCallEntrypoint(c.execCtx.goCallReturnAddress, c.execCtxPtr,
 				uintptr(unsafe.Pointer(c.execCtx.stackPointerBeforeGoCall)), c.execCtx.framePointerBeforeGoCall)

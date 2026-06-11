@@ -63,9 +63,13 @@ func TestCompiler(t *testing.T) {
 	if !platform.CompilerSupported() {
 		t.Skip()
 	}
-	// The optimising compiler does not yet support wasm-gc — the Phase 7
-	// guardrail rejects struct/array modules upfront. Skip the suite.
-	t.Skip("wasm-gc is not yet supported by the optimizing compiler")
+	ctx := context.Background()
+	config := wazero.NewRuntimeConfigCompiler().WithCoreFeatures(enabledFeatures)
+	for _, name := range gcTestCases {
+		t.Run(name, func(t *testing.T) {
+			spectest.RunCase(t, testcases, name, ctx, config, -1, 0, math.MaxInt)
+		})
+	}
 }
 
 func TestInterpreter(t *testing.T) {

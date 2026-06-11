@@ -49,6 +49,22 @@ const (
 	// ExitCodeTryTableLeave is an exit code for leaving a try_table block.
 	// The dispatch loop pops the most recent try handler.
 	ExitCodeTryTableLeave
+	// ExitCodeGCAlloc is the exit code for all GC heap allocations:
+	// struct.new, struct.new_default, array.new, array.new_default,
+	// array.new_fixed, array.new_data, array.new_elem.
+	// The sub-opcode is passed as the first stack arg to select the variant.
+	ExitCodeGCAlloc
+	// ExitCodeGCFieldOp is the exit code for single-field reads and writes:
+	// struct.get/get_s/get_u, struct.set, array.get/get_s/get_u, array.set.
+	// The sub-opcode selects the variant.
+	ExitCodeGCFieldOp
+	// ExitCodeGCArrayBulk is the exit code for bulk array operations:
+	// array.fill, array.copy, array.init_data, array.init_elem.
+	ExitCodeGCArrayBulk
+	// ExitCodeGCRefCast is the exit code for runtime type checks:
+	// ref.test, ref.test_null, ref.cast, ref.cast_null.
+	// Also used by br_on_cast/br_on_cast_fail.
+	ExitCodeGCRefCast
 	exitCodeMax
 )
 
@@ -115,6 +131,14 @@ func (e ExitCode) String() string {
 		return "try_table_enter"
 	case ExitCodeTryTableLeave:
 		return "try_table_leave"
+	case ExitCodeGCAlloc:
+		return "gc_alloc"
+	case ExitCodeGCFieldOp:
+		return "gc_field_op"
+	case ExitCodeGCArrayBulk:
+		return "gc_array_bulk"
+	case ExitCodeGCRefCast:
+		return "gc_ref_cast"
 	}
 	panic("TODO")
 }
@@ -142,6 +166,45 @@ func GoFunctionIndexFromExitCode(exitCode ExitCode) int {
 func TryTableIDFromExitCode(exitCode ExitCode) int {
 	return GoFunctionIndexFromExitCode(exitCode)
 }
+
+// GC sub-opcodes for ExitCodeGCAlloc.
+const (
+	GCAllocStructNew        = 0
+	GCAllocStructNewDefault = 1
+	GCAllocArrayNew         = 2
+	GCAllocArrayNewDefault  = 3
+	GCAllocArrayNewFixed    = 4
+	GCAllocArrayNewData     = 5
+	GCAllocArrayNewElem     = 6
+)
+
+// GC sub-opcodes for ExitCodeGCFieldOp.
+const (
+	GCFieldOpStructGet  = 0 // unsigned / non-packed
+	GCFieldOpStructGetS = 1 // sign-extending
+	GCFieldOpStructGetU = 2 // zero-extending
+	GCFieldOpStructSet  = 3
+	GCFieldOpArrayGet   = 4
+	GCFieldOpArrayGetS  = 5
+	GCFieldOpArrayGetU  = 6
+	GCFieldOpArraySet   = 7
+)
+
+// GC sub-opcodes for ExitCodeGCArrayBulk.
+const (
+	GCArrayBulkFill     = 0
+	GCArrayBulkCopy     = 1
+	GCArrayBulkInitData = 2
+	GCArrayBulkInitElem = 3
+)
+
+// GC sub-opcodes for ExitCodeGCRefCast.
+const (
+	GCRefCastRefTest     = 0
+	GCRefCastRefTestNull = 1
+	GCRefCastRefCast     = 2
+	GCRefCastRefCastNull = 3
+)
 
 // CatchClauseInstance is a runtime catch clause with resolved tag index.
 type CatchClauseInstance struct {

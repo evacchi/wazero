@@ -70,6 +70,20 @@ const (
 	// ExecutionContextOffsetCaughtExceptionClauseIdx is the matched catch clause index
 	// written by handleException and read by compiled handler dispatch code.
 	ExecutionContextOffsetCaughtExceptionClauseIdx Offset = 1232
+	// ExecutionContextOffsetGCAllocTrampolineAddress is the address of the GC alloc trampoline.
+	ExecutionContextOffsetGCAllocTrampolineAddress Offset = 1240
+	// ExecutionContextOffsetGCFieldOpTrampolineAddress is the address of the GC field-op trampoline.
+	ExecutionContextOffsetGCFieldOpTrampolineAddress Offset = 1248
+	// ExecutionContextOffsetGCArrayBulkTrampolineAddress is the address of the GC array-bulk trampoline.
+	ExecutionContextOffsetGCArrayBulkTrampolineAddress Offset = 1256
+	// ExecutionContextOffsetGCRefCastTrampolineAddress is the address of the GC ref-cast trampoline.
+	ExecutionContextOffsetGCRefCastTrampolineAddress Offset = 1264
+	// ExecutionContextOffsetGCScratchBuffer is the beginning of a 128-slot scratch buffer
+	// (128 × 8 = 1024 bytes) used by GC trampolines to pass variable-length data
+	// (struct fields, array elements, bulk-op params).
+	ExecutionContextOffsetGCScratchBuffer Offset = 1272
+	// ExecutionContextOffsetGCScratchBufferSize is the number of uint64 slots in the scratch buffer.
+	ExecutionContextOffsetGCScratchBufferSize = 128
 )
 
 // ModuleContextOffsetData allows the compilers to get the information about offsets to the fields of wazevo.moduleContextOpaque,

@@ -369,6 +369,42 @@ func extractStore(r wazero.Runtime) *wasm.Store {
 	return (*wasm.Store)(unsafe.Pointer(f.Pointer()))
 }
 
+func TestGcE2EJavaWebImageCompileCompiler(t *testing.T) {
+	features := api.CoreFeaturesV2 |
+		experimental.CoreFeaturesExceptionHandling |
+		experimental.CoreFeaturesGC
+
+	ctx := context.Background()
+	cfg := wazero.NewRuntimeConfigCompiler().WithCoreFeatures(features)
+	r := wazero.NewRuntimeWithConfig(ctx, cfg)
+	defer r.Close(ctx)
+
+	store := extractStore(r)
+	start := time.Now()
+	module, err := binaryformat.DecodeModule(javaWebImageHelloWasm, features, 65536, false, false, false)
+	require.NoError(t, err)
+	t.Logf("decode: %v (%d types, %d functions, %d imports)",
+		time.Since(start), len(module.TypeSection), len(module.FunctionSection), len(module.ImportSection))
+
+	start = time.Now()
+	err = module.Validate(features)
+	require.NoError(t, err)
+	t.Logf("validate: %v", time.Since(start))
+
+	start = time.Now()
+	typeIDs, err := store.GetFunctionTypeIDs(module.TypeSection)
+	require.NoError(t, err)
+	t.Logf("typeIDs: %v (%d IDs)", time.Since(start), len(typeIDs))
+
+	module.BuildMemoryDefinitions()
+	module.AssignModuleID(javaWebImageHelloWasm, nil, false)
+
+	start = time.Now()
+	err = store.Engine.CompileModule(ctx, module, nil, false)
+	require.NoError(t, err)
+	t.Logf("compile: %v", time.Since(start))
+}
+
 func TestGcE2EJavacWebImageCompile(t *testing.T) {
 	path := os.Getenv("JAVAC_WASM_PATH")
 	if path == "" {

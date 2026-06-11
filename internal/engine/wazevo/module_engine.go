@@ -220,6 +220,10 @@ func (m *moduleEngine) NewFunction(index wasm.Index) api.Function {
 	ce.execCtx.throwTrampolineAddress = sharedFunctions.throwTrampolineAddress
 	ce.execCtx.tryTableEnterTrampolineAddress = sharedFunctions.tryTableEnterAddress
 	ce.execCtx.tryTableLeaveTrampolineAddress = sharedFunctions.tryTableLeaveAddress
+	ce.execCtx.gcAllocTrampolineAddress = sharedFunctions.gcAllocAddress
+	ce.execCtx.gcFieldOpTrampolineAddress = sharedFunctions.gcFieldOpAddress
+	ce.execCtx.gcArrayBulkTrampolineAddress = sharedFunctions.gcArrayBulkAddress
+	ce.execCtx.gcRefCastTrampolineAddress = sharedFunctions.gcRefCastAddress
 	ce.execCtx.memmoveAddress = memmovPtr
 	ce.init()
 	return ce
