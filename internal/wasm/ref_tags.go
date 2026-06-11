@@ -39,8 +39,16 @@ func TagGCArrayPointer(ptr unsafe.Pointer) uint64 {
 
 // UntagGCPointer clears tag bits and returns the raw pointer.
 // Callers must check IsGCRef first.
+//
+// Wraps ptrs as the double pointer in order to avoid the unsafe access as detected by race detector.
+//
+// For example, if we have unsafe.Pointer(ptr) instead, then the race detector's "checkptr"
+// subroutine warns as "checkptr: pointer arithmetic result points to invalid allocation"
+// https://github.com/golang/go/blob/go1.24.0/src/runtime/checkptr.go#L69
 func UntagGCPointer(v uint64) unsafe.Pointer {
-	return unsafe.Pointer(uintptr(v &^ (tagGCRef | tagGCArray)))
+	var ptr uintptr = uintptr(v &^ (tagGCRef | tagGCArray))
+	var wrapped *uintptr = &ptr
+	return *(*unsafe.Pointer)(unsafe.Pointer(wrapped))
 }
 
 // IsGCRef reports whether a slot is a tagged GC-ref pointer (struct or

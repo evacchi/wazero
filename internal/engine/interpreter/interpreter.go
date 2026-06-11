@@ -5416,9 +5416,9 @@ func encodeFieldValue(f wasm.FieldType, raw uint64) any {
 		}
 		if wasm.IsGCRef(raw) {
 			if wasm.IsGCStructRef(raw) {
-				return (*wasm.WasmStruct)(wasm.UntagGCPointer(raw))
+				return gcStruct(raw)
 			}
-			return (*wasm.WasmArray)(wasm.UntagGCPointer(raw))
+			return gcArray(raw)
 		}
 		return raw
 	}
@@ -5530,11 +5530,9 @@ func refMatches(v uint64, kindByte byte, nullable, isConcrete bool, typeIdx uint
 		var objTypeID wasm.FunctionTypeID
 		var objForm wasm.CompositeForm
 		if wasm.IsGCStructRef(v) {
-			s := (*wasm.WasmStruct)(wasm.UntagGCPointer(v))
-			objTypeID, objForm = s.TypeID, wasm.CompositeFormStruct
+			objTypeID, objForm = gcStruct(v).TypeID, wasm.CompositeFormStruct
 		} else {
-			a := (*wasm.WasmArray)(wasm.UntagGCPointer(v))
-			objTypeID, objForm = a.TypeID, wasm.CompositeFormArray
+			objTypeID, objForm = gcArray(v).TypeID, wasm.CompositeFormArray
 		}
 		if isConcrete {
 			if int(typeIdx) >= len(mi.TypeIDs) {
