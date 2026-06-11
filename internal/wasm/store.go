@@ -375,24 +375,15 @@ func (s *Store) instantiate(
 	m.Tables = make([]*TableInstance, int(module.ImportTableCount)+len(module.TableSection))
 	m.Globals = make([]*GlobalInstance, int(module.ImportGlobalCount)+len(module.GlobalSection))
 	m.Tags = make([]*TagInstance, int(module.ImportTagCount)+len(module.TagSection))
-	if instantiateProgress != nil {
-		instantiateProgress("newModuleEngine")
-	}
 	m.Engine, err = s.Engine.NewModuleEngine(module, m)
 	if err != nil {
 		return nil, err
 	}
 
-	if instantiateProgress != nil {
-		instantiateProgress("resolveImports")
-	}
 	if err = m.resolveImports(ctx, module); err != nil {
 		return nil, err
 	}
 
-	if instantiateProgress != nil {
-		instantiateProgress("buildTables")
-	}
 	err = m.buildTables(module,
 		// As of reference-types proposal, boundary check must be done after instantiation.
 		s.EnabledFeatures.IsEnabled(api.CoreFeatureReferenceTypes))
@@ -402,9 +393,6 @@ func (s *Store) instantiate(
 
 	allocator, _ := ctx.Value(expctxkeys.MemoryAllocatorKey{}).(experimental.MemoryAllocator)
 
-	if instantiateProgress != nil {
-		instantiateProgress("buildGlobals")
-	}
 	m.buildGlobals(module, m.Engine.FunctionInstanceReference)
 	m.buildTags(module)
 	m.buildMemory(module, allocator)
@@ -425,32 +413,20 @@ func (s *Store) instantiate(
 		}
 	}
 
-	if instantiateProgress != nil {
-		instantiateProgress("buildElementInstances")
-	}
 	// After engine creation, we can create the funcref element instances and initialize funcref type globals.
 	m.buildElementInstances(module.ElementSection)
 
-	if instantiateProgress != nil {
-		instantiateProgress("applyData")
-	}
 	// Now all the validation passes, we are safe to mutate memory instances (possibly imported ones).
 	if err = m.applyData(module.DataSection); err != nil {
 		return nil, err
 	}
 
-	if instantiateProgress != nil {
-		instantiateProgress("applyElements")
-	}
 	m.applyElements(module.ElementSection)
 
 	m.Engine.DoneInstantiation()
 
 	// Execute the start function.
 	if module.StartSection != nil {
-		if instantiateProgress != nil {
-			instantiateProgress("startFunction")
-		}
 		funcIdx := *module.StartSection
 		ce := m.Engine.NewFunction(funcIdx)
 		_, err = ce.Call(ctx)
@@ -670,24 +646,6 @@ func (g *GlobalInstance) SetValue(lo, hi uint64) {
 	} else {
 		g.Val, g.ValHi = lo, hi
 	}
-}
-
-var instantiateProgress func(phase string)
-
-func SetInstantiateProgress(f func(phase string)) {
-	instantiateProgress = f
-}
-
-// CallProgress is called on every function call in the interpreter.
-// Not goroutine-safe; test-only.
-var callProgress func()
-
-func SetCallProgress(f func()) {
-	callProgress = f
-}
-
-func GetCallProgress() func() {
-	return callProgress
 }
 
 func (s *Store) GetFunctionTypeIDs(ts []FunctionType) ([]FunctionTypeID, error) {
@@ -1107,9 +1065,6 @@ func (m *ModuleInstance) GCSweep(liveValues []uint64) {
 	if len(m.GCRoots) == 0 {
 		return
 	}
-	if instantiateProgress != nil {
-		instantiateProgress(fmt.Sprintf("GCSweep: roots=%d liveValues=%d", len(m.GCRoots), len(liveValues)))
-	}
 	live := make(map[uint64]any)
 
 	for _, v := range liveValues {
@@ -1136,19 +1091,12 @@ func (m *ModuleInstance) GCSweep(liveValues []uint64) {
 	m.GCRoots = live
 }
 
-// GCMaybeSweep calls GCSweep only if GCRoots has grown past the sweep
-// threshold. Use this at allocation sites to amortize sweep cost.
-//
-// TODO: the current sweep is O(tables + globals + stack) per call,
-// which is too expensive for large modules. Disabled for now — Go's
-// GC traces struct/array fields natively, so objects stay alive
-// through Go pointer reachability. The map grows unbounded but
-// the entries are just tagged-pointer → any pairs (~40 bytes each).
+// GCMaybeSweep is a no-op placeholder for future GC sweep logic.
+// The current sweep (GCSweep) is too aggressive — it only scans the
+// top-level operand stack, globals, and tables, missing objects
+// reachable only through struct/array fields or nested call frames.
+// Disabled until a proper tracing sweep is implemented.
 func (m *ModuleInstance) GCMaybeSweep(liveValues []uint64) {
-	// Disabled: sweep cost is prohibitive for large modules.
-	// if len(m.GCRoots) >= gcSweepThreshold {
-	// 	m.GCSweep(liveValues)
-	// }
 }
 
 // GetStore returns the Store on which this module is instantiated. Used by

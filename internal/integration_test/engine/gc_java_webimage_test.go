@@ -39,22 +39,10 @@ func TestGcE2EJavaWebImageCompile(t *testing.T) {
 	t.Logf("decode: %v (%d types, %d functions, %d imports)",
 		time.Since(start), len(module.TypeSection), len(module.FunctionSection), len(module.ImportSection))
 
-	phases := map[int]string{
-		-1: "tableInitExprs", -2: "imports", -3: "globals", -4: "tableValidation",
-		-10: "concreteRefTypes", -11: "typeSection", -12: "startSection", -13: "allDeclarations",
-	}
-	validateStart := time.Now()
-	wasm.SetValidateProgress(func(idx, total int) {
-		if name, ok := phases[idx]; ok {
-			t.Logf("  validate phase: %s (%v)", name, time.Since(validateStart))
-		} else {
-			t.Logf("  validate func %d/%d (%v)", idx, total, time.Since(validateStart))
-		}
-	})
-	defer wasm.SetValidateProgress(nil)
+	start = time.Now()
 	err = module.Validate(features)
 	require.NoError(t, err)
-	t.Logf("validate total: %v", time.Since(validateStart))
+	t.Logf("validate: %v", time.Since(start))
 
 	ctx := context.Background()
 	cfg := wazero.NewRuntimeConfigInterpreter().WithCoreFeatures(features)
@@ -214,8 +202,8 @@ func TestGcE2EJavaWebImageInstantiate(t *testing.T) {
 		[]string{"proxyCharArray"},
 		map[string]*wasm.HostFunc{
 			"proxyCharArray": {
-				ExportName: "proxyCharArray",
-				ParamTypes: []wasm.ValueType{wasm.ValueTypeConcreteRef(598, true)},
+				ExportName:  "proxyCharArray",
+				ParamTypes:  []wasm.ValueType{wasm.ValueTypeConcreteRef(598, true)},
 				ResultTypes: []wasm.ValueType{wasm.ValueTypeExternref},
 				Code: wasm.Code{
 					GoFunc: api.GoModuleFunc(func(ctx context.Context, mod api.Module, stack []uint64) {
@@ -400,16 +388,10 @@ func TestGcE2EJavacWebImageCompile(t *testing.T) {
 	t.Logf("decode: %v (%d types, %d functions, %d imports)",
 		time.Since(start), len(module.TypeSection), len(module.FunctionSection), len(module.ImportSection))
 
-	javacValidateStart := time.Now()
-	wasm.SetValidateProgress(func(idx, total int) {
-		if idx >= 0 && idx%5000 == 0 {
-			t.Logf("  validate func %d/%d (%v)", idx, total, time.Since(javacValidateStart))
-		}
-	})
-	defer wasm.SetValidateProgress(nil)
+	start = time.Now()
 	err = module.Validate(features)
 	require.NoError(t, err)
-	t.Logf("validate total: %v", time.Since(javacValidateStart))
+	t.Logf("validate: %v", time.Since(start))
 
 	ctx := context.Background()
 	cfg := wazero.NewRuntimeConfigInterpreter().WithCoreFeatures(features)
@@ -842,17 +824,13 @@ func TestGcE2EJavacWebImageInstantiate(t *testing.T) {
 	defer convertModule.Close(ctx)
 
 	instStart := time.Now()
-	wasm.SetInstantiateProgress(func(phase string) {
-		t.Logf("  instantiate: %s (%v)", phase, time.Since(instStart))
-	})
-	defer wasm.SetInstantiateProgress(nil)
 	mod, err := r.InstantiateWithConfig(ctx, wasmBytes,
 		wazero.NewModuleConfig().
 			WithStdout(&stdout).
 			WithStderr(&stderr))
 	require.NoError(t, err)
 	guestMod = mod
-	t.Logf("instantiate total: %v", time.Since(instStart))
+	t.Logf("instantiate: %v", time.Since(instStart))
 
 	// Build args: [filename, sourceCode] — the WebImage javac expects
 	// the filename and the Java source code as separate arguments.
@@ -890,23 +868,12 @@ func TestGcE2EJavacWebImageInstantiate(t *testing.T) {
 		require.NoError(t, err)
 	}
 
-	// Run main with a periodic progress ticker so we know it's not stuck.
-	opCount := uint64(0)
-	wasm.SetCallProgress(func() {
-		opCount++
-		if opCount%50_000_000 == 0 {
-			t.Logf("  interpreter: %dM ops, stdout=%d stderr=%d refs=%d",
-				opCount/1_000_000, stdout.Len(), stderr.Len(), refs.next-1)
-		}
-	})
-	defer wasm.SetCallProgress(nil)
-
 	runCtx, cancel := context.WithTimeout(ctx, 60*time.Second)
 	defer cancel()
 
 	mainStart := time.Now()
 	_, err = mainFn.Call(runCtx, stringArray)
-	t.Logf("main: %v (%dM ops)", time.Since(mainStart), opCount/1_000_000)
+	t.Logf("main: %v", time.Since(mainStart))
 	t.Logf("stdout: %q", stdout.String())
 	t.Logf("stderr: %q", stderr.String())
 	if err != nil {

@@ -790,8 +790,6 @@ func (ce *callEngine) call(ctx context.Context, params, results []uint64) (_ []u
 
 	ce.callFunction(ctx, m, ce.f)
 
-	m.GCSweep(ce.stack)
-
 	// This returns a safe copy of the results, instead of a slice view. If we
 	// returned a re-slice, the caller could accidentally or purposefully
 	// corrupt the stack of subsequent calls.
@@ -910,11 +908,7 @@ func (ce *callEngine) callNativeFunc(ctx context.Context, m *wasm.ModuleInstance
 	ce.pushFrame(frame)
 	body := frame.f.parent.body
 	bodyLen := uint64(len(body))
-	callProgressFn := wasm.GetCallProgress()
 	for frame.pc < bodyLen {
-		if callProgressFn != nil {
-			callProgressFn()
-		}
 		op := &body[frame.pc]
 		// TODO: add description of each operation/case
 		// on, for example, how many args are used,
@@ -4762,7 +4756,7 @@ func (ce *callEngine) callNativeFunc(ctx context.Context, m *wasm.ModuleInstance
 			}
 			s := wasm.NewWasmStructWith(f.moduleInstance.TypeIDs[typeIdx], fields)
 			ce.pushValue(f.moduleInstance.GCRegister(s))
-			f.moduleInstance.GCMaybeSweep(ce.stack)
+
 			frame.pc++
 
 		case operationKindStructNewDefault:
@@ -4775,7 +4769,7 @@ func (ce *callEngine) callNativeFunc(ctx context.Context, m *wasm.ModuleInstance
 			}
 			s := wasm.NewWasmStructWith(f.moduleInstance.TypeIDs[typeIdx], fields)
 			ce.pushValue(f.moduleInstance.GCRegister(s))
-			f.moduleInstance.GCMaybeSweep(ce.stack)
+
 			frame.pc++
 
 		case operationKindStructGet, operationKindStructGetS, operationKindStructGetU:
@@ -4818,7 +4812,7 @@ func (ce *callEngine) callNativeFunc(ctx context.Context, m *wasm.ModuleInstance
 			}
 			a := wasm.NewWasmArrayWith(f.moduleInstance.TypeIDs[typeIdx], elems)
 			ce.pushValue(f.moduleInstance.GCRegister(a))
-			f.moduleInstance.GCMaybeSweep(ce.stack)
+
 			frame.pc++
 
 		case operationKindArrayNewDefault:
@@ -4832,7 +4826,7 @@ func (ce *callEngine) callNativeFunc(ctx context.Context, m *wasm.ModuleInstance
 			}
 			a := wasm.NewWasmArrayWith(f.moduleInstance.TypeIDs[typeIdx], elems)
 			ce.pushValue(f.moduleInstance.GCRegister(a))
-			f.moduleInstance.GCMaybeSweep(ce.stack)
+
 			frame.pc++
 
 		case operationKindArrayGet, operationKindArrayGetS, operationKindArrayGetU:
@@ -4943,7 +4937,7 @@ func (ce *callEngine) callNativeFunc(ctx context.Context, m *wasm.ModuleInstance
 			}
 			a := wasm.NewWasmArrayWith(f.moduleInstance.TypeIDs[typeIdx], elems)
 			ce.pushValue(f.moduleInstance.GCRegister(a))
-			f.moduleInstance.GCMaybeSweep(ce.stack)
+
 			frame.pc++
 
 		case operationKindArrayFill:
@@ -5020,7 +5014,7 @@ func (ce *callEngine) callNativeFunc(ctx context.Context, m *wasm.ModuleInstance
 			}
 			a := wasm.NewWasmArrayWith(f.moduleInstance.TypeIDs[typeIdx], elems)
 			ce.pushValue(f.moduleInstance.GCRegister(a))
-			f.moduleInstance.GCMaybeSweep(ce.stack)
+
 			frame.pc++
 
 		case operationKindArrayNewElem:
@@ -5039,7 +5033,7 @@ func (ce *callEngine) callNativeFunc(ctx context.Context, m *wasm.ModuleInstance
 			}
 			a := wasm.NewWasmArrayWith(f.moduleInstance.TypeIDs[typeIdx], elems)
 			ce.pushValue(f.moduleInstance.GCRegister(a))
-			f.moduleInstance.GCMaybeSweep(ce.stack)
+
 			frame.pc++
 
 		case operationKindArrayInitData:

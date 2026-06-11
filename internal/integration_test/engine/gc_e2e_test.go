@@ -200,4 +200,3 @@ func TestGcElemStructNew(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, int32(10), api.DecodeI32(res[0]))
 }
-

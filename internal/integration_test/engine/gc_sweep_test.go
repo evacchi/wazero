@@ -20,16 +20,15 @@ var gcNestedRefWasm []byte
 //go:embed testdata/gc_alloc_many.wasm
 var gcAllocManyWasm []byte
 
+//go:embed testdata/gc_sweep_reentrant.wasm
+var gcSweepReentrantWasm []byte
+
 // TestGcNestedRefSurvivesGC validates that a struct reachable only through
 // another struct's field survives Go's garbage collector.
 //
-// After "setup", the GC sweep keeps only $outer in GCRoots (from the
-// global). $inner is NOT in GCRoots — it's only reachable through
-// $outer's field. If fields store Go pointers, Go traces the graph and
-// keeps $inner alive. If fields store uint64, $inner is collected.
-//
-// We detect collection via runtime.SetFinalizer: if the finalizer fires,
-// $inner was collected prematurely.
+// $inner is reachable through $outer's field. Because fields store Go
+// pointers (*WasmStruct), Go's GC traces the graph and keeps $inner
+// alive. We detect premature collection via runtime.SetFinalizer.
 func TestGcNestedRefSurvivesGC(t *testing.T) {
 	ctx := context.Background()
 	cfg := wazero.NewRuntimeConfigInterpreter().
@@ -84,10 +83,65 @@ func TestGcNestedRefSurvivesGC(t *testing.T) {
 	require.Equal(t, int32(42), api.DecodeI32(res[0]))
 }
 
-// TestGcDeadObjectsCollected validates that the GC sweep removes dead objects
-// from GCRoots. Without the sweep, 100K structs accumulate; with it, periodic
-// sweeps during execution keep only stack-live objects.
-func TestGcDeadObjectsCollected(t *testing.T) {
+// TestGcSweepReentrantPreservesLiveObject reproduces the bug where a re-entrant
+// host callback triggers GCSweep on its inner callEngine stack, which doesn't
+// contain objects live in the outer call frame. The sweep removes those objects
+// from GCRoots — which is incorrect because the outer frame still holds a
+// reference to them (as a tagged uint64 in a local variable). If Go's GC then
+// runs, it cannot see the tagged uint64 and may collect the object.
+//
+// The wasm module allocates a struct, stores it in a local, then calls a host
+// function. The host function calls back into wasm (creating a nested Call()
+// with its own callEngine and stack). When the inner Call() returns, GCSweep
+// scans only the inner stack — the struct (in the outer frame's local) is
+// invisible, so it's removed from GCRoots.
+//
+// This test detects the bug by checking GCRoots size: after the inner call,
+// the struct allocated by the outer frame MUST still be in GCRoots.
+func TestGcSweepReentrantPreservesLiveObject(t *testing.T) {
+	ctx := context.Background()
+	cfg := wazero.NewRuntimeConfigInterpreter().
+		WithCoreFeatures(api.CoreFeaturesV2 | experimental.CoreFeaturesGC)
+	r := wazero.NewRuntimeWithConfig(ctx, cfg)
+	defer r.Close(ctx)
+
+	var mi *wasm.ModuleInstance
+	var rootsBefore, rootsAfter int
+
+	_, err := r.NewHostModuleBuilder("host").
+		NewFunctionBuilder().WithFunc(func(ctx context.Context, mod api.Module) {
+		rootsBefore = len(mi.GCRoots)
+		mod.ExportedFunction("nop").Call(ctx)
+		rootsAfter = len(mi.GCRoots)
+	}).Export("callback").
+		Instantiate(ctx)
+	require.NoError(t, err)
+
+	mod, err := r.InstantiateWithConfig(ctx, gcSweepReentrantWasm,
+		wazero.NewModuleConfig().WithStartFunctions())
+	require.NoError(t, err)
+	mi = mod.(*wasm.ModuleInstance)
+
+	res, err := mod.ExportedFunction("test").Call(ctx)
+	require.NoError(t, err)
+	require.Equal(t, int32(42), api.DecodeI32(res[0]))
+
+	// Before the inner call, the outer frame had just allocated a struct
+	// via struct.new, so GCRoots should have at least 1 entry.
+	// After the inner call (with GCSweep), GCRoots must still have that
+	// entry — the struct is live in the outer frame's local.
+	t.Logf("GCRoots before inner call: %d, after: %d", rootsBefore, rootsAfter)
+	if rootsAfter < rootsBefore {
+		t.Errorf("GCSweep removed %d entries during re-entrant call — "+
+			"objects live in the outer frame were incorrectly swept",
+			rootsBefore-rootsAfter)
+	}
+}
+
+// TestGcAllocManyNoSweep verifies that with sweep disabled, all allocations
+// accumulate in GCRoots. This is the expected (if wasteful) behavior until
+// a proper tracing sweep is implemented.
+func TestGcAllocManyNoSweep(t *testing.T) {
 	ctx := context.Background()
 	cfg := wazero.NewRuntimeConfigInterpreter().
 		WithCoreFeatures(api.CoreFeaturesV2 | experimental.CoreFeaturesGC)
@@ -104,8 +158,8 @@ func TestGcDeadObjectsCollected(t *testing.T) {
 	mi := mod.(*wasm.ModuleInstance)
 	gcRootsLen := len(mi.GCRoots)
 
-	if gcRootsLen > 100 {
-		t.Errorf("GCRoots has %d entries after allocate_many, expected ≤ 100 "+
-			"(sweep should have removed dead objects)", gcRootsLen)
+	// With sweep disabled, all 100K objects stay in GCRoots.
+	if gcRootsLen < 100000 {
+		t.Errorf("GCRoots has %d entries, expected ~100000 (sweep is disabled)", gcRootsLen)
 	}
 }

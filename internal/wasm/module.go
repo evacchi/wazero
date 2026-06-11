@@ -284,52 +284,31 @@ func (m *Module) Validate(enabledFeatures api.CoreFeatures) error {
 		tp.CacheNumInUint64()
 	}
 
-	if validateProgress != nil {
-		validateProgress(-10, 0)
-	}
 	if err := m.validateConcreteRefTypes(); err != nil {
 		return err
 	}
 
-	if validateProgress != nil {
-		validateProgress(-11, 0)
-	}
 	if err := m.validateTypeSection(enabledFeatures); err != nil {
 		return err
 	}
 
-	if validateProgress != nil {
-		validateProgress(-12, 0)
-	}
 	if err := m.validateStartSection(); err != nil {
 		return err
 	}
 
-	if validateProgress != nil {
-		validateProgress(-13, 0)
-	}
 	functions, globals, memory, tables, tags, err := m.AllDeclarations()
 	if err != nil {
 		return err
 	}
 
-	if validateProgress != nil {
-		validateProgress(-1, 0) // signal: starting table init exprs
-	}
 	if err = m.validateTableInitExprs(globals, uint32(len(functions))); err != nil {
 		return err
 	}
 
-	if validateProgress != nil {
-		validateProgress(-2, 0) // signal: starting imports
-	}
 	if err = m.validateImports(enabledFeatures); err != nil {
 		return err
 	}
 
-	if validateProgress != nil {
-		validateProgress(-3, 0) // signal: starting globals
-	}
 	if err = m.validateGlobals(enabledFeatures, globals, uint32(len(functions)), MaximumGlobals); err != nil {
 		return err
 	}
@@ -348,9 +327,6 @@ func (m *Module) Validate(enabledFeatures api.CoreFeatures) error {
 		}
 	} // No need to validate host functions as NewHostModule validates
 
-	if validateProgress != nil {
-		validateProgress(-4, 0) // signal: starting table validation
-	}
 	if err = m.validateTable(enabledFeatures, tables, MaximumTableIndex); err != nil {
 		return err
 	}
@@ -363,14 +339,6 @@ func (m *Module) Validate(enabledFeatures api.CoreFeatures) error {
 		return err
 	}
 	return nil
-}
-
-// validateProgress is called periodically during function validation to report
-// progress on large modules. Override in tests to trace compilation.
-var validateProgress func(funcIndex, totalFuncs int)
-
-func SetValidateProgress(f func(funcIndex, totalFuncs int)) {
-	validateProgress = f
 }
 
 func (m *Module) validateConcreteRefTypes() error {
@@ -572,11 +540,7 @@ func (m *Module) validateFunctions(enabledFeatures api.CoreFeatures, functions [
 	br := bytes.NewReader(nil)
 	// Also, we reuse the stacks across multiple function validations to reduce allocations.
 	vs := &stacks{}
-	totalFuncs := len(m.FunctionSection)
 	for idx, typeIndex := range m.FunctionSection {
-		if validateProgress != nil && (idx%500 == 0 || idx == totalFuncs-1) {
-			validateProgress(idx, totalFuncs)
-		}
 		if typeIndex >= typeCount {
 			return fmt.Errorf("invalid %s: type section index %d out of range", m.funcDesc(SectionIDFunction, Index(idx)), typeIndex)
 		}
