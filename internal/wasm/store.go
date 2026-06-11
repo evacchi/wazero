@@ -474,15 +474,13 @@ func (m *ModuleInstance) resolveImports(ctx context.Context, module *Module) (er
 					actualTypeIdx, ok := src.typeIndexOfFunction(imported.Index)
 					matched = ok && importedModule.TypeIDs[actualTypeIdx] == m.TypeIDs[i.DescFunc]
 				}
-				if !matched {
-					// Signature-based fallback. For host modules whose
-					// function types reference concrete GC refs from the
-					// importing module's type section, TypeID matching
-					// fails because the host module can't replicate the
-					// importing module's rec group. Raw signature
+				if !matched && importedModule.Source.IsHostModule {
+					// Signature-based fallback for host modules only.
+					// Host modules whose function types reference concrete
+					// GC refs can't replicate the importing module's rec
+					// group, so TypeID matching fails. Raw signature
 					// comparison works because the ValueType uint64
-					// encoding of the concrete ref is identical in both
-					// modules.
+					// encoding is identical in both modules.
 					// TODO: let host modules share the importing
 					// module's TypeSection for proper TypeID matching.
 					matched = actual.EqualsSignature(expectedType.Params, expectedType.Results)
