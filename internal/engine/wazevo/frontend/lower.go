@@ -1108,7 +1108,24 @@ func (c *Compiler) lowerCurrentOpcode() {
 
 	case wasm.OpcodeSelect, wasm.OpcodeTypedSelect:
 		if op == wasm.OpcodeTypedSelect {
-			state.pc += 2 // ignores the type which is only needed during validation.
+			// Skip the type vector: LEB128 count, then count valtypes.
+			// Valtypes can be multi-byte for GC ref types (0x63/0x64 + LEB128 heap type).
+			p := state.pc + 1 // past the opcode byte
+			count, n, _ := leb128.LoadUint32(c.wasmFunctionBody[p:])
+			p += int(n)
+			for i := uint32(0); i < count; i++ {
+				b := c.wasmFunctionBody[p]
+				p++
+				if b == wasm.RefPrefixNullable || b == wasm.RefPrefixNonNullable {
+					for c.wasmFunctionBody[p]&0x80 != 0 {
+						p++
+					}
+					p++ // past final LEB128 byte
+				}
+			}
+			// Leave state.pc at the last consumed byte; the trailing pc++ in
+			// lowerCurrentOpcode advances past it to the next opcode.
+			state.pc = p - 1
 		}
 
 		if state.unreachable {
@@ -4039,7 +4056,20 @@ func (c *Compiler) prepareCallIndirect(typeIndex, tableIndex uint32) (ssa.Value,
 	builder.InsertInstruction(loadExpectedTypeID)
 	expectedTypeID := loadExpectedTypeID.Return()
 
-	// Check if the type ID matches.
+	// Store caller module context early so the Go handler can access it
+	// if the subtype check trampoline fires.
+	c.storeCallerModuleContext()
+
+	// Store both type IDs to the scratch buffer so the Go handler for
+	// ExitCodeIndirectCallTypeMismatch can perform a subtype check.
+	actualExt := builder.AllocateInstruction().AsUExtend(actualTypeID, 32, 64).Insert(builder).Return()
+	expectedExt := builder.AllocateInstruction().AsUExtend(expectedTypeID, 32, 64).Insert(builder).Return()
+	builder.AllocateInstruction().AsStore(ssa.OpcodeStore, actualExt, c.execCtxPtrValue,
+		wazevoapi.ExecutionContextOffsetGCScratchBuffer.U32()).Insert(builder)
+	builder.AllocateInstruction().AsStore(ssa.OpcodeStore, expectedExt, c.execCtxPtrValue,
+		wazevoapi.ExecutionContextOffsetGCScratchBuffer.U32()+8).Insert(builder)
+
+	// Check if the type ID matches exactly (fast path).
 	checkTypeID := builder.AllocateInstruction()
 	checkTypeID.AsIcmp(actualTypeID, expectedTypeID, ssa.IntegerCmpCondNotEqual)
 	builder.InsertInstruction(checkTypeID)
@@ -4063,10 +4093,6 @@ func (c *Compiler) prepareCallIndirect(typeIndex, tableIndex uint32) (ssa.Value,
 	state.values = state.values[:tail]
 	args := c.allocateVarLengthValues(2+len(vs), c.execCtxPtrValue, moduleContextOpaquePtr)
 	args = args.Append(builder.VarLengthPool(), vs...)
-
-	// Before transfer the control to the callee, we have to store the current module's moduleContextPtr
-	// into execContext.callerModuleContextPtr in case when the callee is a Go function.
-	c.storeCallerModuleContext()
 
 	return executablePtr, typ, args
 }
@@ -5115,15 +5141,35 @@ func (c *Compiler) lowerGCOpcodes() {
 		if state.unreachable {
 			break
 		}
-		// Pass through — the runtime refMatches handler already handles
-		// all tag variants. Full tagging can be added later as an optimization.
-		// The value stays on the stack unchanged.
+		v := state.pop()
+		// Tag with bit 62 (externAsAny) unless null, already a GC ref, or already i31.
+		tagMask := builder.AllocateInstruction().AsIconst64((1 << 63) | (1 << 62) | (1 << 61)).Insert(builder).Return()
+		tagBits := builder.AllocateInstruction().AsBand(v, tagMask).Insert(builder).Return()
+		zero := builder.AllocateInstruction().AsIconst64(0).Insert(builder).Return()
+		hasHighBits := builder.AllocateInstruction().AsIcmp(tagBits, zero, ssa.IntegerCmpCondNotEqual).Insert(builder).Return()
+		isNull := builder.AllocateInstruction().AsIcmp(v, zero, ssa.IntegerCmpCondEqual).Insert(builder).Return()
+		keepInst := builder.AllocateInstruction()
+		keepInst.AsBor(hasHighBits, isNull)
+		builder.InsertInstruction(keepInst)
+		keepAsIs := keepInst.Return()
+		externTag := builder.AllocateInstruction().AsIconst64(1 << 62).Insert(builder).Return()
+		taggedInst := builder.AllocateInstruction()
+		taggedInst.AsBor(v, externTag)
+		builder.InsertInstruction(taggedInst)
+		tagged := taggedInst.Return()
+		result := builder.AllocateInstruction().AsSelect(keepAsIs, v, tagged).Insert(builder).Return()
+		state.push(result)
 
 	case wasm.OpcodeGCExternConvertAny:
 		if state.unreachable {
 			break
 		}
-		// Pass through — symmetric with any.convert_extern above.
+		v := state.pop()
+		// Clear bit 62 (externAsAny tag). Safe for all value kinds:
+		// null stays 0, GC refs and i31 don't use bit 62, plain externrefs lose the tag.
+		clearMask := builder.AllocateInstruction().AsIconst64(^uint64(1 << 62)).Insert(builder).Return()
+		result := builder.AllocateInstruction().AsBand(v, clearMask).Insert(builder).Return()
+		state.push(result)
 
 	case wasm.OpcodeGCArrayLen:
 		if state.unreachable {
@@ -5135,8 +5181,10 @@ func (c *Compiler) lowerGCOpcodes() {
 		clearMask := builder.AllocateInstruction().AsIconst64(^uint64((1 << 61) | (1 << 60))).Insert(builder).Return()
 		ptr := builder.AllocateInstruction().AsBand(v, clearMask).Insert(builder).Return()
 		// WasmArray layout: TypeID(4) + pad(4) + Elements.Data(8) + Elements.Len(8)
-		// Length is at offset 16 from struct base.
+		// Length is at offset 16 from struct base. Loaded as i64 (Go int),
+		// then narrowed to i32 since wasm array.len returns i32.
 		length := builder.AllocateInstruction().AsLoad(ptr, 16, ssa.TypeI64).Insert(builder).Return()
+		length = builder.AllocateInstruction().AsIreduce(length, ssa.TypeI32).Insert(builder).Return()
 		state.push(length)
 
 	case wasm.OpcodeGCStructNew:
@@ -5183,6 +5231,7 @@ func (c *Compiler) lowerGCOpcodes() {
 		fieldIdxVal := builder.AllocateInstruction().AsIconst64(uint64(fieldIdx)).Insert(builder).Return()
 		unused := builder.AllocateInstruction().AsIconst64(0).Insert(builder).Return()
 		result := c.callGCFieldOpTrampoline(subOp, ref, typeIdx, fieldIdxVal, unused)
+		result = c.narrowGCFieldResult(result, c.m.TypeSection[typeIdx].Fields[fieldIdx])
 		state.push(result)
 
 	case wasm.OpcodeGCStructSet:
@@ -5288,6 +5337,7 @@ func (c *Compiler) lowerGCOpcodes() {
 		}
 		unused := builder.AllocateInstruction().AsIconst64(0).Insert(builder).Return()
 		result := c.callGCFieldOpTrampoline(subOp, ref, typeIdx, idx, unused)
+		result = c.narrowGCFieldResult(result, c.m.TypeSection[typeIdx].ArrayField)
 		state.push(result)
 
 	case wasm.OpcodeGCArraySet:
@@ -5396,6 +5446,8 @@ func (c *Compiler) lowerGCOpcodes() {
 			subOp = wazevoapi.GCRefCastRefTest
 		}
 		result := c.callGCRefCastTrampoline(subOp, ref, kindByte, nullable, isConcrete, typeIdx)
+		// ref.test returns i32 (0 or 1) but trampoline returns i64.
+		result = builder.AllocateInstruction().AsIreduce(result, ssa.TypeI32).Insert(builder).Return()
 		state.push(result)
 
 	case wasm.OpcodeGCRefCast, wasm.OpcodeGCRefCastNull:
@@ -5471,9 +5523,33 @@ func (c *Compiler) emitNullRefCheck(v ssa.Value) {
 	builder.InsertInstruction(exitIfNull)
 }
 
+// ensureI64 extends an i32 value to i64, or bitcasts f32/f64 to i64.
+// If the value is already i64, it's returned unchanged.
+// Bit patterns are preserved for floats (f32 is zero-extended to i64,
+// f64 is bitcast to i64).
+func (c *Compiler) ensureI64(v ssa.Value) ssa.Value {
+	builder := c.ssaBuilder
+	switch v.Type() {
+	case ssa.TypeI64:
+		return v
+	case ssa.TypeI32:
+		return builder.AllocateInstruction().AsUExtend(v, 32, 64).Insert(builder).Return()
+	case ssa.TypeF32:
+		// f32 → i32 (bitcast) → i64 (zero-extend): preserves the 32-bit IEEE pattern.
+		asI32 := builder.AllocateInstruction().AsBitcast(v, ssa.TypeI32).Insert(builder).Return()
+		return builder.AllocateInstruction().AsUExtend(asI32, 32, 64).Insert(builder).Return()
+	case ssa.TypeF64:
+		return builder.AllocateInstruction().AsBitcast(v, ssa.TypeI64).Insert(builder).Return()
+	default:
+		return v
+	}
+}
+
 // storeScratch stores a value to the GC scratch buffer at the given slot index.
+// Values are widened to i64 since the Go handler reads them as uint64.
 func (c *Compiler) storeScratch(slotIndex int, v ssa.Value) {
 	builder := c.ssaBuilder
+	v = c.ensureI64(v)
 	offset := wazevoapi.ExecutionContextOffsetGCScratchBuffer.U32() + uint32(slotIndex)*8
 	builder.AllocateInstruction().AsStore(ssa.OpcodeStore, v, c.execCtxPtrValue, offset).Insert(builder)
 }
@@ -5499,6 +5575,10 @@ func (c *Compiler) callGCFieldOpTrampoline(subOp int, ref ssa.Value, typeIdx uin
 	builder := c.ssaBuilder
 	subOpVal := builder.AllocateInstruction().AsIconst64(uint64(subOp)).Insert(builder).Return()
 	typeIdxVal := builder.AllocateInstruction().AsIconst64(uint64(typeIdx)).Insert(builder).Return()
+	// All trampoline params must be i64.
+	ref = c.ensureI64(ref)
+	fieldOrIdx = c.ensureI64(fieldOrIdx)
+	value = c.ensureI64(value)
 	trampolinePtr := builder.AllocateInstruction().
 		AsLoad(c.execCtxPtrValue, wazevoapi.ExecutionContextOffsetGCFieldOpTrampolineAddress.U32(), ssa.TypeI64).
 		Insert(builder).Return()
@@ -5524,6 +5604,7 @@ func (c *Compiler) callGCArrayBulkTrampoline(subOp int) {
 // callGCRefCastTrampoline calls the GC ref-cast trampoline.
 func (c *Compiler) callGCRefCastTrampoline(subOp int, ref ssa.Value, kindByte byte, nullable, isConcrete bool, typeIdx uint32) ssa.Value {
 	builder := c.ssaBuilder
+	ref = c.ensureI64(ref)
 	subOpVal := builder.AllocateInstruction().AsIconst64(uint64(subOp)).Insert(builder).Return()
 	// Pack kindByte, nullable, and isConcrete into one i64:
 	// bits 0-7: kindByte, bit 8: nullable, bit 9: isConcrete
@@ -5543,4 +5624,31 @@ func (c *Compiler) callGCRefCastTrampoline(subOp int, ref ssa.Value, kindByte by
 	return builder.AllocateInstruction().
 		AsCallIndirect(trampolinePtr, &c.gcRefCastSig, args).
 		Insert(builder).Return()
+}
+
+// narrowGCFieldResult truncates the i64 trampoline result to the correct SSA
+// type for the given field. Packed fields (i8/i16) and i32/f32 fields need
+// narrowing from the all-i64 trampoline return.
+func (c *Compiler) narrowGCFieldResult(result ssa.Value, f wasm.FieldType) ssa.Value {
+	builder := c.ssaBuilder
+	var wasmType wasm.ValueType
+	if f.IsPacked() {
+		wasmType = wasm.ValueTypeI32
+	} else {
+		wasmType = f.AsImmutable()
+	}
+	ssaType := WasmTypeToSSAType(wasmType)
+	if ssaType == result.Type() {
+		return result
+	}
+	switch ssaType {
+	case ssa.TypeI32:
+		return builder.AllocateInstruction().AsIreduce(result, ssa.TypeI32).Insert(builder).Return()
+	case ssa.TypeF32:
+		trunc := builder.AllocateInstruction().AsIreduce(result, ssa.TypeI32).Insert(builder).Return()
+		return builder.AllocateInstruction().AsBitcast(trunc, ssa.TypeF32).Insert(builder).Return()
+	case ssa.TypeF64:
+		return builder.AllocateInstruction().AsBitcast(result, ssa.TypeF64).Insert(builder).Return()
+	}
+	return result
 }

@@ -561,7 +561,16 @@ func (c *callEngine) callWithStack(ctx context.Context, paramResultStack []uint6
 		case wazevoapi.ExitCodeIndirectCallNullPointer:
 			panic(wasmruntime.ErrRuntimeInvalidTableAccess)
 		case wazevoapi.ExitCodeIndirectCallTypeMismatch:
-			panic(wasmruntime.ErrRuntimeIndirectCallTypeMismatch)
+			actualTypeID := wasm.FunctionTypeID(c.execCtx.gcScratchBuffer[0])
+			expectedTypeID := wasm.FunctionTypeID(c.execCtx.gcScratchBuffer[1])
+			mod := c.callerModuleInstance()
+			store := mod.GetStore()
+			if !store.IsSubtype(actualTypeID, expectedTypeID) {
+				panic(wasmruntime.ErrRuntimeIndirectCallTypeMismatch)
+			}
+			c.execCtx.exitCode = wazevoapi.ExitCodeOK
+			afterGoFunctionCallEntrypoint(c.execCtx.goCallReturnAddress, c.execCtxPtr,
+				uintptr(unsafe.Pointer(c.execCtx.stackPointerBeforeGoCall)), c.execCtx.framePointerBeforeGoCall)
 		case wazevoapi.ExitCodeIntegerOverflow:
 			panic(wasmruntime.ErrRuntimeIntegerOverflow)
 		case wazevoapi.ExitCodeIntegerDivisionByZero:

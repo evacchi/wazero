@@ -1382,13 +1382,17 @@ blk0: (exec_ctx:i64, module_ctx:i64, v2:i32)
 	v13:i32 = Load v10, 0x10
 	v14:i64 = Load module_ctx, 0x8
 	v15:i32 = Load v14, 0x8
-	v16:i32 = Icmp neq, v13, v15
-	ExitIfTrue v16, exec_ctx, indirect_call_type_mismatch
-	v17:i64 = Load v10, 0x0
-	v18:i64 = Load v10, 0x8
 	Store module_ctx, exec_ctx, 0x8
-	v19:i32 = CallIndirect v17:sig2, exec_ctx, v18
-	Jump blk_ret, v19
+	v16:i64 = UExtend v13, 32->64
+	v17:i64 = UExtend v15, 32->64
+	Store v16, exec_ctx, 0x4f8
+	Store v17, exec_ctx, 0x500
+	v18:i32 = Icmp neq, v13, v15
+	ExitIfTrue v18, exec_ctx, indirect_call_type_mismatch
+	v19:i64 = Load v10, 0x0
+	v20:i64 = Load v10, 0x8
+	v21:i32 = CallIndirect v19:sig2, exec_ctx, v20
+	Jump blk_ret, v21
 `,
 		},
 		{
@@ -3100,6 +3104,11 @@ func TestCompiler_declareSignatures(t *testing.T) {
 			{ID: 13, Params: []ssa.Type{ssa.TypeI64, ssa.TypeI64}},
 			{ID: 14, Params: []ssa.Type{ssa.TypeI64, ssa.TypeI64}},
 			{ID: 15, Params: []ssa.Type{ssa.TypeI64}},
+			// GC trampoline signatures.
+			{ID: 16, Params: []ssa.Type{ssa.TypeI64, ssa.TypeI64, ssa.TypeI64}, Results: []ssa.Type{ssa.TypeI64}},
+			{ID: 17, Params: []ssa.Type{ssa.TypeI64, ssa.TypeI64, ssa.TypeI64, ssa.TypeI64, ssa.TypeI64, ssa.TypeI64}, Results: []ssa.Type{ssa.TypeI64}},
+			{ID: 18, Params: []ssa.Type{ssa.TypeI64, ssa.TypeI64}},
+			{ID: 19, Params: []ssa.Type{ssa.TypeI64, ssa.TypeI64, ssa.TypeI64, ssa.TypeI64, ssa.TypeI64}, Results: []ssa.Type{ssa.TypeI64}},
 		}
 
 		require.Equal(t, len(expected), len(declaredSigs))
@@ -3144,6 +3153,11 @@ func TestCompiler_declareSignatures(t *testing.T) {
 			{ID: 21, Params: []ssa.Type{ssa.TypeI64, ssa.TypeI64}},
 			{ID: 22, Params: []ssa.Type{ssa.TypeI64, ssa.TypeI64}},
 			{ID: 23, Params: []ssa.Type{ssa.TypeI64}},
+			// GC trampoline signatures.
+			{ID: 24, Params: []ssa.Type{ssa.TypeI64, ssa.TypeI64, ssa.TypeI64}, Results: []ssa.Type{ssa.TypeI64}},
+			{ID: 25, Params: []ssa.Type{ssa.TypeI64, ssa.TypeI64, ssa.TypeI64, ssa.TypeI64, ssa.TypeI64, ssa.TypeI64}, Results: []ssa.Type{ssa.TypeI64}},
+			{ID: 26, Params: []ssa.Type{ssa.TypeI64, ssa.TypeI64}},
+			{ID: 27, Params: []ssa.Type{ssa.TypeI64, ssa.TypeI64, ssa.TypeI64, ssa.TypeI64, ssa.TypeI64}, Results: []ssa.Type{ssa.TypeI64}},
 		}
 		require.Equal(t, len(expected), len(declaredSigs))
 		for i := 0; i < len(declaredSigs); i++ {
