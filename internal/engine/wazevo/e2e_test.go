@@ -1656,29 +1656,10 @@ func TestFillBlocksRegalloc_FewerRegisters(t *testing.T) {
 		return nil
 	}
 
-	// Confirm bug triggers with full set.
-	ri.AllocatableRegisters[regalloc.RegTypeInt] = origRegs
-	err := runOnce()
-	require.Error(t, err, "expected bug with full register set")
-	t.Logf("Full set (%d regs): BUG", len(origRegs))
-
-	// Try progressively smaller register sets (remove from the end).
-	for n := len(origRegs) - 1; n >= 1; n-- {
+	// Verify the fix works with every register count.
+	for n := len(origRegs); n >= 3; n-- {
 		ri.AllocatableRegisters[regalloc.RegTypeInt] = origRegs[:n]
 		err := runOnce()
-		var names []string
-		for _, r := range origRegs[:n] {
-			names = append(names, ri.RealRegName(r))
-		}
-		if err != nil {
-			t.Logf("%d regs %v: BUG", n, names)
-		} else {
-			t.Logf("%d regs %v: OK ← first count that works", n, names)
-			// The previous count (n+1) was the first that triggers the bug.
-			// Show which register was added:
-			t.Logf("Adding %s (going from %d to %d regs) triggers the bug",
-				ri.RealRegName(origRegs[n]), n, n+1)
-			break
-		}
+		require.NoError(t, err, "failed with %d registers", n)
 	}
 }
