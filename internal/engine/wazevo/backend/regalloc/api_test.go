@@ -13,12 +13,24 @@ type (
 		blocks          []*mockBlock
 		befores, afters []storeOrReloadInfo
 		lnfRoots        []*mockBlock
+		swaps           []swapInfo
+		moves           []moveInfo
 	}
 
 	storeOrReloadInfo struct {
 		reload bool
 		v      VReg
 		instr  *mockInstr
+	}
+
+	swapInfo struct {
+		x1, x2, tmp VReg
+		instr       *mockInstr
+	}
+
+	moveInfo struct {
+		dst, src VReg
+		instr    *mockInstr
 	}
 
 	// mockBlock implements Block.
@@ -32,6 +44,7 @@ type (
 		_loop          bool
 		lnfChildren    []*mockBlock
 		blockParams    []VReg
+		_idom          *mockBlock
 	}
 
 	// mockInstr implements Instr.
@@ -42,13 +55,29 @@ type (
 	}
 )
 
-func (m *mockFunction) LowestCommonAncestor(blk1, blk2 *mockBlock) *mockBlock { panic("TODO") }
+func (m *mockFunction) LowestCommonAncestor(blk1, blk2 *mockBlock) *mockBlock {
+	// Simple LCA: walk blk1 up until we find it in blk2's ancestor chain.
+	ancestors := map[int32]bool{}
+	for b := blk2; b != nil; b = b._idom {
+		ancestors[b.id] = true
+	}
+	for b := blk1; b != nil; b = b._idom {
+		if ancestors[b.id] {
+			return b
+		}
+	}
+	panic("no common ancestor")
+}
 
-func (m *mockFunction) Idom(blk *mockBlock) *mockBlock { panic("TODO") }
+func (m *mockFunction) Idom(blk *mockBlock) *mockBlock { return blk._idom }
 
-func (m *mockFunction) SwapBefore(x1, x2, tmp VReg, instr *mockInstr) { panic("TODO") }
+func (m *mockFunction) SwapBefore(x1, x2, tmp VReg, instr *mockInstr) {
+	m.swaps = append(m.swaps, swapInfo{x1, x2, tmp, instr})
+}
 
-func (m *mockFunction) InsertMoveBefore(dst, src VReg, instr *mockInstr) { panic("TODO") }
+func (m *mockFunction) InsertMoveBefore(dst, src VReg, instr *mockInstr) {
+	m.moves = append(m.moves, moveInfo{dst, src, instr})
+}
 
 func newMockFunction(blocks ...*mockBlock) *mockFunction {
 	return &mockFunction{blocks: blocks}

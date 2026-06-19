@@ -201,10 +201,20 @@ func (m *machine) StartBlock(blk ssa.BasicBlock) {
 	m.orderedSSABlockLabelPos = append(m.orderedSSABlockLabelPos, labelPos)
 }
 
+// debugBrkAtBlocks is a set of SSA block IDs where a BRK instruction should be inserted
+// at the beginning of the block for debugging. Set to nil to disable.
+var debugBrkAtBlocks map[int]bool
+
 // EndBlock implements ExecutableContext.
 func (m *machine) EndBlock() {
 	// Insert nop0 as the head of the block for convenience to simplify the logic of inserting instructions.
 	m.insertAtPerBlockHead(m.allocateNop())
+
+	if debugBrkAtBlocks != nil && debugBrkAtBlocks[int(m.currentLabelPos.sb.ID())] {
+		brk := m.allocateInstr()
+		brk.asUDF()
+		m.insertAtPerBlockHead(brk)
+	}
 
 	m.currentLabelPos.begin = m.perBlockHead
 
@@ -483,7 +493,7 @@ func (m *machine) resolveRelativeAddresses(ctx context.Context) {
 				if divided := diff >> 2; divided < minSignedInt19 || divided > maxSignedInt19 {
 					panic("BUG: branch relocation for large conditional branch larger than 19-bit range must be handled properly")
 				}
-				cur.condBrOffsetResolve(diff)
+					cur.condBrOffsetResolve(diff)
 			}
 		case brTableSequence:
 			tableIndex := cur.u1

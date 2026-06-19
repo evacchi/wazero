@@ -12,6 +12,8 @@ import (
 	"github.com/tetratelabs/wazero/api"
 	"github.com/tetratelabs/wazero/experimental"
 	"github.com/tetratelabs/wazero/experimental/logging"
+	"github.com/tetratelabs/wazero/internal/engine/wazevo/backend/isa/arm64"
+	"github.com/tetratelabs/wazero/internal/engine/wazevo/backend/regalloc"
 	"github.com/tetratelabs/wazero/internal/engine/wazevo/testcases"
 	"github.com/tetratelabs/wazero/internal/leb128"
 	"github.com/tetratelabs/wazero/internal/testing/binaryencoding"
@@ -1568,4 +1570,115 @@ func TestDWARF(t *testing.T) {
 
 	err = r.Close(ctx)
 	require.NoError(t, err)
+}
+
+// TestFillBlocksRegalloc tests that the compiler produces correct results for a large function
+// (argon2 fill_blocks) with many locals, nested control flow, and a function call that triggers
+// specific register allocation patterns. This is a regression test for an ARM64-specific bug where
+// the register allocator's merge state reconciliation produces wrong spill/reload code when
+// multiple predecessors require register swaps.
+func TestFillBlocksRegalloc(t *testing.T) {
+	ctx := context.Background()
+	config := wazero.NewRuntimeConfig()
+	r := wazero.NewRuntimeWithConfig(ctx, config)
+	defer r.Close(ctx)
+
+	_, err := r.NewHostModuleBuilder("anubis").
+		NewFunctionBuilder().WithFunc(func(context.Context, uint32) {}).
+		Export("anubis_update_nonce").
+		Instantiate(ctx)
+	require.NoError(t, err)
+
+	mod, err := r.Instantiate(ctx, testcases.FillBlocksRegalloc)
+	require.NoError(t, err)
+	defer mod.Close(ctx)
+
+	// Grow memory and set up minimal state
+	_, ok := mod.Memory().Grow(300)
+	require.True(t, ok)
+
+	self := make([]byte, 32)
+	binary.LittleEndian.PutUint32(self[8:], 8)   // memory field
+	binary.LittleEndian.PutUint32(self[12:], 2)   // lanes
+	binary.LittleEndian.PutUint32(self[16:], 1)   // blocks_count
+	ok = mod.Memory().Write(0x100000, self)
+	require.True(t, ok)
+
+	// Set __stack_pointer global
+	g := mod.ExportedGlobal("__stack_pointer").(api.MutableGlobal)
+	g.Set(0xFFF00)
+
+	f := mod.ExportedFunction("fill_blocks")
+	require.NotNil(t, f)
+
+	result, err := f.Call(ctx, 0x100000, 0x120000, 8, 0xFFF00)
+	require.NoError(t, err)
+	require.Equal(t, uint64(18), result[0])
+}
+
+// TestFillBlocksRegalloc_FewerRegisters removes one integer register at a time
+// from the ARM64 allocatable set to find which register's presence triggers the bug.
+func TestFillBlocksRegalloc_FewerRegisters(t *testing.T) {
+	ri := arm64.RegInfo()
+	origRegs := make([]regalloc.RealReg, len(ri.AllocatableRegisters[regalloc.RegTypeInt]))
+	copy(origRegs, ri.AllocatableRegisters[regalloc.RegTypeInt])
+	defer func() {
+		ri.AllocatableRegisters[regalloc.RegTypeInt] = origRegs
+	}()
+
+	runOnce := func() error {
+		ctx := context.Background()
+		config := wazero.NewRuntimeConfig()
+		r := wazero.NewRuntimeWithConfig(ctx, config)
+		defer r.Close(ctx)
+		r.NewHostModuleBuilder("anubis").
+			NewFunctionBuilder().WithFunc(func(context.Context, uint32) {}).
+			Export("anubis_update_nonce").Instantiate(ctx)
+		mod, err := r.Instantiate(ctx, testcases.FillBlocksRegalloc)
+		if err != nil {
+			return err
+		}
+		defer mod.Close(ctx)
+		mod.Memory().Grow(300)
+		self := make([]byte, 32)
+		binary.LittleEndian.PutUint32(self[8:], 8)
+		binary.LittleEndian.PutUint32(self[12:], 2)
+		binary.LittleEndian.PutUint32(self[16:], 1)
+		mod.Memory().Write(0x100000, self)
+		mod.ExportedGlobal("__stack_pointer").(api.MutableGlobal).Set(0xFFF00)
+		result, err := mod.ExportedFunction("fill_blocks").Call(ctx, 0x100000, 0x120000, 8, 0xFFF00)
+		if err != nil {
+			return err
+		}
+		if result[0] != 18 {
+			return fmt.Errorf("got %d, want 18", result[0])
+		}
+		return nil
+	}
+
+	// Confirm bug triggers with full set.
+	ri.AllocatableRegisters[regalloc.RegTypeInt] = origRegs
+	err := runOnce()
+	require.Error(t, err, "expected bug with full register set")
+	t.Logf("Full set (%d regs): BUG", len(origRegs))
+
+	// Try progressively smaller register sets (remove from the end).
+	for n := len(origRegs) - 1; n >= 1; n-- {
+		ri.AllocatableRegisters[regalloc.RegTypeInt] = origRegs[:n]
+		err := runOnce()
+		var names []string
+		for _, r := range origRegs[:n] {
+			names = append(names, ri.RealRegName(r))
+		}
+		if err != nil {
+			t.Logf("%d regs %v: BUG", n, names)
+		} else {
+			t.Logf("%d regs %v: OK ← first count that works", n, names)
+			// The previous count (n+1) was the first that triggers the bug.
+			// Show which register was added:
+			t.Logf("Adding %s (going from %d to %d regs) triggers the bug",
+				ri.RealRegName(origRegs[n]), n, n+1)
+			break
+		}
+	}
 }

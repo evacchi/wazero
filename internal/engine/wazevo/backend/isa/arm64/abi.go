@@ -15,6 +15,9 @@ var (
 	floatParamResultRegs = []regalloc.RealReg{v0, v1, v2, v3, v4, v5, v6, v7}
 )
 
+// RegInfo returns the register info for testing purposes.
+func RegInfo() *regalloc.RegisterInfo { return regInfo }
+
 var regInfo = &regalloc.RegisterInfo{
 	AllocatableRegisters: [regalloc.NumRegType][]regalloc.RealReg{
 		// We don't allocate:

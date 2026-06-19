@@ -1237,12 +1237,18 @@ func (m *machine) lowerIRem(execCtxVReg regalloc.VReg, rd, rn regalloc.VReg, rm 
 	}
 	m.insert(div)
 
+	// Copy the quotient to a temp before the div-by-zero check, because
+	// exitIfNot inserts a label that creates a block boundary. The register
+	// allocator may insert spill/reloads at that boundary which would clobber
+	// rd before the msub below can use it.
+	quotient := m.copyToTmp(rd)
+
 	// Check if rm is zero:
 	m.exitIfNot(execCtxVReg, registerAsRegNotZeroCond(rm.nr()), _64bit, wazevoapi.ExitCodeIntegerDivisionByZero)
 
-	// rd = rn-rd*rm by MSUB instruction.
+	// rd = rn - quotient*rm by MSUB instruction.
 	msub := m.allocateInstr()
-	msub.asALURRRR(aluOpMSub, rd, operandNR(rd), rm, rn, _64bit)
+	msub.asALURRRR(aluOpMSub, rd, operandNR(quotient), rm, rn, _64bit)
 	m.insert(msub)
 }
 

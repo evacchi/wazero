@@ -213,6 +213,190 @@ func TestMachine_insertReloadRegisterAt(t *testing.T) {
 	}
 }
 
+// TestMergeStateLikeSequence_swapStoreReload exercises the exact instruction
+// insertion sequence that fixMergeState produces for the argon2id fill_blocks
+// regression (ARM64-specific). The reconciliation for block 35 does:
+//
+//  1. SwapBefore(vB@r1, vA@r5, tmp, lastInstr)     — Case 2: swap r1↔r5
+//  2. StoreRegisterBefore(vB@r5, lastInstr)          — Case 1 part 1: save displaced vB
+//  3. ReloadRegisterBefore(vC@r5, lastInstr)         — Case 1 part 2: load desired vC
+//  4. StoreRegisterBefore(vX@r3, lastInstr)          — Case 1 for another register
+//  5. ReloadRegisterBefore(vD@r3, lastInstr)         — Case 1 part 2
+//  6. ReloadRegisterBefore(vE@r8, lastInstr)         — Case 4: reload from stack
+//
+// All operations insert before the same lastInstr (the branch at end of pred).
+// The test verifies the emitted instructions are in the correct order so that:
+//   - The swap completes before any store reads from the swapped registers
+//   - Stores happen before their corresponding reloads
+//   - No x27 (tmp register) conflicts between swap and large-offset spills
+func TestMergeStateLikeSequence_swapStoreReload(t *testing.T) {
+	for _, tc := range []struct {
+		name          string
+		spillSlotSize int64 // 0 = small offsets (imm12), large = uses x27 for address
+		expected      string
+	}{
+		{
+			name:          "small offsets",
+			spillSlotSize: 0,
+			expected: `
+	udf
+	mov x9, x1
+	mov x1, x5
+	mov x5, x9
+	str w5, [sp, #0x10]
+	ldr w5, [sp, #0x14]
+	str w3, [sp, #0x18]
+	ldr w3, [sp, #0x1c]
+	ldr w8, [sp, #0x20]
+	b L1
+`,
+		},
+		{
+			name:          "large offsets (x27 used for address computation)",
+			spillSlotSize: 0xffff,
+			expected: `
+	udf
+	mov x9, x1
+	mov x1, x5
+	mov x5, x9
+	movz x27, #0xf, lsl 0
+	movk x27, #0x1, lsl 16
+	str w5, [sp, x27]
+	movz x27, #0x13, lsl 0
+	movk x27, #0x1, lsl 16
+	ldr w5, [sp, x27]
+	movz x27, #0x17, lsl 0
+	movk x27, #0x1, lsl 16
+	str w3, [sp, x27]
+	movz x27, #0x1b, lsl 0
+	movk x27, #0x1, lsl 16
+	ldr w3, [sp, x27]
+	movz x27, #0x1f, lsl 0
+	movk x27, #0x1, lsl 16
+	ldr w8, [sp, x27]
+	b L1
+`,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx, _, m := newSetupWithMockContext()
+			m.spillSlotSize = tc.spillSlotSize
+
+			// VReg IDs — each needs a unique ID for distinct spill slots.
+			vA := regalloc.VReg(100).SetRealReg(x5).SetRegType(regalloc.RegTypeInt)  // desired at r1, currently at r5
+			vB := regalloc.VReg(200).SetRealReg(x1).SetRegType(regalloc.RegTypeInt)  // currently at r1, displaced by swap
+			vC := regalloc.VReg(300).SetRealReg(x5).SetRegType(regalloc.RegTypeInt)  // desired at r5, on stack
+			vX := regalloc.VReg(400).SetRealReg(x3).SetRegType(regalloc.RegTypeInt)  // currently at r3
+			vD := regalloc.VReg(500).SetRealReg(x3).SetRegType(regalloc.RegTypeInt)  // desired at r3, on stack
+			vE := regalloc.VReg(600).SetRealReg(x8).SetRegType(regalloc.RegTypeInt)  // desired at r8, on stack
+			tmpReg := regalloc.VReg(0).SetRealReg(x9).SetRegType(regalloc.RegTypeInt) // free register for swap
+
+			ctx.typeOf = map[regalloc.VRegID]ssa.Type{
+				vA.ID(): ssa.TypeI32,
+				vB.ID(): ssa.TypeI32,
+				vC.ID(): ssa.TypeI32,
+				vX.ID(): ssa.TypeI32,
+				vD.ID(): ssa.TypeI32,
+				vE.ID(): ssa.TypeI32,
+			}
+
+			// Build the instruction list: [udf] ... [branch] (lastInstr)
+			// The reconciliation inserts everything before the branch.
+			head := m.allocateInstr().asUDF()
+			lastInstr := m.allocateInstr()
+			lastInstr.asBr(label(1))
+			head.next = lastInstr
+			lastInstr.prev = head
+
+			f := &regAllocFn{m: m}
+
+			// Simulate exactly what fixMergeState/reconcileEdge does:
+			// Step 1: Case 2 — swap r1 and r5 (vB@r1 ↔ vA@r5)
+			f.SwapBefore(
+				vB.SetRealReg(x1), // currentVReg@r
+				vA.SetRealReg(x5), // desiredVReg@er
+				tmpReg,
+				lastInstr,
+			)
+
+			// Step 2: Case 1 — r5 now has vB (from swap), but we want vC there
+			// Store vB from r5, then reload vC to r5
+			f.StoreRegisterBefore(vB.SetRealReg(x5), lastInstr)
+			f.ReloadRegisterBefore(vC.SetRealReg(x5), lastInstr)
+
+			// Step 3: Case 1 — r3 has vX, but we want vD there
+			f.StoreRegisterBefore(vX.SetRealReg(x3), lastInstr)
+			f.ReloadRegisterBefore(vD.SetRealReg(x3), lastInstr)
+
+			// Step 4: Case 4 — r8 is free, reload vE from stack
+			f.ReloadRegisterBefore(vE.SetRealReg(x8), lastInstr)
+
+			m.rootInstr = head
+			actual := m.Format()
+			require.Equal(t, tc.expected, actual)
+		})
+	}
+}
+
+// TestMergeStateLikeSequence_swapWithTmpRegConflict tests the case where
+// no free register is available for the swap temp, so x27 (tmpRegVReg) is used.
+// With large spill offsets, both the swap AND the store/reload use x27.
+// This verifies there's no x27 conflict between the swap and address computation.
+func TestMergeStateLikeSequence_swapWithTmpRegConflict(t *testing.T) {
+	ctx, _, m := newSetupWithMockContext()
+	m.spillSlotSize = 0xffff // Large offsets → x27 used for address computation
+
+	vA := regalloc.VReg(100).SetRealReg(x5).SetRegType(regalloc.RegTypeInt)
+	vB := regalloc.VReg(200).SetRealReg(x1).SetRegType(regalloc.RegTypeInt)
+	vC := regalloc.VReg(300).SetRealReg(x5).SetRegType(regalloc.RegTypeInt)
+
+	ctx.typeOf = map[regalloc.VRegID]ssa.Type{
+		vA.ID(): ssa.TypeI32,
+		vB.ID(): ssa.TypeI32,
+		vC.ID(): ssa.TypeI32,
+	}
+
+	head := m.allocateInstr().asUDF()
+	lastInstr := m.allocateInstr()
+	lastInstr.asBr(label(1))
+	head.next = lastInstr
+	lastInstr.prev = head
+
+	f := &regAllocFn{m: m}
+
+	// Swap with NO free tmp → uses x27 (tmpRegVReg)
+	f.SwapBefore(
+		vB.SetRealReg(x1),
+		vA.SetRealReg(x5),
+		regalloc.VRegInvalid, // no free register → will use x27
+		lastInstr,
+	)
+
+	// Case 1: store vB from r5 (now has vB after swap), reload vC
+	f.StoreRegisterBefore(vB.SetRealReg(x5), lastInstr)
+	f.ReloadRegisterBefore(vC.SetRealReg(x5), lastInstr)
+
+	m.rootInstr = head
+
+	// The swap uses x27 as temp: mov x27,x1; mov x1,x5; mov x5,x27
+	// Then the store with large offset also uses x27: movz x27,#offset; str w5,[sp,x27]
+	// This is safe because the swap's x27 use is complete before the store starts.
+	expected := `
+	udf
+	mov x27, x1
+	mov x1, x5
+	mov x5, x27
+	movz x27, #0xf, lsl 0
+	movk x27, #0x1, lsl 16
+	str w5, [sp, x27]
+	movz x27, #0x13, lsl 0
+	movk x27, #0x1, lsl 16
+	ldr w5, [sp, x27]
+	b L1
+`
+	require.Equal(t, expected, m.Format())
+}
+
 func TestRegMachine_ClobberedRegisters(t *testing.T) {
 	_, _, m := newSetupWithMockContext()
 	m.regAllocFn.ClobberedRegisters([]regalloc.VReg{v19VReg, v19VReg, v19VReg, v19VReg})
