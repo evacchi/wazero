@@ -251,7 +251,7 @@ func (e *engine) compileModule(ctx context.Context, module *wasm.Module, listene
 		return nil, err
 	}
 
-	needSourceInfo := module.DWARFLines != nil || wazevoapi.SourceMapDumpEnabled
+	needSourceInfo := module.DWARFLines != nil || wazevoapi.SourceMapDumpEnabled || wazevoapi.JITDebugEnabled
 
 	ssaBuilder := ssa.NewBuilder()
 	be := backend.NewCompiler(ctx, machine, ssaBuilder)
@@ -397,6 +397,12 @@ func (e *engine) compileModule(ctx context.Context, module *wasm.Module, listene
 		dumpSourceMap(module, cm, importedFns)
 	}
 
+	if wazevoapi.JITDebugEnabled {
+		base := uintptr(unsafe.Pointer(&executable[0]))
+		totalSize := len(executable)
+		wazevoapi.RegisterJITCode(base, totalSize, cm.sourceMap.executableOffsets, cm.sourceMap.wasmBinaryOffsets)
+	}
+
 	relocator.resolveRelocations(machine, executable, importedFns)
 
 	if err = platform.MprotectCodeSegment(executable); err != nil {
@@ -527,7 +533,7 @@ func (r *engineRelocator) appendFunction(
 	r.totalSize = (r.totalSize + 15) &^ 15
 	cm.functionOffsets[fnum] = r.totalSize
 
-	needSourceInfo := module.DWARFLines != nil || wazevoapi.SourceMapDumpEnabled
+	needSourceInfo := module.DWARFLines != nil || wazevoapi.SourceMapDumpEnabled || wazevoapi.JITDebugEnabled
 	if needSourceInfo {
 		// At the beginning of the function, we add the offset of the function body so that
 		// we can resolve the source location of the call site of before listener call.

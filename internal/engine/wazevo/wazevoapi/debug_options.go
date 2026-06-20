@@ -160,6 +160,7 @@ This is mostly due to (but might not be limited to):
 }
 
 // nolint
+// nolint
 const NeedFunctionNameInContext = PrintSSA ||
 	PrintOptimizedSSA ||
 	PrintSSAToBackendIRLowering ||
@@ -168,7 +169,8 @@ const NeedFunctionNameInContext = PrintSSA ||
 	PrintMachineCodeHexPerFunction ||
 	DeterministicCompilationVerifierEnabled ||
 	PerfMapEnabled ||
-	SourceMapDumpEnabled
+	SourceMapDumpEnabled ||
+	JITDebugEnabled
 
 // SetCurrentFunctionName sets the current function name to the given `functionName`.
 func SetCurrentFunctionName(ctx context.Context, index int, functionName string) context.Context {
