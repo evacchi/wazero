@@ -2,9 +2,7 @@
 lldb plugin for correlating JIT-compiled native code with wasm bytecode offsets.
 
 Setup:
-    1. Set SourceMapDumpEnabled = true in
-       internal/engine/wazevo/wazevoapi/debug_options.go
-    2. Build your test binary: go test -c -o /tmp/test ./your/package/
+    1. Build with the sourcemap tag: go test -tags sourcemap -c -o /tmp/test ./your/package/
 
 Debugging workflow:
     $ lldb /tmp/test
