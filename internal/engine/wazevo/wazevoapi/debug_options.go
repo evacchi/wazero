@@ -40,7 +40,7 @@ const (
 	PrintMachineCodeHexPerFunctionDisassemblable = false
 	// SourceMapDumpEnabled dumps the source map (executable offset -> wasm binary offset) to
 	// /tmp/wazero-sourcemap-<pid>.map as JSON after compilation. Use with the lldb plugin in tools/lldb/.
-	SourceMapDumpEnabled = false
+	SourceMapDumpEnabled = true
 )
 
 // printTarget is the function index to print the machine code. This is used for debugging to print the machine code

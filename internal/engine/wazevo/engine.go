@@ -420,9 +420,8 @@ func functionContext(ctx context.Context, module *wasm.Module, fnum int, fidx wa
 }
 
 type sourceMapDump struct {
-	Base      string               `json:"base"`
-	Functions []sourceMapFunction  `json:"functions"`
-	Mappings  []sourceMapMapping   `json:"mappings"`
+	Functions []sourceMapFunction `json:"functions"`
+	Mappings  []sourceMapMapping  `json:"mappings"`
 }
 
 type sourceMapFunction struct {
@@ -448,25 +447,25 @@ func dumpSourceMap(module *wasm.Module, cm *compiledModule, importedFns int) {
 		if len(def.ExportNames()) > 0 {
 			name = def.ExportNames()[0]
 		}
-		execAddr := base + uintptr(cm.functionOffsets[i])
 		functions = append(functions, sourceMapFunction{
 			Index:      i,
 			Name:       name,
-			Exec:       "0x" + strconv.FormatUint(uint64(execAddr), 16),
+			Exec:       "0x" + strconv.FormatUint(uint64(cm.functionOffsets[i]), 16),
 			WasmOffset: module.CodeSection[i].BodyOffsetInCodeSection,
 		})
 	}
 
 	mappings := make([]sourceMapMapping, len(cm.sourceMap.executableOffsets))
 	for i := range cm.sourceMap.executableOffsets {
+		// Store as offset from base, not absolute address.
+		offset := cm.sourceMap.executableOffsets[i] - base
 		mappings[i] = sourceMapMapping{
-			Exec: "0x" + strconv.FormatUint(uint64(cm.sourceMap.executableOffsets[i]), 16),
+			Exec: "0x" + strconv.FormatUint(uint64(offset), 16),
 			Wasm: cm.sourceMap.wasmBinaryOffsets[i],
 		}
 	}
 
 	dump := sourceMapDump{
-		Base:      "0x" + strconv.FormatUint(uint64(base), 16),
 		Functions: functions,
 		Mappings:  mappings,
 	}
@@ -476,11 +475,15 @@ func dumpSourceMap(module *wasm.Module, cm *compiledModule, importedFns int) {
 		panic(err)
 	}
 
-	filename := "/tmp/wazero-sourcemap-" + strconv.Itoa(os.Getpid()) + ".map"
+	filename := "/tmp/wazero-sourcemap.map"
 	if err := os.WriteFile(filename, data, 0o644); err != nil {
 		panic(err)
 	}
-	fmt.Fprintf(os.Stderr, "wazero: source map written to %s\n", filename)
+	baseFile := "/tmp/wazero-sourcemap.base"
+	if err := os.WriteFile(baseFile, []byte(fmt.Sprintf("0x%x\n", base)), 0o644); err != nil {
+		panic(err)
+	}
+	fmt.Fprintf(os.Stderr, "wazero: source map written to %s (base=0x%x)\n", filename, base)
 }
 
 type engineRelocator struct {

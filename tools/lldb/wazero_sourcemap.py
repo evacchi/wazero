@@ -1,14 +1,38 @@
 """
 lldb plugin for correlating JIT-compiled native code with wasm bytecode offsets.
 
-Usage:
-    (lldb) command script import tools/lldb/wazero_sourcemap.py
-    (lldb) wasm load /tmp/wazero-sourcemap-<pid>.map
-    (lldb) wasm offset          # show wasm offset for current PC
-    (lldb) wasm wat <file.wasm> # show WAT source for current PC
+Setup:
+    1. Set SourceMapDumpEnabled = true in
+       internal/engine/wazevo/wazevoapi/debug_options.go
+    2. Build your test binary: go test -c -o /tmp/test ./your/package/
 
-Enable source map dumping in wazero by setting SourceMapDumpEnabled = true
-in internal/engine/wazevo/wazevoapi/debug_options.go.
+Debugging workflow:
+    $ lldb /tmp/test
+    (lldb) settings set target.disable-aslr true
+    (lldb) process handle SIGURG -n false -p true -s false
+    (lldb) command script import tools/lldb/wazero_sourcemap.py
+    (lldb) break set -r callWithStack
+    (lldb) run -test.run ^YourTest$ -test.v
+
+    # When it stops at callWithStack (before JIT code runs):
+    (lldb) wasm load /tmp/wazero-sourcemap.map   # auto-reads .base sidecar
+    (lldb) wasm break 998                         # set breakpoint at wasm offset
+    (lldb) break delete 1                         # remove callWithStack breakpoint
+    (lldb) continue
+
+    # When it stops at the wasm breakpoint:
+    (lldb) wasm offset                            # show wasm offset + function
+    (lldb) wasm wat /path/to/file.wasm            # show WAT source context
+    (lldb) register read x8 x9 x12               # inspect registers
+    (lldb) disassemble -s $pc -c 15               # see native code
+
+    Find wasm offsets with: wasm-tools print --print-offsets file.wasm
+
+Commands:
+    wasm load <map> [base]  - load source map (base from .base sidecar if omitted)
+    wasm offset             - show wasm offset for current PC
+    wasm wat <file.wasm>    - show WAT source context for current PC
+    wasm break <offset>     - set breakpoint at wasm bytecode offset (decimal or 0x hex)
 """
 
 import bisect
@@ -20,13 +44,25 @@ _source_map = None
 
 
 class SourceMap:
-    def __init__(self, data):
-        self.base = int(data["base"], 16)
+    def __init__(self, data, base=0):
+        """Load source map. Offsets in the file are relative; base is added at runtime."""
+        self.base = base
         self.functions = data["functions"]
-        self.exec_addrs = [int(m["exec"], 16) for m in data["mappings"]]
+        # Offsets are relative to executable base.
+        self._func_offsets = [int(f["exec"], 16) for f in self.functions]
+        self._mapping_offsets = [int(m["exec"], 16) for m in data["mappings"]]
         self.wasm_offsets = [m["wasm"] for m in data["mappings"]]
-        self.func_addrs = [int(f["exec"], 16) for f in self.functions]
         self.func_names = [f["name"] for f in self.functions]
+        self._rebase(base)
+
+    def rebase(self, base):
+        """Set the runtime base address and recompute absolute addresses."""
+        self.base = base
+        self._rebase(base)
+
+    def _rebase(self, base):
+        self.exec_addrs = [off + base for off in self._mapping_offsets]
+        self.func_addrs = [off + base for off in self._func_offsets]
 
     def lookup(self, pc):
         """Return (wasm_offset, func_name) for a given PC, or (None, None)."""
@@ -60,15 +96,18 @@ def cmd_wasm(debugger, command, result, internal_dict):
         _cmd_offset(debugger, result)
     elif subcmd == "wat":
         _cmd_wat(debugger, args[1:], result)
+    elif subcmd == "break":
+        _cmd_break(debugger, args[1:], result)
     else:
         result.AppendMessage("Unknown subcommand: %s" % subcmd)
-        result.AppendMessage("Usage: wasm <load|offset|wat> [args...]")
+        result.AppendMessage("Usage: wasm <load|offset|wat|break> [args...]")
 
 
 def _cmd_load(args, result):
     global _source_map
     if not args:
-        result.AppendMessage("Usage: wasm load <path-to-sourcemap.map>")
+        result.AppendMessage("Usage: wasm load <path-to-sourcemap.map> [base-address]")
+        result.AppendMessage("  If base-address is omitted, reads from <path>.base sidecar file.")
         return
 
     path = args[0]
@@ -76,13 +115,26 @@ def _cmd_load(args, result):
         result.AppendMessage("File not found: %s" % path)
         return
 
+    base = 0
+    if len(args) > 1:
+        try:
+            base = int(args[1], 0)
+        except ValueError:
+            result.AppendMessage("Invalid base address: %s" % args[1])
+            return
+    else:
+        base_path = path.rsplit(".", 1)[0] + ".base"
+        if os.path.exists(base_path):
+            with open(base_path) as bf:
+                base = int(bf.read().strip(), 0)
+
     with open(path) as f:
         data = json.load(f)
 
-    _source_map = SourceMap(data)
+    _source_map = SourceMap(data, base)
     result.AppendMessage(
-        "Loaded source map: %d mappings, %d functions"
-        % (len(_source_map.exec_addrs), len(_source_map.functions))
+        "Loaded source map: %d mappings, %d functions, base=0x%x"
+        % (len(_source_map.exec_addrs), len(_source_map.functions), base)
     )
 
 
@@ -184,6 +236,37 @@ def _cmd_wat(debugger, args, result):
     )
 
 
+def _cmd_break(debugger, args, result):
+    if _source_map is None:
+        result.AppendMessage("No source map loaded. Use: wasm load <path>")
+        return
+
+    if not args:
+        result.AppendMessage("Usage: wasm break <wasm-offset> (decimal or 0x hex)")
+        return
+
+    try:
+        target_offset = int(args[0], 0)
+    except ValueError:
+        result.AppendMessage("Invalid offset: %s" % args[0])
+        return
+
+    # Find all native addresses that map to this wasm offset.
+    addrs = []
+    for i, wo in enumerate(_source_map.wasm_offsets):
+        if wo == target_offset:
+            addrs.append(_source_map.exec_addrs[i])
+
+    if not addrs:
+        result.AppendMessage("No mapping found for wasm offset %d (0x%x)" % (target_offset, target_offset))
+        return
+
+    for addr in addrs:
+        debugger.HandleCommand("break set -a 0x%x" % addr)
+        _, func_name = _source_map.lookup(addr)
+        result.AppendMessage("Breakpoint at 0x%x (wasm offset %d) in %s" % (addr, target_offset, func_name or "?"))
+
+
 def __lldb_init_module(debugger, internal_dict):
     debugger.HandleCommand(
         'command script add -f wazero_sourcemap.cmd_wasm wasm'
@@ -192,5 +275,6 @@ def __lldb_init_module(debugger, internal_dict):
         "wazero source map plugin loaded. Commands:\n"
         "  wasm load <path>       - load a source map JSON file\n"
         "  wasm offset            - show wasm offset for current PC\n"
-        "  wasm wat <file.wasm>   - show WAT source context for current PC"
+        "  wasm wat <file.wasm>   - show WAT source context for current PC\n"
+        "  wasm break <offset>    - set breakpoint at wasm bytecode offset"
     )
