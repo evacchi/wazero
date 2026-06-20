@@ -57,14 +57,20 @@ const (
 	jitUnregisterAction = 2
 )
 
+// SourceLineResolver resolves a wasm bytecode offset to a source file and line.
+// Returns empty file if no source info is available for that offset.
+type SourceLineResolver func(wasmOffset uint64) (file string, line int)
+
 // RegisterJITCode constructs a minimal ELF with DWARF .debug_line info
 // and registers it with the debugger via the GDB JIT interface.
-func RegisterJITCode(textAddr uintptr, textSize int, sourceOffsets []uintptr, wasmOffsets []uint64) {
+// If resolver is non-nil, it maps wasm offsets to real source file/line.
+// Otherwise, wasm bytecode offsets are used as line numbers with file "<jit>".
+func RegisterJITCode(textAddr uintptr, textSize int, sourceOffsets []uintptr, wasmOffsets []uint64, resolver SourceLineResolver) {
 	if !JITDebugEnabled {
 		return
 	}
 
-	debugLine := buildDebugLine(textAddr, sourceOffsets, wasmOffsets)
+	debugLine := buildDebugLine(textAddr, sourceOffsets, wasmOffsets, resolver)
 	elfBytes := buildELF64(textAddr, uint64(textSize), debugLine)
 
 
@@ -304,80 +310,101 @@ func buildDebugInfo(textAddr uintptr, textSize uint64) []byte {
 
 // --- DWARF .debug_line builder ---
 
-func buildDebugLine(textAddr uintptr, execOffsets []uintptr, wasmOffsets []uint64) []byte {
+// sourceEntry holds a resolved source location for one mapping.
+type sourceEntry struct {
+	fileIdx uint64 // 1-based index into the file table
+	line    int
+}
+
+func buildDebugLine(textAddr uintptr, execOffsets []uintptr, wasmOffsets []uint64, resolver SourceLineResolver) []byte {
 	if len(execOffsets) == 0 {
 		return nil
 	}
 
-	// We build a DWARF v4 line number program.
-	// The "file" is "<jit>" and "line numbers" are wasm bytecode offsets.
+	// Resolve source locations. If resolver is nil or returns no info,
+	// fall back to wasm offsets as line numbers with file "<jit>".
+	files := []string{"<jit>"} // file index 1 = fallback
+	fileMap := map[string]uint64{"<jit>": 1}
+	entries := make([]sourceEntry, len(execOffsets))
+
+	for i := range execOffsets {
+		var file string
+		var line int
+		if resolver != nil {
+			file, line = resolver(wasmOffsets[i])
+		}
+		if file == "" {
+			// Fallback: use wasm offset as line number.
+			entries[i] = sourceEntry{fileIdx: 1, line: int(wasmOffsets[i])}
+		} else {
+			idx, ok := fileMap[file]
+			if !ok {
+				files = append(files, file)
+				idx = uint64(len(files))
+				fileMap[file] = idx
+			}
+			entries[i] = sourceEntry{fileIdx: idx, line: line}
+		}
+	}
 
 	const (
-		dwarfVersion    = 4
-		minInstrLen     = 1
-		maxOpsPerInstr  = 1
-		defaultIsStmt   = 1
-		lineBase        = 0
-		lineRange       = 1
-		opcodeBase      = 13
+		dwarfVersion   = 4
+		minInstrLen    = 1
+		maxOpsPerInstr = 1
+		defaultIsStmt  = 1
+		lineBase       = 0
+		lineRange      = 1
+		opcodeBase     = 13
 	)
 
-	var prog []byte
-
-	// Standard opcode lengths (opcodes 1..12).
 	stdOpcodeLens := []byte{0, 1, 1, 1, 1, 0, 0, 0, 1, 0, 0, 1}
-
-	// Include directories: just a terminating zero (no directories).
-	// File names: one file entry then terminating zero.
-	fileName := []byte("<jit>")
 
 	// Build the header.
 	var hdr []byte
-	hdr = append(hdr, 0, 0, 0, 0) // unit_length placeholder (4 bytes, DWARF32)
+	hdr = append(hdr, 0, 0, 0, 0) // unit_length placeholder
 	hdr = appendU16(hdr, dwarfVersion)
-	hdr = append(hdr, 0, 0, 0, 0) // header_length placeholder (4 bytes)
+	hdr = append(hdr, 0, 0, 0, 0) // header_length placeholder
 	headerLenOffset := len(hdr) - 4
-	hdr = append(hdr, minInstrLen)
-	hdr = append(hdr, maxOpsPerInstr)
-	hdr = append(hdr, defaultIsStmt)
-	hdr = append(hdr, byte(int8(lineBase))) // line_base (signed)
-	hdr = append(hdr, lineRange)
-	hdr = append(hdr, opcodeBase)
+	hdr = append(hdr, minInstrLen, maxOpsPerInstr, defaultIsStmt)
+	hdr = append(hdr, byte(int8(lineBase)))
+	hdr = append(hdr, lineRange, opcodeBase)
 	hdr = append(hdr, stdOpcodeLens...)
 	// Include directories (empty list).
 	hdr = append(hdr, 0)
-	// File names: one entry.
-	hdr = append(hdr, fileName...)
-	hdr = append(hdr, 0)    // null terminator for filename
-	hdr = appendULEB128(hdr, 0) // directory index
-	hdr = appendULEB128(hdr, 0) // modification time
-	hdr = appendULEB128(hdr, 0) // file length
-	// End of file names list.
-	hdr = append(hdr, 0)
+	// File names.
+	for _, f := range files {
+		hdr = append(hdr, []byte(f)...)
+		hdr = append(hdr, 0)        // null-terminated name
+		hdr = appendULEB128(hdr, 0) // directory index
+		hdr = appendULEB128(hdr, 0) // modification time
+		hdr = appendULEB128(hdr, 0) // file length
+	}
+	hdr = append(hdr, 0) // end of file names
 
-	// Patch header_length: length from after this field to the start of the program.
 	headerLen := uint32(len(hdr) - headerLenOffset - 4)
 	binary.LittleEndian.PutUint32(hdr[headerLenOffset:], headerLen)
 
 	// Build the line number program.
-	// Set file to 1.
+	var prog []byte
 	prog = append(prog, 4) // DW_LNS_set_file
 	prog = appendULEB128(prog, 1)
-
-	// Set initial address.
 	prog = appendExtendedOp(prog, 2, textAddr) // DW_LNE_set_address
 
-	// Set initial line to the first wasm offset.
 	currentLine := int64(0)
+	currentFile := uint64(1)
 	currentAddr := textAddr
 
-	for i := range execOffsets {
+	for i, e := range entries {
 		addr := execOffsets[i]
-		line := int64(wasmOffsets[i])
-
 		addrDelta := int64(addr - currentAddr)
-		lineDelta := line - currentLine
 
+		if e.fileIdx != currentFile {
+			prog = append(prog, 4) // DW_LNS_set_file
+			prog = appendULEB128(prog, e.fileIdx)
+			currentFile = e.fileIdx
+		}
+
+		lineDelta := int64(e.line) - currentLine
 		if addrDelta > 0 || lineDelta != 0 {
 			if lineDelta != 0 {
 				prog = append(prog, 3) // DW_LNS_advance_line
@@ -391,18 +418,13 @@ func buildDebugLine(textAddr uintptr, execOffsets []uintptr, wasmOffsets []uint6
 		}
 
 		currentAddr = addr
-		currentLine = line
+		currentLine = int64(e.line)
 	}
 
-	// End sequence.
-	prog = append(prog, 0, 1, 1) // DW_LNE_end_sequence (extended: 0, len=1, opcode=1)
+	prog = append(prog, 0, 1, 1) // DW_LNE_end_sequence
 
-	// Combine header + program.
 	result := append(hdr, prog...)
-
-	// Patch unit_length: total length minus the 4-byte length field itself.
 	binary.LittleEndian.PutUint32(result[0:], uint32(len(result)-4))
-
 	return result
 }
 

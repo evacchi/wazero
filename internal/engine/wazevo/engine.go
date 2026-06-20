@@ -11,6 +11,7 @@ import (
 	"slices"
 	"sort"
 	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"unsafe"
@@ -400,7 +401,37 @@ func (e *engine) compileModule(ctx context.Context, module *wasm.Module, listene
 	if wazevoapi.JITDebugEnabled {
 		base := uintptr(unsafe.Pointer(&executable[0]))
 		totalSize := len(executable)
-		wazevoapi.RegisterJITCode(base, totalSize, cm.sourceMap.executableOffsets, cm.sourceMap.wasmBinaryOffsets)
+		var resolver wazevoapi.SourceLineResolver
+		if dw := module.DWARFLines; dw != nil {
+			resolver = func(wasmOffset uint64) (string, int) {
+				lines := dw.Line(wasmOffset)
+				if len(lines) == 0 {
+					return "", 0
+				}
+				// Format is "0xNNN: /path/file.go:line:col" or with " (inlined)".
+				s := lines[0]
+				if i := strings.Index(s, " (inlined)"); i >= 0 {
+					s = s[:i]
+				}
+				// Strip the "0xNNN: " prefix.
+				if i := strings.Index(s, ": /"); i >= 0 {
+					s = s[i+2:]
+				}
+				// Find last two colons to split file:line:col.
+				lastColon := strings.LastIndex(s, ":")
+				if lastColon < 0 {
+					return s, 0
+				}
+				secondLast := strings.LastIndex(s[:lastColon], ":")
+				if secondLast < 0 {
+					return s, 0
+				}
+				file := s[:secondLast]
+				line, _ := strconv.Atoi(s[secondLast+1 : lastColon])
+				return file, line
+			}
+		}
+		wazevoapi.RegisterJITCode(base, totalSize, cm.sourceMap.executableOffsets, cm.sourceMap.wasmBinaryOffsets, resolver)
 	}
 
 	relocator.resolveRelocations(machine, executable, importedFns)
