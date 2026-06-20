@@ -38,6 +38,9 @@ const (
 	// to make it disassemblable. This is useful when debugging the final machine code. See the places where this is used for detail.
 	// When this is enabled, functions must not be called.
 	PrintMachineCodeHexPerFunctionDisassemblable = false
+	// SourceMapDumpEnabled dumps the source map (executable offset -> wasm binary offset) to
+	// /tmp/wazero-sourcemap-<pid>.map as JSON after compilation. Use with the lldb plugin in tools/lldb/.
+	SourceMapDumpEnabled = false
 )
 
 // printTarget is the function index to print the machine code. This is used for debugging to print the machine code
@@ -167,7 +170,8 @@ const NeedFunctionNameInContext = PrintSSA ||
 	PrintFinalizedMachineCode ||
 	PrintMachineCodeHexPerFunction ||
 	DeterministicCompilationVerifierEnabled ||
-	PerfMapEnabled
+	PerfMapEnabled ||
+	SourceMapDumpEnabled
 
 // SetCurrentFunctionName sets the current function name to the given `functionName`.
 func SetCurrentFunctionName(ctx context.Context, index int, functionName string) context.Context {

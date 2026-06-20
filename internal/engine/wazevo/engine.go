@@ -3,11 +3,14 @@ package wazevo
 import (
 	"context"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"runtime"
 	"slices"
 	"sort"
+	"strconv"
 	"sync"
 	"sync/atomic"
 	"unsafe"
@@ -248,7 +251,7 @@ func (e *engine) compileModule(ctx context.Context, module *wasm.Module, listene
 		return nil, err
 	}
 
-	needSourceInfo := module.DWARFLines != nil
+	needSourceInfo := module.DWARFLines != nil || wazevoapi.SourceMapDumpEnabled
 
 	ssaBuilder := ssa.NewBuilder()
 	be := backend.NewCompiler(ctx, machine, ssaBuilder)
@@ -390,6 +393,10 @@ func (e *engine) compileModule(ctx context.Context, module *wasm.Module, listene
 		}
 	}
 
+	if wazevoapi.SourceMapDumpEnabled {
+		dumpSourceMap(module, cm, importedFns)
+	}
+
 	relocator.resolveRelocations(machine, executable, importedFns)
 
 	if err = platform.MprotectCodeSegment(executable); err != nil {
@@ -410,6 +417,70 @@ func functionContext(ctx context.Context, module *wasm.Module, fnum int, fidx wa
 		ctx = wazevoapi.SetCurrentFunctionName(ctx, fnum, fmt.Sprintf("[%d/%d]%s", fnum, len(module.CodeSection)-1, name))
 	}
 	return ctx
+}
+
+type sourceMapDump struct {
+	Base      string               `json:"base"`
+	Functions []sourceMapFunction  `json:"functions"`
+	Mappings  []sourceMapMapping   `json:"mappings"`
+}
+
+type sourceMapFunction struct {
+	Index      int    `json:"index"`
+	Name       string `json:"name"`
+	Exec       string `json:"exec"`
+	WasmOffset uint64 `json:"wasmOffset"`
+}
+
+type sourceMapMapping struct {
+	Exec string `json:"exec"`
+	Wasm uint64 `json:"wasm"`
+}
+
+func dumpSourceMap(module *wasm.Module, cm *compiledModule, importedFns int) {
+	base := uintptr(unsafe.Pointer(&cm.executable[0]))
+
+	var functions []sourceMapFunction
+	for i := range module.CodeSection {
+		fidx := wasm.Index(i + importedFns)
+		def := module.FunctionDefinition(fidx)
+		name := def.DebugName()
+		if len(def.ExportNames()) > 0 {
+			name = def.ExportNames()[0]
+		}
+		execAddr := base + uintptr(cm.functionOffsets[i])
+		functions = append(functions, sourceMapFunction{
+			Index:      i,
+			Name:       name,
+			Exec:       "0x" + strconv.FormatUint(uint64(execAddr), 16),
+			WasmOffset: module.CodeSection[i].BodyOffsetInCodeSection,
+		})
+	}
+
+	mappings := make([]sourceMapMapping, len(cm.sourceMap.executableOffsets))
+	for i := range cm.sourceMap.executableOffsets {
+		mappings[i] = sourceMapMapping{
+			Exec: "0x" + strconv.FormatUint(uint64(cm.sourceMap.executableOffsets[i]), 16),
+			Wasm: cm.sourceMap.wasmBinaryOffsets[i],
+		}
+	}
+
+	dump := sourceMapDump{
+		Base:      "0x" + strconv.FormatUint(uint64(base), 16),
+		Functions: functions,
+		Mappings:  mappings,
+	}
+
+	data, err := json.MarshalIndent(dump, "", "  ")
+	if err != nil {
+		panic(err)
+	}
+
+	filename := "/tmp/wazero-sourcemap-" + strconv.Itoa(os.Getpid()) + ".map"
+	if err := os.WriteFile(filename, data, 0o644); err != nil {
+		panic(err)
+	}
+	fmt.Fprintf(os.Stderr, "wazero: source map written to %s\n", filename)
 }
 
 type engineRelocator struct {
@@ -453,7 +524,7 @@ func (r *engineRelocator) appendFunction(
 	r.totalSize = (r.totalSize + 15) &^ 15
 	cm.functionOffsets[fnum] = r.totalSize
 
-	needSourceInfo := module.DWARFLines != nil
+	needSourceInfo := module.DWARFLines != nil || wazevoapi.SourceMapDumpEnabled
 	if needSourceInfo {
 		// At the beginning of the function, we add the offset of the function body so that
 		// we can resolve the source location of the call site of before listener call.
