@@ -29,3 +29,8 @@ func MprotectCodeSegment(b []byte) (err error) {
 	address := unsafe.Pointer(&b[0])
 	return windows.VirtualProtect(uintptr(address), uintptr(len(b)), windows.PAGE_EXECUTE_READ, &old)
 }
+
+func MprotectCodeSegmentDebug(b []byte) (err error) {
+	address := unsafe.Pointer(&b[0])
+	return windows.VirtualProtect(uintptr(address), uintptr(len(b)), windows.PAGE_EXECUTE_READWRITE, &old)
+}

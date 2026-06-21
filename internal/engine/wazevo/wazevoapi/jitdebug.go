@@ -73,7 +73,6 @@ func RegisterJITCode(textAddr uintptr, textSize int, sourceOffsets []uintptr, wa
 	debugLine := buildDebugLine(textAddr, sourceOffsets, wasmOffsets, resolver)
 	elfBytes := buildELF64(textAddr, uint64(textSize), debugLine)
 
-
 	// Keep a reference so GC doesn't collect it.
 	jitELFBuffers = append(jitELFBuffers, elfBytes)
 
@@ -99,7 +98,7 @@ func RegisterJITCode(textAddr uintptr, textSize int, sourceOffsets []uintptr, wa
 	// Under a debugger, skip the BRK with: register write pc `$pc+4`
 	// Note: will crash if not run under a debugger.
 	jitDebugRegisterCode()
-	jitDebugBreak()
+	// jitDebugBreak()
 
 	// Ensure the ELF buffer and entry stay alive past the call.
 	runtime.KeepAlive(elfBytes)
@@ -113,7 +112,7 @@ const (
 	elfData2LSB   = 1
 	elfEvCurrent  = 1
 	elfOSABINone  = 0
-	elfETExec     = 2
+	elfETDyn      = 3
 	elfEMAarch64  = 183
 	elfEMX86_64   = 62
 	elfSHTNull     = 0
@@ -122,8 +121,12 @@ const (
 	elfSHTNobits   = 8
 	elfSHFAlloc    = 0x2
 	elfSHFExec     = 0x4
+	elfPTLoad      = 1
+	elfPFX         = 0x1
+	elfPFR         = 0x4
 
-	elf64HdrSize = 64
+	elf64HdrSize  = 64
+	elf64PhdrSize = 56
 	elf64ShdrSize = 64
 )
 
@@ -143,13 +146,15 @@ func buildELF64(textAddr uintptr, textSize uint64, debugLine []byte) []byte {
 
 	// Layout:
 	//   [ELF header]           64 bytes
+	//   [program header]       56 bytes (PT_LOAD for .text)
 	//   [.debug_line data]
 	//   [.debug_abbrev data]
 	//   [.debug_info data]
 	//   [.shstrtab data]
-	//   [section headers]      6 * 64 bytes (null + .text + .debug_line + .debug_abbrev + .debug_info + .shstrtab)
+	//   [section headers]      6 * 64 bytes
 
-	debugLineOff := uint64(elf64HdrSize)
+	phdrOff := uint64(elf64HdrSize)
+	debugLineOff := phdrOff + elf64PhdrSize
 	debugAbbrevOff := debugLineOff + uint64(len(debugLine))
 	debugInfoOff := debugAbbrevOff + uint64(len(debugAbbrev))
 	shstrtabOff := debugInfoOff + uint64(len(debugInfo))
@@ -169,14 +174,28 @@ func buildELF64(textAddr uintptr, textSize uint64, debugLine []byte) []byte {
 	buf[5] = elfData2LSB
 	buf[6] = elfEvCurrent
 	buf[7] = elfOSABINone
-	le.PutUint16(buf[16:], elfETExec)
+	le.PutUint16(buf[16:], elfETDyn)
 	le.PutUint16(buf[18:], elfMachine())
 	le.PutUint32(buf[20:], elfEvCurrent)
-	le.PutUint64(buf[40:], shdrOff)       // e_shoff
-	le.PutUint16(buf[52:], elf64HdrSize)  // e_ehsize
-	le.PutUint16(buf[58:], elf64ShdrSize) // e_shentsize
-	le.PutUint16(buf[60:], numSections)   // e_shnum
-	le.PutUint16(buf[62:], 5)             // e_shstrndx (index of .shstrtab)
+	le.PutUint64(buf[32:], phdrOff)        // e_phoff
+	le.PutUint64(buf[40:], shdrOff)        // e_shoff
+	le.PutUint16(buf[52:], elf64HdrSize)   // e_ehsize
+	le.PutUint16(buf[54:], elf64PhdrSize)  // e_phentsize
+	le.PutUint16(buf[56:], 1)              // e_phnum
+	le.PutUint16(buf[58:], elf64ShdrSize)  // e_shentsize
+	le.PutUint16(buf[60:], numSections)    // e_shnum
+	le.PutUint16(buf[62:], 5)              // e_shstrndx
+
+	// --- Program Header (PT_LOAD for .text) ---
+	ph := buf[phdrOff:]
+	le.PutUint32(ph[0:], elfPTLoad)           // p_type
+	le.PutUint32(ph[4:], elfPFR|elfPFX)       // p_flags
+	le.PutUint64(ph[8:], 0)                   // p_offset (not in this file)
+	le.PutUint64(ph[16:], uint64(textAddr))   // p_vaddr
+	le.PutUint64(ph[24:], uint64(textAddr))   // p_paddr
+	le.PutUint64(ph[32:], 0)                  // p_filesz (code not in file)
+	le.PutUint64(ph[40:], textSize)           // p_memsz
+	le.PutUint64(ph[48:], 0x1000)             // p_align
 
 	// --- Section data ---
 	copy(buf[debugLineOff:], debugLine)
@@ -395,7 +414,7 @@ func buildDebugLine(textAddr uintptr, execOffsets []uintptr, wasmOffsets []uint6
 	prog = appendULEB128(prog, 1)
 	prog = appendExtendedOp(prog, 2, textAddr) // DW_LNE_set_address
 
-	currentLine := int64(0)
+	currentLine := int64(1)
 	currentFile := uint64(1)
 	currentAddr := textAddr
 

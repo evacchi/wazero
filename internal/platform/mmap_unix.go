@@ -12,3 +12,9 @@ func munmapCodeSegment(code []byte) error {
 func MprotectCodeSegment(b []byte) (err error) {
 	return unix.Mprotect(b, unix.PROT_READ|unix.PROT_EXEC)
 }
+
+// MprotectCodeSegmentDebug is like MprotectCodeSegment but keeps
+// write permission so that debuggers can set software breakpoints.
+func MprotectCodeSegmentDebug(b []byte) (err error) {
+	return unix.Mprotect(b, unix.PROT_READ|unix.PROT_WRITE|unix.PROT_EXEC)
+}
