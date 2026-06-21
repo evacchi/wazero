@@ -398,6 +398,12 @@ func (e *engine) compileModule(ctx context.Context, module *wasm.Module, listene
 		dumpSourceMap(module, cm, importedFns)
 	}
 
+	relocator.resolveRelocations(machine, executable, importedFns)
+
+	if err = platform.MprotectCodeSegment(executable); err != nil {
+		return nil, err
+	}
+
 	if wazevoapi.JITDebugEnabled {
 		base := uintptr(unsafe.Pointer(&executable[0]))
 		totalSize := len(executable)
@@ -432,12 +438,6 @@ func (e *engine) compileModule(ctx context.Context, module *wasm.Module, listene
 			}
 		}
 		wazevoapi.RegisterJITCode(base, totalSize, cm.sourceMap.executableOffsets, cm.sourceMap.wasmBinaryOffsets, resolver)
-	}
-
-	relocator.resolveRelocations(machine, executable, importedFns)
-
-	if err = platform.MprotectCodeSegment(executable); err != nil {
-		return nil, err
 	}
 	cm.sharedFunctions = e.sharedFunctions
 	e.setFinalizer(cm.executables, executablesFinalizer)

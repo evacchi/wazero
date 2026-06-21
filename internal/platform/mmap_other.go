@@ -1,6 +1,6 @@
 // Separated from linux which has support for huge pages.
 
-//go:build unix && !linux
+//go:build unix && !linux && !(darwin && arm64 && jitdebug)
 
 package platform
 
