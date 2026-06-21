@@ -437,7 +437,22 @@ func (e *engine) compileModule(ctx context.Context, module *wasm.Module, listene
 				return file, line
 			}
 		}
-		wazevoapi.RegisterJITCode(base, totalSize, cm.sourceMap.executableOffsets, cm.sourceMap.wasmBinaryOffsets, resolver)
+		functions := make([]wazevoapi.JITFunction, localFns)
+		for i := range localFns {
+			fidx := wasm.Index(i + importedFns)
+			def := module.FunctionDefinition(fidx)
+			name := def.DebugName()
+			if len(def.ExportNames()) > 0 {
+				name = def.ExportNames()[0]
+			}
+			offset := cm.functionOffsets[i]
+			size := totalSize - offset
+			if i+1 < localFns {
+				size = cm.functionOffsets[i+1] - offset
+			}
+			functions[i] = wazevoapi.JITFunction{Name: name, Offset: offset, Size: size}
+		}
+		wazevoapi.RegisterJITCode(base, totalSize, cm.sourceMap.executableOffsets, cm.sourceMap.wasmBinaryOffsets, resolver, functions)
 	}
 	cm.sharedFunctions = e.sharedFunctions
 	e.setFinalizer(cm.executables, executablesFinalizer)

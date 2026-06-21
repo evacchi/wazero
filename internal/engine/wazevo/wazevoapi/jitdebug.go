@@ -61,17 +61,24 @@ const (
 // Returns empty file if no source info is available for that offset.
 type SourceLineResolver func(wasmOffset uint64) (file string, line int)
 
+// JITFunction describes a compiled wasm function for the symbol table.
+type JITFunction struct {
+	Name   string
+	Offset int // offset within the text segment
+	Size   int
+}
+
 // RegisterJITCode constructs a minimal ELF with DWARF .debug_line info
 // and registers it with the debugger via the GDB JIT interface.
 // If resolver is non-nil, it maps wasm offsets to real source file/line.
 // Otherwise, wasm bytecode offsets are used as line numbers with file "<jit>".
-func RegisterJITCode(textAddr uintptr, textSize int, sourceOffsets []uintptr, wasmOffsets []uint64, resolver SourceLineResolver) {
+func RegisterJITCode(textAddr uintptr, textSize int, sourceOffsets []uintptr, wasmOffsets []uint64, resolver SourceLineResolver, functions []JITFunction) {
 	if !JITDebugEnabled {
 		return
 	}
 
 	debugLine := buildDebugLine(textAddr, sourceOffsets, wasmOffsets, resolver)
-	elfBytes := buildELF64(textAddr, uint64(textSize), debugLine)
+	elfBytes := buildELF64(textAddr, uint64(textSize), debugLine, functions)
 
 	// Keep a reference so GC doesn't collect it.
 	jitELFBuffers = append(jitELFBuffers, elfBytes)
@@ -117,6 +124,7 @@ const (
 	elfEMX86_64   = 62
 	elfSHTNull     = 0
 	elfSHTProgbits = 1
+	elfSHTSymtab   = 2
 	elfSHTStrtab   = 3
 	elfSHTNobits   = 8
 	elfSHFAlloc    = 0x2
@@ -128,6 +136,7 @@ const (
 	elf64HdrSize  = 64
 	elf64PhdrSize = 56
 	elf64ShdrSize = 64
+	elf64SymSize  = 24
 )
 
 func elfMachine() uint16 {
@@ -139,10 +148,11 @@ func elfMachine() uint16 {
 	}
 }
 
-func buildELF64(textAddr uintptr, textSize uint64, debugLine []byte) []byte {
+func buildELF64(textAddr uintptr, textSize uint64, debugLine []byte, functions []JITFunction) []byte {
 	shstrtab := buildShstrtab()
 	debugAbbrev := buildDebugAbbrev()
 	debugInfo := buildDebugInfo(textAddr, textSize)
+	symtab, strtab := buildSymtab(textAddr, functions)
 
 	// Layout:
 	//   [ELF header]           64 bytes
@@ -150,19 +160,26 @@ func buildELF64(textAddr uintptr, textSize uint64, debugLine []byte) []byte {
 	//   [.debug_line data]
 	//   [.debug_abbrev data]
 	//   [.debug_info data]
+	//   [.symtab data]
+	//   [.strtab data]
 	//   [.shstrtab data]
-	//   [section headers]      6 * 64 bytes
+	//   [section headers]      8 * 64 bytes
 
 	phdrOff := uint64(elf64HdrSize)
 	debugLineOff := phdrOff + elf64PhdrSize
 	debugAbbrevOff := debugLineOff + uint64(len(debugLine))
 	debugInfoOff := debugAbbrevOff + uint64(len(debugAbbrev))
-	shstrtabOff := debugInfoOff + uint64(len(debugInfo))
+	symtabOff := debugInfoOff + uint64(len(debugInfo))
+	if symtabOff%8 != 0 {
+		symtabOff = (symtabOff + 7) &^ 7
+	}
+	strtabOff := symtabOff + uint64(len(symtab))
+	shstrtabOff := strtabOff + uint64(len(strtab))
 	shdrOff := shstrtabOff + uint64(len(shstrtab))
 	if shdrOff%8 != 0 {
 		shdrOff = (shdrOff + 7) &^ 7
 	}
-	numSections := uint16(6)
+	numSections := uint16(8) // null + .text + .debug_line + .debug_abbrev + .debug_info + .symtab + .strtab + .shstrtab
 	totalSize := shdrOff + uint64(numSections)*elf64ShdrSize
 
 	buf := make([]byte, totalSize)
@@ -184,7 +201,7 @@ func buildELF64(textAddr uintptr, textSize uint64, debugLine []byte) []byte {
 	le.PutUint16(buf[56:], 1)              // e_phnum
 	le.PutUint16(buf[58:], elf64ShdrSize)  // e_shentsize
 	le.PutUint16(buf[60:], numSections)    // e_shnum
-	le.PutUint16(buf[62:], 5)              // e_shstrndx
+	le.PutUint16(buf[62:], 7)              // e_shstrndx (index of .shstrtab)
 
 	// --- Program Header (PT_LOAD for .text) ---
 	ph := buf[phdrOff:]
@@ -201,6 +218,8 @@ func buildELF64(textAddr uintptr, textSize uint64, debugLine []byte) []byte {
 	copy(buf[debugLineOff:], debugLine)
 	copy(buf[debugAbbrevOff:], debugAbbrev)
 	copy(buf[debugInfoOff:], debugInfo)
+	copy(buf[symtabOff:], symtab)
+	copy(buf[strtabOff:], strtab)
 	copy(buf[shstrtabOff:], shstrtab)
 
 	// --- Section headers ---
@@ -240,8 +259,27 @@ func buildELF64(textAddr uintptr, textSize uint64, debugLine []byte) []byte {
 	le.PutUint64(sh[s+32:], uint64(len(debugInfo)))
 	le.PutUint64(sh[s+48:], 1)
 
-	// [5] .shstrtab
+	// [5] .symtab
 	s = 5 * elf64ShdrSize
+	le.PutUint32(sh[s:], shstrtabIndex(".symtab"))
+	le.PutUint32(sh[s+4:], elfSHTSymtab)
+	le.PutUint64(sh[s+24:], symtabOff)
+	le.PutUint64(sh[s+32:], uint64(len(symtab)))
+	le.PutUint32(sh[s+40:], 6)            // sh_link = .strtab section index
+	le.PutUint32(sh[s+44:], 1)            // sh_info = index of first non-local symbol
+	le.PutUint64(sh[s+48:], 8)            // sh_addralign
+	le.PutUint64(sh[s+56:], elf64SymSize) // sh_entsize
+
+	// [6] .strtab
+	s = 6 * elf64ShdrSize
+	le.PutUint32(sh[s:], shstrtabIndex(".strtab"))
+	le.PutUint32(sh[s+4:], elfSHTStrtab)
+	le.PutUint64(sh[s+24:], strtabOff)
+	le.PutUint64(sh[s+32:], uint64(len(strtab)))
+	le.PutUint64(sh[s+48:], 1)
+
+	// [7] .shstrtab
+	s = 7 * elf64ShdrSize
 	le.PutUint32(sh[s:], shstrtabIndex(".shstrtab"))
 	le.PutUint32(sh[s+4:], elfSHTStrtab)
 	le.PutUint64(sh[s+24:], shstrtabOff)
@@ -251,15 +289,14 @@ func buildELF64(textAddr uintptr, textSize uint64, debugLine []byte) []byte {
 	return buf
 }
 
-// shstrtab layout: \0 .text\0 .debug_line\0 .debug_abbrev\0 .debug_info\0 .shstrtab\0
-var shstrtabData = "\x00.text\x00.debug_line\x00.debug_abbrev\x00.debug_info\x00.shstrtab\x00"
+// shstrtab layout: \0 .text\0 .debug_line\0 .debug_abbrev\0 .debug_info\0 .symtab\0 .strtab\0 .shstrtab\0
+var shstrtabData = "\x00.text\x00.debug_line\x00.debug_abbrev\x00.debug_info\x00.symtab\x00.strtab\x00.shstrtab\x00"
 
 func buildShstrtab() []byte {
 	return []byte(shstrtabData)
 }
 
 func shstrtabIndex(name string) uint32 {
-	// Indices into shstrtabData.
 	switch name {
 	case ".text":
 		return 1
@@ -269,11 +306,47 @@ func shstrtabIndex(name string) uint32 {
 		return 19
 	case ".debug_info":
 		return 33
-	case ".shstrtab":
+	case ".symtab":
 		return 45
+	case ".strtab":
+		return 53
+	case ".shstrtab":
+		return 61
 	default:
 		panic("unknown section name: " + name)
 	}
+}
+
+// buildSymtab builds .symtab and .strtab for function symbols.
+// Each function gets an STT_FUNC symbol so the debugger can
+// identify function boundaries for step-into.
+func buildSymtab(textAddr uintptr, functions []JITFunction) (symtab, strtab []byte) {
+	le := binary.LittleEndian
+
+	// .strtab: null byte followed by null-terminated function names.
+	strtab = []byte{0}
+	nameOffsets := make([]uint32, len(functions))
+	for i, f := range functions {
+		nameOffsets[i] = uint32(len(strtab))
+		strtab = append(strtab, []byte(f.Name)...)
+		strtab = append(strtab, 0)
+	}
+
+	// .symtab: null entry + one STT_FUNC per function.
+	const sttFunc = 2
+	const stbGlobal = 1
+	symtab = make([]byte, (1+len(functions))*elf64SymSize)
+	for i, f := range functions {
+		off := (i + 1) * elf64SymSize // skip null entry
+		le.PutUint32(symtab[off:], nameOffsets[i])                          // st_name
+		symtab[off+4] = (stbGlobal << 4) | sttFunc                         // st_info
+		symtab[off+5] = 0                                                   // st_other
+		le.PutUint16(symtab[off+6:], 1)                                    // st_shndx = .text
+		le.PutUint64(symtab[off+8:], uint64(textAddr)+uint64(f.Offset))    // st_value
+		le.PutUint64(symtab[off+16:], uint64(f.Size))                      // st_size
+	}
+
+	return
 }
 
 // --- DWARF .debug_abbrev ---
