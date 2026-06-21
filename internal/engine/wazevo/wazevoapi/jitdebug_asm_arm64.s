@@ -9,6 +9,12 @@
 TEXT __jit_debug_register_code(SB), NOSPLIT|NOFRAME, $0-0
 	RET
 
-// Go-callable trampoline that jumps to the C-named symbol above.
+// Go-callable trampoline.
 TEXT ·jitDebugRegisterCode(SB), NOSPLIT|NOFRAME, $0-0
 	JMP __jit_debug_register_code(SB)
+
+// jitDebugBreak traps after JIT registration. Under a debugger,
+// skip with: register write pc `$pc+4`
+TEXT ·jitDebugBreak(SB), NOSPLIT|NOFRAME, $0-0
+	BRK $0xF000
+	RET

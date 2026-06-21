@@ -3,3 +3,4 @@
 package wazevoapi
 
 func jitDebugRegisterCode() {}
+func jitDebugBreak()        {}

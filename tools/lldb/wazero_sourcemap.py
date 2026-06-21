@@ -152,19 +152,34 @@ def _get_pc(debugger):
     return frame.GetPC()
 
 
-def _cmd_offset(debugger, result):
-    if _source_map is None:
-        result.AppendMessage("No source map loaded. Use: wasm load <path>")
-        return
+def _get_wasm_offset(debugger, pc):
+    """Get wasm offset for a PC. Tries source map first, then lldb's JIT debug info."""
+    if _source_map is not None:
+        wasm_offset, func_name = _source_map.lookup(pc)
+        if wasm_offset is not None:
+            return wasm_offset, func_name
 
+    # Fall back to lldb's line entry (from jitdebug ELF).
+    # When the file is "<jit>", the line number IS the wasm offset.
+    # When it's a real source file, it's a source line (not a wasm offset).
+    target = debugger.GetSelectedTarget()
+    addr = target.ResolveLoadAddress(pc)
+    li = addr.GetLineEntry()
+    if li.IsValid():
+        fname = str(li.GetFileSpec())
+        return li.GetLine(), fname
+    return None, None
+
+
+def _cmd_offset(debugger, result):
     pc = _get_pc(debugger)
     if pc is None:
         result.AppendMessage("No frame selected")
         return
 
-    wasm_offset, func_name = _source_map.lookup(pc)
+    wasm_offset, func_name = _get_wasm_offset(debugger, pc)
     if wasm_offset is None:
-        result.AppendMessage("PC 0x%x not found in source map" % pc)
+        result.AppendMessage("PC 0x%x not found in source map or JIT debug info" % pc)
         return
 
     msg = "PC 0x%x -> wasm offset %d (0x%x)" % (pc, wasm_offset, wasm_offset)
@@ -174,10 +189,6 @@ def _cmd_offset(debugger, result):
 
 
 def _cmd_wat(debugger, args, result):
-    if _source_map is None:
-        result.AppendMessage("No source map loaded. Use: wasm load <path>")
-        return
-
     if not args:
         result.AppendMessage("Usage: wasm wat <path-to-file.wasm>")
         return
@@ -189,9 +200,17 @@ def _cmd_wat(debugger, args, result):
         result.AppendMessage("No frame selected")
         return
 
-    wasm_offset, func_name = _source_map.lookup(pc)
+    wasm_offset, func_name = _get_wasm_offset(debugger, pc)
     if wasm_offset is None:
-        result.AppendMessage("PC 0x%x not found in source map" % pc)
+        result.AppendMessage("PC 0x%x not found in source map or JIT debug info" % pc)
+        return
+
+    # If the JIT debug info has real source (not <jit>), the "offset" is
+    # a source line, not a wasm offset. WAT lookup won't work.
+    if func_name and "<jit>" not in func_name and "/" in func_name:
+        result.AppendMessage("PC 0x%x -> %s:%d (source-level debug info)" % (pc, func_name, wasm_offset))
+        result.AppendMessage("WAT lookup requires wasm offsets. Rebuild without DWARF in the wasm,")
+        result.AppendMessage("or use 'wasm load' with a source map to get wasm offsets.")
         return
 
     msg = "PC 0x%x -> wasm offset %d (0x%x)" % (pc, wasm_offset, wasm_offset)

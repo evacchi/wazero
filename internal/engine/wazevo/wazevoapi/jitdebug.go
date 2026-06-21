@@ -93,8 +93,13 @@ func RegisterJITCode(textAddr uintptr, textSize int, sourceOffsets []uintptr, wa
 	jitDebugDescriptor.actionFlag = jitRegisterAction
 	jitDebugDescriptor.relevantEntry = entry
 
-	// Signal the debugger.
+	// Signal the debugger. After this call returns, the debugger has
+	// processed the JIT ELF. Then jitDebugBreak traps (BRK/INT3) so the
+	// user can set source breakpoints before execution continues.
+	// Under a debugger, skip the BRK with: register write pc `$pc+4`
+	// Note: will crash if not run under a debugger.
 	jitDebugRegisterCode()
+	jitDebugBreak()
 
 	// Ensure the ELF buffer and entry stay alive past the call.
 	runtime.KeepAlive(elfBytes)
