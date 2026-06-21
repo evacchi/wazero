@@ -408,6 +408,9 @@ func (e *engine) compileModule(ctx context.Context, module *wasm.Module, listene
 		base := uintptr(unsafe.Pointer(&executable[0]))
 		totalSize := len(executable)
 		var resolver wazevoapi.SourceLineResolver
+		if disasmResolver, _ := wazevoapi.DisassembleWasm(wazevoapi.WasmFilePath); disasmResolver != nil {
+			resolver = disasmResolver
+		}
 		if dw := module.DWARFLines; dw != nil {
 			resolver = func(wasmOffset uint64) (string, int) {
 				lines := dw.Line(wasmOffset)

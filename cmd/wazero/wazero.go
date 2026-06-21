@@ -339,6 +339,8 @@ func doRun(args []string, stdOut io.Writer, stdErr logging.Writer) int {
 		conf = conf.WithEnv(env[i], env[i+1])
 	}
 
+	setJITDebugWasmPath(wasmPath)
+
 	guest, err := rt.CompileModule(compilationCtx, wasm)
 	if err != nil {
 		fmt.Fprintf(stdErr, "error compiling wasm binary: %v\n", err)

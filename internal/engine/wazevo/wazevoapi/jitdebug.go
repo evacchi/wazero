@@ -1,8 +1,13 @@
 package wazevoapi
 
 import (
+	"bufio"
 	"encoding/binary"
+	"os"
+	"os/exec"
 	"runtime"
+	"strconv"
+	"strings"
 	"unsafe"
 )
 
@@ -66,6 +71,139 @@ type JITFunction struct {
 	Name   string
 	Offset int // offset within the text segment
 	Size   int
+}
+
+// WasmFilePath is set by the CLI to enable WAT disassembly view
+// for wasm modules without source DWARF.
+var WasmFilePath string
+
+// WasmDisassembler is the external tool used to disassemble wasm to text.
+// Tried in order: wasm-objdump (WABT), wasm-dis (Binaryen).
+var WasmDisassembler string
+
+// DisassembleWasm runs an external disassembler on the wasm file and returns
+// a resolver that maps wasm offsets to lines in the disassembly output file.
+// Returns nil if no disassembler is found or the file path is empty.
+// DisassembleWasm runs an external disassembler on the wasm file and returns
+// a resolver that maps wasm code-section offsets to lines in the disassembly file.
+// codeSectionOffset is the file offset where the code section begins.
+// DisassembleWasm runs an external disassembler on the wasm file and returns
+// a resolver that maps wasm code-section offsets to lines in the disassembly file.
+func DisassembleWasm(wasmPath string) (resolver SourceLineResolver, disasmFile string) {
+	if wasmPath == "" {
+		return nil, ""
+	}
+
+	tool, args := findDisassembler(wasmPath)
+	if tool == "" {
+		return nil, ""
+	}
+
+	outPath := "/tmp/wazero-jit.wat"
+	cmd := exec.Command(tool, args...)
+	out, err := cmd.Output()
+	if err != nil {
+		return nil, ""
+	}
+	if err := os.WriteFile(outPath, out, 0644); err != nil {
+		return nil, ""
+	}
+
+	codeSectionOffset := getCodeSectionOffset(wasmPath)
+
+	offsetToLine := parseDisassemblyOffsets(out, codeSectionOffset)
+	if len(offsetToLine) == 0 {
+		return nil, ""
+	}
+
+	resolver = func(wasmOffset uint64) (string, int) {
+		if line, ok := offsetToLine[wasmOffset]; ok {
+			return outPath, line
+		}
+		bestLine := 0
+		bestOff := uint64(0)
+		for off, line := range offsetToLine {
+			if off <= wasmOffset && off >= bestOff {
+				bestOff = off
+				bestLine = line
+			}
+		}
+		if bestLine > 0 {
+			return outPath, bestLine
+		}
+		return "", 0
+	}
+	return resolver, outPath
+}
+
+// getCodeSectionOffset runs wasm-objdump -h and parses the code section start.
+func getCodeSectionOffset(wasmPath string) uint64 {
+	objdump, err := exec.LookPath("wasm-objdump")
+	if err != nil {
+		return 0
+	}
+	out, err := exec.Command(objdump, "-h", wasmPath).Output()
+	if err != nil {
+		return 0
+	}
+	// Parse: "     Code start=0x0000016f end=..."
+	scanner := bufio.NewScanner(strings.NewReader(string(out)))
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if !strings.HasPrefix(line, "Code ") {
+			continue
+		}
+		if idx := strings.Index(line, "start=0x"); idx >= 0 {
+			hexStr := line[idx+len("start=0x"):]
+			if end := strings.IndexByte(hexStr, ' '); end > 0 {
+				hexStr = hexStr[:end]
+			}
+			off, err := strconv.ParseUint(hexStr, 16, 64)
+			if err == nil {
+				return off
+			}
+		}
+	}
+	return 0
+}
+
+func findDisassembler(wasmPath string) (string, []string) {
+	if WasmDisassembler != "" {
+		return WasmDisassembler, []string{"-d", wasmPath}
+	}
+	if path, err := exec.LookPath("wasm-objdump"); err == nil {
+		return path, []string{"-d", wasmPath}
+	}
+	if path, err := exec.LookPath("wasm2wat"); err == nil {
+		return path, []string{"--enable-all", wasmPath}
+	}
+	return "", nil
+}
+
+// parseDisassemblyOffsets parses wasm-objdump -d output to extract
+// code-section-relative offset → line number mappings.
+// Lines look like: " 00214a: 10 09  | call 9 <main.a>"
+func parseDisassemblyOffsets(data []byte, codeSectionOffset uint64) map[uint64]int {
+	offsets := make(map[uint64]int)
+	scanner := bufio.NewScanner(strings.NewReader(string(data)))
+	lineNum := 0
+	for scanner.Scan() {
+		lineNum++
+		line := strings.TrimSpace(scanner.Text())
+		idx := strings.IndexByte(line, ':')
+		if idx < 2 || idx > 8 {
+			continue
+		}
+		hexStr := line[:idx]
+		absOff, err := strconv.ParseUint(hexStr, 16, 64)
+		if err != nil {
+			continue
+		}
+		if absOff >= codeSectionOffset {
+			offsets[absOff-codeSectionOffset] = lineNum
+		}
+	}
+	return offsets
 }
 
 // RegisterJITCode constructs a minimal ELF with DWARF .debug_line info
