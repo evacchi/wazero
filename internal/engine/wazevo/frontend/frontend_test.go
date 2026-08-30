@@ -2660,6 +2660,7 @@ func TestCompiler_declareSignatures(t *testing.T) {
 			{ID: 14, Params: []ssa.Type{ssa.TypeI64, ssa.TypeI64}},
 			{ID: 15, Params: []ssa.Type{ssa.TypeI64}},
 			{ID: 16, Params: []ssa.Type{ssa.TypeI64, ssa.TypeI64, ssa.TypeI64}},
+			{ID: 17, Params: []ssa.Type{ssa.TypeI64, ssa.TypeI64, ssa.TypeI64}},
 		}
 
 		require.Equal(t, len(expected), len(declaredSigs))
@@ -2705,6 +2706,7 @@ func TestCompiler_declareSignatures(t *testing.T) {
 			{ID: 22, Params: []ssa.Type{ssa.TypeI64, ssa.TypeI64}},
 			{ID: 23, Params: []ssa.Type{ssa.TypeI64}},
 			{ID: 24, Params: []ssa.Type{ssa.TypeI64, ssa.TypeI64, ssa.TypeI64}},
+			{ID: 25, Params: []ssa.Type{ssa.TypeI64, ssa.TypeI64, ssa.TypeI64}},
 		}
 		require.Equal(t, len(expected), len(declaredSigs))
 		for i := 0; i < len(declaredSigs); i++ {
