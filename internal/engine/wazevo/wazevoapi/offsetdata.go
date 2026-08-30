@@ -74,6 +74,14 @@ const (
 	// where locals are mirrored inside try_table bodies, so that handler blocks
 	// can read throw-time local values after stack-clone restore.
 	ExecutionContextOffsetLocalsSaveAreaPtr Offset = 1240
+	// ExecutionContextOffsetShadowRefsTop is the index just past the current
+	// frame's shadow slots in callEngine.refs. A function's prologue adds its
+	// slot count and the epilogue subtracts it, so each frame owns a distinct
+	// range and recursion cannot clobber an outer frame's roots.
+	ExecutionContextOffsetShadowRefsTop Offset = 1248
+	// ExecutionContextOffsetShadowStoreTrampolineAddress is the address of the
+	// shadow-store trampoline: (execCtx, slot, ptr) -> ().
+	ExecutionContextOffsetShadowStoreTrampolineAddress Offset = 1256
 )
 
 // ModuleContextOffsetData allows the compilers to get the information about offsets to the fields of wazevo.moduleContextOpaque,
