@@ -53,4 +53,23 @@
 
   (func (export "tail_call_stack_args") (result i32)
     (call $tail_call))
+
+  ;; few takes its params in registers, so a return_call to it is a real tail
+  ;; call that frees the caller's frame.
+  (func $few (param i64) (result i32)
+    (i32.const 1))
+
+  ;; tail_call_regs reserves a slot for its exnref local, then tail-calls few.
+  ;; Its frame is gone by the time few returns, so it must release its slots
+  ;; before the jump.
+  (func $tail_call_regs (result i32)
+    (local $e exnref)
+    (block $h (result exnref)
+      (try_table (catch_all_ref $h) (throw $b))
+      (unreachable))
+    (local.set $e)
+    (return_call $few (i64.const 0)))
+
+  (func (export "tail_call_regs") (result i32)
+    (call $tail_call_regs))
 )

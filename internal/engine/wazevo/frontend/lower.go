@@ -4130,9 +4130,6 @@ func (c *Compiler) lowerTailCallReturnCall(fnIndex uint32) {
 	builder := c.ssaBuilder
 	state := c.state()
 
-	// A tail call frees this frame, so release its shadow slots first.
-	c.emitShadowFrameLeave()
-
 	call := builder.AllocateInstruction()
 	if isIndirect {
 		call.AsTailCallReturnCallIndirect(ssa.Value(funcRefOrPtrValue), sig, args)
@@ -4162,9 +4159,6 @@ func (c *Compiler) lowerTailCallReturnCallIndirect(typeIndex, tableIndex uint32)
 	builder := c.ssaBuilder
 	state := c.state()
 	executablePtr, typ, args := c.prepareCallIndirect(typeIndex, tableIndex)
-
-	// A tail call frees this frame, so release its shadow slots first.
-	c.emitShadowFrameLeave()
 
 	call := builder.AllocateInstruction()
 	call.AsTailCallReturnCallIndirect(executablePtr, c.signatures[typ], args)
@@ -4251,9 +4245,6 @@ func (c *Compiler) lowerTailCallReturnCallRef(typeIndex uint32) {
 	builder := c.ssaBuilder
 	state := c.state()
 	executablePtr, typ, args := c.prepareCallRef(typeIndex)
-
-	// A tail call frees this frame, so release its shadow slots first.
-	c.emitShadowFrameLeave()
 
 	call := builder.AllocateInstruction()
 	call.AsTailCallReturnCallIndirect(executablePtr, c.signatures[typ], args)

@@ -318,6 +318,7 @@ func (m *machine) insertReturns(si *ssa.Instruction, calleeABI *backend.Function
 
 func (m *machine) lowerTailCall(si *ssa.Instruction) {
 	isDirectCall := si.Opcode() == ssa.OpcodeTailCallReturnCall
+	m.lowerTailCallShadowLeave(si, isDirectCall)
 	indirectCalleePtr, directCallee, calleeABI, stackSlotSize := m.prepareCall(si, isDirectCall)
 
 	// We currently support tail calls only when the args are passed via registers
@@ -348,6 +349,28 @@ func (m *machine) lowerTailCall(si *ssa.Instruction) {
 
 	// If this is a proper tail call, returns will be cleared in the postRegAlloc phase.
 	m.insertReturns(si, calleeABI, stackSlotSize)
+}
+
+// lowerTailCallShadowLeave releases this frame's shadow slots before a tail
+// call that frees the frame, i.e. one whose args all fit in registers. A tail
+// call with stack args falls back to a plain call, so the frame survives it and
+// the Return that follows releases the slots instead (see
+// internal/engine/RATIONALE.md). Releasing here too would release them twice.
+func (m *machine) lowerTailCallShadowLeave(si *ssa.Instruction, isDirectCall bool) {
+	var sigID ssa.SignatureID
+	var args []ssa.Value
+	if isDirectCall {
+		_, sigID, args = si.CallData()
+	} else {
+		_, sigID, args, _ = si.CallIndirectData()
+	}
+	calleeABI := m.compiler.GetFunctionABI(m.compiler.SSABuilder().ResolveSignature(sigID))
+	if calleeABI.AlignedArgResultStackSlotSize() != 0 {
+		return
+	}
+
+	execCtx := m.compiler.VRegOf(args[0]) // The execution context is always the first argument.
+	m.lowerShadowFrame(execCtx, aluOpSub)
 }
 
 func (m *machine) insertAddOrSubStackPointer(rd regalloc.VReg, diff int64, add bool) {

@@ -48,6 +48,7 @@ func TestShadowFrameBalance(t *testing.T) {
 		{name: "unwind_once", expected: 1},
 		{name: "unwind_many", expected: 100},
 		{name: "tail_call_stack_args", expected: 1},
+		{name: "tail_call_regs", expected: 1},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			f := mod.ExportedFunction(tc.name)

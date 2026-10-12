@@ -2574,9 +2574,9 @@ blk0: (exec_ctx:i64, module_ctx:i64, v2:i64)
 			name: testcases.ExnrefReturnCall.Name, m: testcases.ExnrefReturnCall.Module,
 			targetIndex: 1,
 			features:    api.CoreFeaturesV2 | experimental.CoreFeaturesExceptionHandling | experimental.CoreFeaturesTailCall,
-			// ShadowFrameLeave precedes ReturnCall, since the tail call frees the
-			// frame. The Return after it is the fallback the backend drops when
-			// the tail call needs no stack arguments.
+			// No ShadowFrameLeave precedes ReturnCall: the backend releases the
+			// frame only for a real tail call. The Leave and Return after it are
+			// the plain-call fallback, dropped when no stack arguments are needed.
 			exp: `
 signatures:
 	sig0: i64i64i64_i64
@@ -2587,7 +2587,6 @@ blk0: (exec_ctx:i64, module_ctx:i64, v2:i64)
 	v3:i64 = Load exec_ctx, 0x4e8
 	v4:i64 = Iconst_64 0x0
 	CallIndirect v3:sig13, exec_ctx, v4, v2
-	ShadowFrameLeave exec_ctx
 	v5:i64 = ReturnCall f0:sig0, exec_ctx, module_ctx, v2
 	ShadowFrameLeave exec_ctx
 	Return v5

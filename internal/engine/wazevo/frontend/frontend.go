@@ -735,7 +735,8 @@ func (c *Compiler) rootLocal(index uint32, v ssa.Value) {
 }
 
 // emitShadowFrameLeave releases this frame's shadow slots. Emitted before every
-// return and tail call, since a tail call frees the frame too.
+// return. A tail call is released by the backend instead, since only it knows
+// whether the call frees the frame or falls back to a plain call.
 func (c *Compiler) emitShadowFrameLeave() {
 	if !c.needsShadowFrame {
 		return
