@@ -2548,6 +2548,51 @@ blk9: () <-- (blk4)
 	Jump blk5
 `,
 		},
+		{
+			name: testcases.ExnrefLocal.Name, m: testcases.ExnrefLocal.Module,
+			features: api.CoreFeaturesV2 | experimental.CoreFeaturesExceptionHandling,
+			// The param and the local each own a slot (0 and 1), and are rooted
+			// on entry and at local.set respectively.
+			exp: `
+signatures:
+	sig13: i64i64i64_v
+
+blk0: (exec_ctx:i64, module_ctx:i64, v2:i64)
+	v3:i64 = Iconst_64 0x0
+	ShadowFrameEnter exec_ctx
+	v4:i64 = Load exec_ctx, 0x4e8
+	v5:i64 = Iconst_64 0x0
+	CallIndirect v4:sig13, exec_ctx, v5, v2
+	v6:i64 = Load exec_ctx, 0x4e8
+	v7:i64 = Iconst_64 0x1
+	CallIndirect v6:sig13, exec_ctx, v7, v2
+	ShadowFrameLeave exec_ctx
+	Jump blk_ret, v2
+`,
+		},
+		{
+			name: testcases.ExnrefReturnCall.Name, m: testcases.ExnrefReturnCall.Module,
+			targetIndex: 1,
+			features:    api.CoreFeaturesV2 | experimental.CoreFeaturesExceptionHandling | experimental.CoreFeaturesTailCall,
+			// ShadowFrameLeave precedes ReturnCall, since the tail call frees the
+			// frame. The Return after it is the fallback the backend drops when
+			// the tail call needs no stack arguments.
+			exp: `
+signatures:
+	sig0: i64i64i64_i64
+	sig13: i64i64i64_v
+
+blk0: (exec_ctx:i64, module_ctx:i64, v2:i64)
+	ShadowFrameEnter exec_ctx
+	v3:i64 = Load exec_ctx, 0x4e8
+	v4:i64 = Iconst_64 0x0
+	CallIndirect v3:sig13, exec_ctx, v4, v2
+	ShadowFrameLeave exec_ctx
+	v5:i64 = ReturnCall f0:sig0, exec_ctx, module_ctx, v2
+	ShadowFrameLeave exec_ctx
+	Return v5
+`,
+		},
 	} {
 
 		tc := tc

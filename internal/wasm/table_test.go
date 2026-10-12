@@ -4,6 +4,7 @@ import (
 	"context"
 	"math"
 	"testing"
+	"unsafe"
 
 	"github.com/tetratelabs/wazero/api"
 	"github.com/tetratelabs/wazero/internal/leb128"
@@ -1136,4 +1137,75 @@ func TestTableInstance_Grow(t *testing.T) {
 			require.Equal(t, tc.exp, actual)
 		})
 	}
+}
+
+func TestTableInstance_Refs(t *testing.T) {
+	// Any distinct Go pointers do: the side table never dereferences them.
+	exnA, exnB := &Exception{}, &Exception{}
+	pA, pB := unsafe.Pointer(exnA), unsafe.Pointer(exnB)
+
+	t.Run("nil store allocates nothing", func(t *testing.T) {
+		tbl := &TableInstance{References: make([]Reference, 4)}
+		tbl.SetRef(1, nil)
+		tbl.FillRefs(0, 4, nil)
+		require.Nil(t, tbl.Refs)
+		require.Nil(t, tbl.RefAt(1))
+	})
+	t.Run("SetRef allocates on first non-nil store", func(t *testing.T) {
+		tbl := &TableInstance{References: make([]Reference, 4)}
+		tbl.SetRef(2, pA)
+		require.Equal(t, 4, len(tbl.Refs))
+		require.Equal(t, pA, tbl.RefAt(2))
+		require.Nil(t, tbl.RefAt(1))
+	})
+	t.Run("FillRefs", func(t *testing.T) {
+		tbl := &TableInstance{References: make([]Reference, 4)}
+		tbl.FillRefs(1, 2, pA)
+		require.Equal(t, []unsafe.Pointer{nil, pA, pA, nil}, tbl.Refs)
+		tbl.FillRefs(2, 2, nil)
+		require.Equal(t, []unsafe.Pointer{nil, pA, nil, nil}, tbl.Refs)
+	})
+	t.Run("Grow extends an allocated side table", func(t *testing.T) {
+		tbl := &TableInstance{References: make([]Reference, 2)}
+		tbl.SetRef(0, pA)
+		require.Equal(t, uint32(2), tbl.Grow(3, 0))
+		require.Equal(t, 5, len(tbl.Refs))
+		require.Equal(t, pA, tbl.RefAt(0))
+		require.Nil(t, tbl.RefAt(4))
+	})
+	t.Run("Grow leaves an absent side table absent", func(t *testing.T) {
+		tbl := &TableInstance{References: make([]Reference, 2)}
+		require.Equal(t, uint32(2), tbl.Grow(3, 0))
+		require.Nil(t, tbl.Refs)
+	})
+	t.Run("CopyRefs from a table with refs", func(t *testing.T) {
+		src := &TableInstance{References: make([]Reference, 3)}
+		src.SetRef(0, pA)
+		src.SetRef(1, pB)
+		dst := &TableInstance{References: make([]Reference, 4)}
+		dst.CopyRefs(1, src, 0, 2)
+		require.Equal(t, []unsafe.Pointer{nil, pA, pB, nil}, dst.Refs)
+	})
+	t.Run("CopyRefs from a table without refs clears the destination", func(t *testing.T) {
+		src := &TableInstance{References: make([]Reference, 3)}
+		dst := &TableInstance{References: make([]Reference, 4)}
+		dst.FillRefs(0, 4, pA)
+		dst.CopyRefs(1, src, 0, 2)
+		require.Equal(t, []unsafe.Pointer{pA, nil, nil, pA}, dst.Refs)
+	})
+	t.Run("CopyRefs within one table overlapping", func(t *testing.T) {
+		tbl := &TableInstance{References: make([]Reference, 4)}
+		tbl.SetRef(0, pA)
+		tbl.SetRef(1, pB)
+		tbl.CopyRefs(1, tbl, 0, 2)
+		require.Equal(t, []unsafe.Pointer{pA, pA, pB, nil}, tbl.Refs)
+	})
+	t.Run("SyncRefs rebuilds from References", func(t *testing.T) {
+		tbl := &TableInstance{References: make([]Reference, 2)}
+		tbl.SetRef(0, pB) // stale: References[0] no longer holds it
+		tbl.References = append(tbl.References, 0)
+		tbl.References[1] = uintptr(pA)
+		tbl.SyncRefs()
+		require.Equal(t, []unsafe.Pointer{nil, pA, nil}, tbl.Refs)
+	})
 }

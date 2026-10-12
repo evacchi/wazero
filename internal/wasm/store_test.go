@@ -7,6 +7,7 @@ import (
 	"math"
 	"strconv"
 	"testing"
+	"unsafe"
 
 	"github.com/tetratelabs/wazero/api"
 	"github.com/tetratelabs/wazero/experimental"
@@ -1026,5 +1027,84 @@ func TestModuleInstance_applyElements(t *testing.T) {
 		})
 		require.Equal(t, []Reference{0xa, 0xaa, 0xaaa, 0xffff, 0xffff, 0xa, 0x0, 0xaaa, 0xffff, 0xabcde},
 			m.Tables[0].References)
+	})
+}
+
+func TestModuleInstance_GlobalRef(t *testing.T) {
+	const moduleName = "test"
+	const name = "target"
+
+	// Any distinct Go pointers do: the side table never dereferences them.
+	exnA, exnB := &Exception{}, &Exception{}
+	pA, pB := unsafe.Pointer(exnA), unsafe.Pointer(exnB)
+
+	t.Run("unshadowed global ignores set", func(t *testing.T) {
+		m := &ModuleInstance{Globals: []*GlobalInstance{{Type: GlobalType{ValType: ValueTypeI32}}}}
+		m.SetGlobalRef(0, pA)
+		require.Nil(t, m.GlobalRef(0))
+		require.Nil(t, m.GlobalRefs)
+	})
+	t.Run("buildGlobals allocates slots for shadowed globals only", func(t *testing.T) {
+		module := &Module{
+			GlobalSection: []Global{
+				{
+					Type: GlobalType{ValType: ValueTypeI32},
+					Init: NewConstantExpressionFromI32(1),
+				},
+				{
+					Type: GlobalType{Mutable: true, ValType: ValueTypeExnref},
+					Init: NewConstantExpressionFromOpcode(OpcodeRefNull, []byte{ValueTypeExnref.Kind()}),
+				},
+			},
+		}
+		m := &ModuleInstance{Globals: make([]*GlobalInstance, 2), Engine: &mockModuleEngine{}}
+		m.buildGlobals(module, nil)
+		require.Equal(t, 2, len(m.GlobalRefs))
+		require.Nil(t, m.GlobalRefs[0])
+		require.NotNil(t, m.GlobalRefs[1])
+		require.Nil(t, m.GlobalRef(1)) // ref.null exn
+
+		m.SetGlobalRef(1, pA)
+		require.Equal(t, pA, m.GlobalRef(1))
+		m.SetGlobalRef(1, nil)
+		require.Nil(t, m.GlobalRef(1))
+	})
+	t.Run("imported global aliases the exporter's slot", func(t *testing.T) {
+		gt := GlobalType{Mutable: true, ValType: ValueTypeExnref}
+		exporter := &ModuleInstance{
+			Globals:    []*GlobalInstance{{Type: gt}},
+			Exports:    map[string]*Export{name: {Type: ExternTypeGlobal, Index: 0}},
+			ModuleName: moduleName,
+		}
+		exporter.globalRefSlot(0)
+
+		s := newStore()
+		s.nameToModule[moduleName] = exporter
+		importer := &ModuleInstance{Globals: make([]*GlobalInstance, 1), s: s}
+		err := importer.resolveImports(context.Background(), &Module{
+			ImportPerModule: map[string][]*Import{moduleName: {{Name: name, Type: ExternTypeGlobal, DescGlobal: gt}}},
+		})
+		require.NoError(t, err)
+
+		// A write through either module is seen by the other.
+		importer.SetGlobalRef(0, pA)
+		require.Equal(t, pA, exporter.GlobalRef(0))
+		exporter.SetGlobalRef(0, pB)
+		require.Equal(t, pB, importer.GlobalRef(0))
+	})
+	t.Run("imported unshadowed global allocates nothing", func(t *testing.T) {
+		gt := GlobalType{ValType: ValueTypeI32}
+		s := newStore()
+		s.nameToModule[moduleName] = &ModuleInstance{
+			Globals:    []*GlobalInstance{{Type: gt}},
+			Exports:    map[string]*Export{name: {Type: ExternTypeGlobal, Index: 0}},
+			ModuleName: moduleName,
+		}
+		importer := &ModuleInstance{Globals: make([]*GlobalInstance, 1), s: s}
+		err := importer.resolveImports(context.Background(), &Module{
+			ImportPerModule: map[string][]*Import{moduleName: {{Name: name, Type: ExternTypeGlobal, DescGlobal: gt}}},
+		})
+		require.NoError(t, err)
+		require.Nil(t, importer.GlobalRefs)
 	})
 }

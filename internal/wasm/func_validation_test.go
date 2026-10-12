@@ -4888,6 +4888,27 @@ func TestModule_funcValidation_Atomic(t *testing.T) {
 	})
 }
 
+// TestModule_funcValidation_TypedSelectExnref ensures typed_select accepts the
+// exnref shorthand, as the exception-handling proposal adds it to the value
+// types select may carry.
+func TestModule_funcValidation_TypedSelectExnref(t *testing.T) {
+	m := &Module{
+		TypeSection:     []FunctionType{v_v},
+		FunctionSection: []Index{0},
+		CodeSection: []Code{{Body: []byte{
+			OpcodeRefNull, ValueTypeExnref.Kind(),
+			OpcodeRefNull, ValueTypeExnref.Kind(),
+			OpcodeI32Const, 0,
+			OpcodeTypedSelect, 1, ValueTypeExnref.Kind(),
+			OpcodeDrop,
+			OpcodeEnd,
+		}}},
+	}
+	err := m.validateFunction(&stacks{}, api.CoreFeaturesV2|experimental.CoreFeaturesExceptionHandling,
+		0, []Index{0}, nil, nil, nil, nil, nil, bytes.NewReader(nil))
+	require.NoError(t, err)
+}
+
 func TestValidation_LegacyExceptionHandlingOpcodes(t *testing.T) {
 	for _, tc := range []struct {
 		opcode byte

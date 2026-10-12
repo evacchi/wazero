@@ -6,6 +6,7 @@ import (
 	"math"
 	"strconv"
 	"testing"
+	"unsafe"
 
 	"github.com/tetratelabs/wazero/api"
 	"github.com/tetratelabs/wazero/internal/testing/require"
@@ -492,4 +493,122 @@ func TestEngine_WasmModulesShareCompiledFunctions(t *testing.T) {
 	e.DeleteCompiledModule(m)
 	_, ok = e.compiledFunctions[m.ID]
 	require.False(t, ok)
+}
+
+func TestInterpreter_CallEngine_shadowRefs(t *testing.T) {
+	// Any distinct Go pointers do: the shadow stack never dereferences them.
+	exnA, exnB := &wasm.Exception{}, &wasm.Exception{}
+	pA, pB := unsafe.Pointer(exnA), unsafe.Pointer(exnB)
+
+	t.Run("plain values allocate nothing", func(t *testing.T) {
+		ce := &callEngine{}
+		ce.pushRef(1, nil)
+		ce.pushValue(2)
+		require.Nil(t, ce.refs)
+		require.Nil(t, ce.refAt(1))
+
+		v, p := ce.popRef()
+		require.Equal(t, uint64(2), v)
+		require.Nil(t, p)
+	})
+	t.Run("pushRef and popRef carry the pointer", func(t *testing.T) {
+		ce := &callEngine{}
+		ce.pushValue(1)
+		ce.pushRef(uint64(uintptr(pA)), pA)
+		require.Equal(t, pA, ce.refAt(1))
+
+		v, p := ce.popRef()
+		require.Equal(t, uint64(uintptr(pA)), v)
+		require.Equal(t, pA, p)
+		// The slot is cleared so a later plain push does not adopt it.
+		require.Nil(t, ce.refAt(1))
+	})
+	t.Run("dropRef moves the kept values' entries", func(t *testing.T) {
+		ce := &callEngine{stack: []uint64{10, 11, 12, 13, 14}}
+		ce.setRef(1, pB)
+		ce.setRef(3, pA)
+		ce.setRef(4, pB)
+
+		// Drop stack[1:3] and keep the top two values, which slide down.
+		ce.dropRef(inclusiveRange{Start: 2, End: 3}.AsU64())
+		require.Equal(t, []uint64{10, 13, 14}, ce.stack)
+		require.Equal(t, pA, ce.refAt(1))
+		require.Equal(t, pB, ce.refAt(2))
+	})
+	t.Run("dropRef keeping values past the end of refs", func(t *testing.T) {
+		ce := &callEngine{stack: []uint64{10, 11, 12, 13}}
+		ce.setRef(1, pA) // refs has length 2: stack[2:] was never rooted
+
+		ce.dropRef(inclusiveRange{Start: 2, End: 2}.AsU64())
+		require.Equal(t, []uint64{10, 12, 13}, ce.stack)
+		require.Equal(t, pA, ce.refAt(1)) // stale but harmless, see callEngine.refs
+		require.Nil(t, ce.refAt(2))
+	})
+	t.Run("dropForTailCall moves the callee params' entries", func(t *testing.T) {
+		ft := &wasm.FunctionType{ParamNumInUint64: 1}
+		frame := &callFrame{f: &function{funcType: ft}, base: 1}
+		ce := &callEngine{stack: []uint64{10, 11, 12}}
+		ce.setRef(2, pA)
+
+		ce.dropForTailCall(frame, &function{funcType: ft})
+		require.Equal(t, []uint64{12}, ce.stack)
+		require.Equal(t, pA, ce.refAt(0))
+	})
+}
+
+func TestInterpreter_CallEngine_applyExceptionHandler_roots(t *testing.T) {
+	// Any distinct Go pointers do: the shadow stack never dereferences them.
+	param, stale := &wasm.Exception{}, &wasm.Exception{}
+	pParam, pStale := unsafe.Pointer(param), unsafe.Pointer(stale)
+	exn := &wasm.Exception{
+		Params: []uint64{7, uint64(uintptr(pParam))},
+		Refs:   []unsafe.Pointer{nil, pParam},
+	}
+	pExn := unsafe.Pointer(exn)
+
+	tests := []struct {
+		name     string
+		kind     byte
+		values   []uint64
+		expected []unsafe.Pointer // refs over the handler's values
+	}{
+		{
+			name:     "catch roots the params' refs",
+			kind:     wasm.CatchKindCatch,
+			values:   exn.Params,
+			expected: []unsafe.Pointer{nil, pParam},
+		},
+		{
+			name:     "catch_ref roots the params' refs and the exnref",
+			kind:     wasm.CatchKindCatchRef,
+			values:   append(append([]uint64{}, exn.Params...), uint64(uintptr(pExn))),
+			expected: []unsafe.Pointer{nil, pParam, pExn},
+		},
+		{
+			name:     "catch_all_ref roots the exnref",
+			kind:     wasm.CatchKindCatchAllRef,
+			values:   []uint64{uint64(uintptr(pExn))},
+			expected: []unsafe.Pointer{pExn},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			frame := &callFrame{f: &function{funcType: &wasm.FunctionType{}}}
+			ce := &callEngine{stack: []uint64{1, 2, 3, 4}}
+			for i := range ce.stack {
+				ce.setRef(i, pStale) // what the unwound code left behind
+			}
+
+			const targetStackDepth = 1 // arbitrary: one value below the handler's
+			clause := &exceptionTableCatchClause{kind: tc.kind, targetStackDepth: targetStackDepth}
+			ce.applyExceptionHandler(frame, clause, tc.values, exn)
+
+			require.Equal(t, targetStackDepth+len(tc.values), len(ce.stack))
+			require.Equal(t, pStale, ce.refAt(0)) // below the handler: untouched
+			for i, p := range tc.expected {
+				require.Equal(t, p, ce.refAt(targetStackDepth+i), "value %d", i)
+			}
+		})
+	}
 }

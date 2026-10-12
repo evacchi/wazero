@@ -34,4 +34,23 @@
       (local.set $i (i32.add (local.get $i) (i32.const 1)))
       (br_if $l (i32.lt_u (local.get $i) (i32.const 100))))
     (local.get $n))
+
+  ;; many takes more params than fit in registers on amd64 or arm64, so a
+  ;; return_call to it falls back to a plain call. See internal/engine/RATIONALE.md.
+  (func $many (param i64 i64 i64 i64 i64 i64 i64 i64 i64 i64 i64 i64 i64 i64 i64 i64 i64 i64 i64 i64) (result i32)
+    (i32.const 1))
+
+  ;; tail_call reserves a slot for its exnref local, then tail-calls many. On
+  ;; the fallback path its frame survives the call, so it must release its
+  ;; slots exactly once.
+  (func $tail_call (result i32)
+    (local $e exnref)
+    (block $h (result exnref)
+      (try_table (catch_all_ref $h) (throw $b))
+      (unreachable))
+    (local.set $e)
+    (return_call $many (i64.const 0) (i64.const 0) (i64.const 0) (i64.const 0) (i64.const 0) (i64.const 0) (i64.const 0) (i64.const 0) (i64.const 0) (i64.const 0) (i64.const 0) (i64.const 0) (i64.const 0) (i64.const 0) (i64.const 0) (i64.const 0) (i64.const 0) (i64.const 0) (i64.const 0) (i64.const 0)))
+
+  (func (export "tail_call_stack_args") (result i32)
+    (call $tail_call))
 )

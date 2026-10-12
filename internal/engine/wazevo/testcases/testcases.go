@@ -3091,6 +3091,51 @@ var TryTableCatchWithReturnCall = TestCase{
 	},
 }
 
+// ExnrefLocal moves an exnref param through an exnref local, so the frame
+// reserves a shadow slot for each and roots both.
+//
+//	(module
+//	  (func (export "f") (param exnref) (result exnref) (local exnref)
+//	    (local.set 1 (local.get 0))
+//	    (local.get 1)
+//	  )
+//	)
+var ExnrefLocal = TestCase{
+	Name: "exnref_local",
+	Module: SingleFunctionModule(
+		wasm.FunctionType{Params: []wasm.ValueType{exnref}, Results: []wasm.ValueType{exnref}},
+		[]byte{
+			wasm.OpcodeLocalGet, 0,
+			wasm.OpcodeLocalSet, 1,
+			wasm.OpcodeLocalGet, 1,
+			wasm.OpcodeEnd,
+		},
+		[]wasm.ValueType{exnref},
+	),
+}
+
+// ExnrefReturnCall tail-calls with an exnref param, so the caller releases its
+// shadow slots before the return_call frees its frame.
+//
+//	(module
+//	  (func $id (param exnref) (result exnref) (local.get 0))
+//	  (func (export "f") (param exnref) (result exnref)
+//	    (return_call $id (local.get 0))
+//	  )
+//	)
+var ExnrefReturnCall = TestCase{
+	Name: "exnref_return_call",
+	Module: &wasm.Module{
+		TypeSection:     []wasm.FunctionType{{Params: []wasm.ValueType{exnref}, Results: []wasm.ValueType{exnref}}},
+		FunctionSection: []wasm.Index{0, 0},
+		CodeSection: []wasm.Code{
+			{Body: []byte{wasm.OpcodeLocalGet, 0, wasm.OpcodeEnd}},
+			{Body: []byte{wasm.OpcodeLocalGet, 0, wasm.OpcodeTailCallReturnCall, 0, wasm.OpcodeEnd}},
+		},
+		ExportSection: []wasm.Export{{Name: ExportedFunctionName, Type: wasm.ExternTypeFunc, Index: 1}},
+	},
+}
+
 var LargeMethodBodyWithManyArgs = TestCase{
 	Name: "large_method_body_with_many_args",
 	Module: &wasm.Module{
@@ -3158,11 +3203,12 @@ var (
 )
 
 const (
-	i32  = wasm.ValueTypeI32
-	i64  = wasm.ValueTypeI64
-	f32  = wasm.ValueTypeF32
-	f64  = wasm.ValueTypeF64
-	v128 = wasm.ValueTypeV128
+	i32    = wasm.ValueTypeI32
+	i64    = wasm.ValueTypeI64
+	f32    = wasm.ValueTypeF32
+	f64    = wasm.ValueTypeF64
+	v128   = wasm.ValueTypeV128
+	exnref = wasm.ValueTypeExnref
 
 	blockSignature_vv = 0x40 // 0x40 is the v_v signature in 33-bit signed. See wasm.DecodeBlockType.
 )
