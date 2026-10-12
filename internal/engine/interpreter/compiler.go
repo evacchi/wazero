@@ -3853,7 +3853,7 @@ func (c *compiler) localDepth(index wasm.Index) int {
 // markRefs records that a shadowed reference may be live from here on.
 func (c *compiler) markRefs() { c.refs = true }
 
-// markRefsIfResults is markRefs when a call to ft can return one.
+// markRefsIfResults records that refs may be live when a call to ft can return one.
 func (c *compiler) markRefsIfResults(ft *wasm.FunctionType) {
 	for _, t := range ft.Results {
 		if wasm.IsShadowedRef(t) {
@@ -3871,6 +3871,7 @@ func (c *compiler) newDrop(r inclusiveRange) unionOperation {
 	return newOperationDrop(r)
 }
 
+// newBrIf returns the BrIf op, or BrIfRef once refs may be live.
 func (c *compiler) newBrIf(thenTarget, elseTarget label, thenDrop inclusiveRange) unionOperation {
 	if c.refs {
 		return newOperationBrIfRef(thenTarget, elseTarget, thenDrop)
@@ -3878,6 +3879,7 @@ func (c *compiler) newBrIf(thenTarget, elseTarget label, thenDrop inclusiveRange
 	return newOperationBrIf(thenTarget, elseTarget, thenDrop)
 }
 
+// newBrTable returns the BrTable op, or BrTableRef once refs may be live.
 func (c *compiler) newBrTable(targetLabelsAndRanges []uint64) unionOperation {
 	if c.refs {
 		return newOperationBrTableRef(targetLabelsAndRanges)

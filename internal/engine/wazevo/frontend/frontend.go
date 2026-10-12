@@ -4,6 +4,7 @@ package frontend
 import (
 	"bytes"
 	"math"
+	"slices"
 	"sync"
 
 	"github.com/tetratelabs/wazero/internal/engine/wazevo/ssa"
@@ -90,9 +91,10 @@ type Compiler struct {
 	// as sites are lowered; the total reaches the backend through
 	// ssa.Builder.SetShadowFrameSize.
 	shadowSlots int
-	// exnrefLocalSlot maps a wasm local index to its shadow slot, for the
-	// exnref-typed locals only. -1 means the local holds no reference.
-	exnrefLocalSlot []int
+	// shadowLocalSlot maps a wasm local index to its shadow slot, for the
+	// locals wasm.IsShadowedRef selects only. -1 means the local holds no
+	// reference.
+	shadowLocalSlot []int
 	// needsShadowFrame gates every shadow-frame instruction, so that a
 	// function which can hold no reference compiles exactly as before.
 	needsShadowFrame bool
@@ -455,14 +457,14 @@ func (c *Compiler) LowerToSSA() {
 	}
 }
 
-// declareShadowSlots assigns a shadow slot to every exnref-typed param and
-// local. These are the locations that can hold a reference across a point
+// declareShadowSlots assigns a shadow slot to every param and local whose
+// type wasm.IsShadowedRef selects. These are the locations that can hold a reference across a point
 // where another one is produced, which is the two-live-exceptions shape of
 // wazero/wazero#2522.
 func (c *Compiler) declareShadowSlots() {
 	c.shadowSlots = 0
 	params, locals := c.wasmFunctionTyp.Params, c.wasmFunctionLocalTypes
-	c.exnrefLocalSlot = c.exnrefLocalSlot[:0]
+	c.shadowLocalSlot = c.shadowLocalSlot[:0]
 	c.needsShadowFrame = false
 	for i := 0; i < len(params)+len(locals); i++ {
 		var t wasm.ValueType
@@ -475,7 +477,7 @@ func (c *Compiler) declareShadowSlots() {
 		if wasm.IsShadowedRef(t) {
 			slot = c.allocShadowSlot()
 		}
-		c.exnrefLocalSlot = append(c.exnrefLocalSlot, slot)
+		c.shadowLocalSlot = append(c.shadowLocalSlot, slot)
 	}
 
 	// The body can also take a reference from a try_table's catch_ref, a
@@ -488,7 +490,7 @@ func (c *Compiler) declareShadowSlots() {
 	c.needsShadowFrame = c.shadowSlots > 0 || c.bodyMayTakeRef()
 }
 
-// rootParams roots exnref-typed parameters in their own frame. The caller
+// rootParams roots the shadowed parameters in their own frame. The caller
 // normally holds them rooted for the duration of the call, but a tail call
 // frees the caller's frame, so the callee cannot rely on that.
 func (c *Compiler) rootParams() {
@@ -496,7 +498,7 @@ func (c *Compiler) rootParams() {
 		if !wasm.IsShadowedRef(t) {
 			continue
 		}
-		c.emitShadowStore(c.exnrefLocalSlot[i], c.ssaBuilder.MustFindValue(c.localVariable(wasm.Index(i))))
+		c.emitShadowStore(c.shadowLocalSlot[i], c.ssaBuilder.MustFindValue(c.localVariable(wasm.Index(i))))
 	}
 }
 
@@ -512,10 +514,8 @@ func (c *Compiler) bodyMayTakeRef() bool {
 			return true
 		}
 	}
-	for _, shadowed := range c.globalShadowed {
-		if shadowed && has(wasm.OpcodeGlobalGet) {
-			return true
-		}
+	if slices.Contains(c.globalShadowed, true) && has(wasm.OpcodeGlobalGet) {
+		return true
 	}
 	if c.moduleHasShadowedTable() && has(wasm.OpcodeTableGet) {
 		return true
@@ -631,15 +631,6 @@ func (c *Compiler) rootLoopParams(types []wasm.ValueType) {
 	}
 }
 
-// rootIfShadowed roots v in a fresh slot when t is a reference type, and
-// reports whether it did. Used where a value enters the frame from outside:
-// a global, a table, or a call result.
-func (c *Compiler) rootIfShadowed(t wasm.ValueType, v ssa.Value) {
-	if wasm.IsShadowedRef(t) {
-		c.emitShadowStore(c.allocShadowSlot(), v)
-	}
-}
-
 // rootResults roots the reference-typed results a call just returned. The
 // callee's frame is gone by now, so its slots no longer hold them.
 func (c *Compiler) rootResults(typ *wasm.FunctionType, first ssa.Value, rest []ssa.Value) {
@@ -647,11 +638,11 @@ func (c *Compiler) rootResults(typ *wasm.FunctionType, first ssa.Value, rest []s
 		if !wasm.IsShadowedRef(t) {
 			continue
 		}
-		if i == 0 {
-			c.rootIfShadowed(t, first)
-			continue
+		v := first
+		if i > 0 {
+			v = rest[i-1]
 		}
-		c.rootIfShadowed(t, rest[i-1])
+		c.emitShadowStore(c.allocShadowSlot(), v)
 	}
 }
 
@@ -733,12 +724,12 @@ func (c *Compiler) rootExnRef() ssa.Value {
 }
 
 // rootLocal roots v in the shadow slot of local index, when that local is
-// exnref-typed. A no-op for every other local, so ordinary code is unchanged.
+// shadowed. A no-op for every other local, so ordinary code is unchanged.
 func (c *Compiler) rootLocal(index uint32, v ssa.Value) {
-	if int(index) >= len(c.exnrefLocalSlot) {
+	if int(index) >= len(c.shadowLocalSlot) {
 		return
 	}
-	if slot := c.exnrefLocalSlot[index]; slot >= 0 {
+	if slot := c.shadowLocalSlot[index]; slot >= 0 {
 		c.emitShadowStore(slot, v)
 	}
 }

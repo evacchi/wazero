@@ -360,16 +360,16 @@ func (t *TableInstance) FillRefs(off, n uint32, p unsafe.Pointer) {
 	}
 }
 
-// CopyRefs mirrors copy(dst.References[dstOff:], src.References[srcOff:srcOff+n]).
-func (dst *TableInstance) CopyRefs(dstOff uint32, src *TableInstance, srcOff, n uint32) {
+// CopyRefs mirrors copy(t.References[dstOff:], src.References[srcOff:srcOff+n]).
+func (t *TableInstance) CopyRefs(dstOff uint32, src *TableInstance, srcOff, n uint32) {
 	if src.Refs == nil {
-		dst.FillRefs(dstOff, n, nil)
+		t.FillRefs(dstOff, n, nil)
 		return
 	}
-	if dst.Refs == nil {
-		dst.Refs = make([]unsafe.Pointer, len(dst.References))
+	if t.Refs == nil {
+		t.Refs = make([]unsafe.Pointer, len(t.References))
 	}
-	copy(dst.Refs[dstOff:dstOff+n], src.Refs[srcOff:srcOff+n])
+	copy(t.Refs[dstOff:dstOff+n], src.Refs[srcOff:srcOff+n])
 }
 
 // SyncRefs rebuilds Refs from References. For a reference-typed table the

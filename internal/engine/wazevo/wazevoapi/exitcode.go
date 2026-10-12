@@ -131,14 +131,14 @@ func (e ExitCode) String() string {
 		return "null_reference"
 	case ExitCodeTryTableEnter:
 		return "try_table_enter"
+	case ExitCodeTryTableLeave:
+		return "try_table_leave"
 	case ExitCodeShadowStore:
 		return "shadow_store"
 	case ExitCodeGlobalRefStore:
 		return "global_ref_store"
 	case ExitCodeTableRefSync:
 		return "table_ref_sync"
-	case ExitCodeTryTableLeave:
-		return "try_table_leave"
 	}
 	panic("TODO")
 }

@@ -2138,11 +2138,10 @@ func (ce *callEngine) callNativeFunc(ctx context.Context, m *wasm.ModuleInstance
 			table := tables[op.U1]
 			num := ce.popValue()
 			ref, p := ce.popRef()
-			currentLen := table.Grow(uint32(num), uintptr(ref))
-			if currentLen != 0xffffffff {
-				table.FillRefs(currentLen, uint32(num), p)
+			ret := table.Grow(uint32(num), uintptr(ref))
+			if ret != math.MaxUint32 { // Grow returns -1 on failure.
+				table.FillRefs(ret, uint32(num), p)
 			}
-			ret := currentLen
 			ce.pushValue(uint64(ret))
 			frame.pc++
 		case operationKindTableFill:

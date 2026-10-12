@@ -781,9 +781,6 @@ func (c *callEngine) doHandleException(exn *wasm.Exception) bool {
 	return false
 }
 
-// restoreLocalsSaveAreaPtr walks tryHandlers from index `from` downward
-// and sets localsSaveAreaPtr to the first handler that owns a save area,
-// or clears it if none is found.
 // setShadowRef roots p in the current frame's shadow slot, growing refs on
 // demand.
 //
@@ -814,6 +811,9 @@ func (c *callEngine) resetShadowRefs() {
 	c.execCtx.shadowRefsTop = 0
 }
 
+// restoreLocalsSaveAreaPtr walks tryHandlers from index `from` downward
+// and sets localsSaveAreaPtr to the first handler that owns a save area,
+// or clears it if none is found.
 func (c *callEngine) restoreLocalsSaveAreaPtr(from int) {
 	for i := from; i >= 0; i-- {
 		if sa := c.tryHandlers[i].localsSaveArea; len(sa) > 0 {
