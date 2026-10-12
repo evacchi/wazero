@@ -8,3 +8,8 @@ import "github.com/tetratelabs/wazero/api"
 func ShadowRefsTopOf(f api.Function) uintptr {
 	return f.(*callEngine).execCtx.shadowRefsTop
 }
+
+// SetShadowStoreHook makes f's call engine run hook after every shadow store.
+func SetShadowStoreHook(f api.Function, hook func()) {
+	f.(*callEngine).shadowStoreHook = hook
+}

@@ -223,6 +223,7 @@ func (m *moduleEngine) NewFunction(index wasm.Index) api.Function {
 	ce.execCtx.shadowStoreTrampolineAddress = sharedFunctions.shadowStoreAddress
 	ce.execCtx.globalRefStoreTrampolineAddress = sharedFunctions.globalRefStoreAddress
 	ce.execCtx.tableRefSyncTrampolineAddress = sharedFunctions.tableRefSyncAddress
+	ce.execCtx.shadowPinTrampolineAddress = sharedFunctions.shadowPinAddress
 	ce.execCtx.memmoveAddress = memmovPtr
 	ce.init()
 	return ce

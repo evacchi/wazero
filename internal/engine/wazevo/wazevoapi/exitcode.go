@@ -67,6 +67,11 @@ const (
 	// immediately after the write that prompted the sync. One exit covers
 	// table.set and every bulk write; only reference-typed tables use it.
 	ExitCodeTableRefSync
+	// ExitCodeShadowPin defers a shadow store: Go records (slot, ptr) in a
+	// Go-visible list and writes it with the next ExitCodeShadowStore. A tail
+	// callee pins all but its last reference param, so storing one cannot
+	// overwrite the caller's only root of another before that one is rooted.
+	ExitCodeShadowPin
 	exitCodeMax
 )
 
@@ -139,6 +144,8 @@ func (e ExitCode) String() string {
 		return "global_ref_store"
 	case ExitCodeTableRefSync:
 		return "table_ref_sync"
+	case ExitCodeShadowPin:
+		return "shadow_pin"
 	}
 	panic("TODO")
 }

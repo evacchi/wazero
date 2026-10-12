@@ -493,12 +493,32 @@ func (c *Compiler) declareShadowSlots() {
 // rootParams roots the shadowed parameters in their own frame. The caller
 // normally holds them rooted for the duration of the call, but a tail call
 // frees the caller's frame, so the callee cannot rely on that.
+//
+// After a tail call this frame's slots reuse the caller's, so storing one
+// param can overwrite the caller's only root of another not yet stored. All
+// but the last are therefore pinned, and the last store writes them together:
+//
+//	caller slots:  [A][B][Z]      callee(A, B) slots:  [A][B]
+//	store A -> over B's root, B unrooted until stored: collected in between
+//	pin A, store B -> A and B written in one Go call: never unrooted
 func (c *Compiler) rootParams() {
+	last := -1
+	for i, t := range c.wasmFunctionTyp.Params {
+		if wasm.IsShadowedRef(t) {
+			last = i
+		}
+	}
+
 	for i, t := range c.wasmFunctionTyp.Params {
 		if !wasm.IsShadowedRef(t) {
 			continue
 		}
-		c.emitShadowStore(c.shadowLocalSlot[i], c.ssaBuilder.MustFindValue(c.localVariable(wasm.Index(i))))
+		v := c.ssaBuilder.MustFindValue(c.localVariable(wasm.Index(i)))
+		if i == last {
+			c.emitShadowStore(c.shadowLocalSlot[i], v)
+			continue
+		}
+		c.emitShadowCall(wazevoapi.ExecutionContextOffsetShadowPinTrampolineAddress, c.shadowLocalSlot[i], v)
 	}
 }
 
@@ -696,15 +716,19 @@ func (c *Compiler) allocShadowSlot() int {
 // emitShadowStore roots v in this frame's shadow slot, so Go's collector keeps
 // the object alive while compiled code holds it as an opaque integer.
 func (c *Compiler) emitShadowStore(slot int, v ssa.Value) {
+	c.emitShadowCall(wazevoapi.ExecutionContextOffsetShadowStoreTrampolineAddress, slot, v)
+}
+
+// emitShadowCall calls the (execCtx, slot, ptr) trampoline whose address is at
+// trampoline in the execution context: the shadow store or the shadow pin.
+func (c *Compiler) emitShadowCall(trampoline wazevoapi.Offset, slot int, v ssa.Value) {
 	if !c.needsShadowFrame {
 		return
 	}
 	builder := c.ssaBuilder
 	ptr := builder.AllocateInstruction().
-		AsLoad(c.execCtxPtrValue,
-			wazevoapi.ExecutionContextOffsetShadowStoreTrampolineAddress.U32(),
-			ssa.TypeI64,
-		).Insert(builder).Return()
+		AsLoad(c.execCtxPtrValue, trampoline.U32(), ssa.TypeI64).
+		Insert(builder).Return()
 	slotVal := builder.AllocateInstruction().AsIconst64(uint64(slot)).Insert(builder).Return()
 	args := c.allocateVarLengthValues(3, c.execCtxPtrValue, slotVal, v)
 	builder.AllocateInstruction().

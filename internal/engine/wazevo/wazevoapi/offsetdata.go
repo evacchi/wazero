@@ -88,6 +88,9 @@ const (
 	// ExecutionContextOffsetTableRefSyncTrampolineAddress is the address of
 	// the table-ref-sync trampoline: (execCtx, tableIndex) -> ().
 	ExecutionContextOffsetTableRefSyncTrampolineAddress Offset = 1272
+	// ExecutionContextOffsetShadowPinTrampolineAddress is the address of the
+	// shadow-pin trampoline: (execCtx, slot, ptr) -> ().
+	ExecutionContextOffsetShadowPinTrampolineAddress Offset = 1280
 )
 
 // ModuleContextOffsetData allows the compilers to get the information about offsets to the fields of wazevo.moduleContextOpaque,

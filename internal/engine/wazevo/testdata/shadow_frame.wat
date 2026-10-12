@@ -72,4 +72,30 @@
 
   (func (export "tail_call_regs") (result i32)
     (call $tail_call_regs))
+
+  ;; take_second rethrows its second param and returns the i32 it carries.
+  (func $take_second (param $x exnref) (param $y exnref) (result i32)
+    (block $h (result i32)
+      (try_table (catch $a $h) (throw_ref (local.get $y)))
+      (unreachable)))
+
+  ;; tail_call_overlap catches A, B and Z, one slot each, numbered downward:
+  ;; A at top-1, B at top-2, Z at top-3. It drops Z and tail-calls
+  ;; take_second(A, B), whose frame is one slot smaller, so take_second roots
+  ;; A at top-2: over B's only root, before B itself is rooted.
+  (func $tail_call_overlap (result i32)
+    (block $ha (result exnref)
+      (try_table (catch_all_ref $ha) (throw $a (i32.const 21)))
+      (unreachable))
+    (block $hb (result exnref)
+      (try_table (catch_all_ref $hb) (throw $a (i32.const 22)))
+      (unreachable))
+    (block $hz (result exnref)
+      (try_table (catch_all_ref $hz) (throw $a (i32.const 23)))
+      (unreachable))
+    (drop)
+    (return_call $take_second))
+
+  (func (export "tail_call_overlap") (result i32)
+    (call $tail_call_overlap))
 )

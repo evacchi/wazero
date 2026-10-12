@@ -69,6 +69,13 @@ type (
 		// so the integer compiled code holds stays valid. Cleared when the
 		// top-level call returns.
 		refs []unsafe.Pointer
+		// shadowPins are the shadow stores ExitCodeShadowPin deferred, written
+		// by the next ExitCodeShadowStore. Holding them here keeps them rooted
+		// while their slots may still hold another pinned value's only root.
+		shadowPins []shadowPin
+		// shadowStoreHook, when set, runs after every shadow store. Tests use
+		// it to collect at the exact point a store can unroot a reference.
+		shadowStoreHook func()
 	}
 
 	// tryHandler records the state at a try_table entry for exception handling.
@@ -182,6 +189,9 @@ type (
 		// tableRefSyncTrampolineAddress holds the address of the
 		// table-ref-sync trampoline function.
 		tableRefSyncTrampolineAddress *byte
+		// shadowPinTrampolineAddress holds the address of the shadow-pin
+		// trampoline function.
+		shadowPinTrampolineAddress *byte
 	}
 )
 
@@ -650,7 +660,12 @@ func (c *callEngine) callWithStack(ctx context.Context, paramResultStack []uint6
 			// shadowRefsTop. Reading the pointer through the stack word
 			// avoids a uintptr conversion, which would trip checkptr.
 			s := goCallStackView(c.execCtx.stackPointerBeforeGoCall)
-			c.setShadowRef(int(s[0]), *(*unsafe.Pointer)(unsafe.Pointer(&s[1])))
+			p := *(*unsafe.Pointer)(unsafe.Pointer(&s[1]))
+			c.flushShadowPins()
+			c.setShadowRef(int(s[0]), p)
+			if c.shadowStoreHook != nil {
+				c.shadowStoreHook()
+			}
 			c.execCtx.exitCode = wazevoapi.ExitCodeOK
 			afterGoFunctionCallEntrypoint(c.execCtx.goCallReturnAddress, c.execCtxPtr,
 				uintptr(unsafe.Pointer(c.execCtx.stackPointerBeforeGoCall)), c.execCtx.framePointerBeforeGoCall)
@@ -658,6 +673,14 @@ func (c *callEngine) callWithStack(ctx context.Context, paramResultStack []uint6
 			// Global ref store: (execCtx, globalIndex, ptr) -> ().
 			s := goCallStackView(c.execCtx.stackPointerBeforeGoCall)
 			c.callerModuleInstance().SetGlobalRef(wasm.Index(s[0]), *(*unsafe.Pointer)(unsafe.Pointer(&s[1])))
+			c.execCtx.exitCode = wazevoapi.ExitCodeOK
+			afterGoFunctionCallEntrypoint(c.execCtx.goCallReturnAddress, c.execCtxPtr,
+				uintptr(unsafe.Pointer(c.execCtx.stackPointerBeforeGoCall)), c.execCtx.framePointerBeforeGoCall)
+		case wazevoapi.ExitCodeShadowPin:
+			// Shadow pin: (execCtx, slot, ptr) -> (). Deferred until the next
+			// shadow store; see ExitCodeShadowPin.
+			s := goCallStackView(c.execCtx.stackPointerBeforeGoCall)
+			c.shadowPins = append(c.shadowPins, shadowPin{slot: int(s[0]), p: *(*unsafe.Pointer)(unsafe.Pointer(&s[1]))})
 			c.execCtx.exitCode = wazevoapi.ExitCodeOK
 			afterGoFunctionCallEntrypoint(c.execCtx.goCallReturnAddress, c.execCtxPtr,
 				uintptr(unsafe.Pointer(c.execCtx.stackPointerBeforeGoCall)), c.execCtx.framePointerBeforeGoCall)
@@ -808,7 +831,26 @@ func (c *callEngine) setShadowRef(slot int, p unsafe.Pointer) {
 // collectable, and rewinds the shadow stack for the next one.
 func (c *callEngine) resetShadowRefs() {
 	clear(c.refs)
+	clear(c.shadowPins)
+	c.shadowPins = c.shadowPins[:0]
 	c.execCtx.shadowRefsTop = 0
+}
+
+// shadowPin is a shadow store deferred by ExitCodeShadowPin.
+type shadowPin struct {
+	slot int
+	p    unsafe.Pointer
+}
+
+// flushShadowPins writes the deferred shadow stores. Every pinned pointer is
+// held by shadowPins until the loop ends, so a slot it overwrites can no
+// longer be the only root of a value still to be written.
+func (c *callEngine) flushShadowPins() {
+	for _, pin := range c.shadowPins {
+		c.setShadowRef(pin.slot, pin.p)
+	}
+	clear(c.shadowPins) // reused to reduce allocation; clear so it does not pin stale objects
+	c.shadowPins = c.shadowPins[:0]
 }
 
 // restoreLocalsSaveAreaPtr walks tryHandlers from index `from` downward

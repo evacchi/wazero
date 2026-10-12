@@ -85,6 +85,9 @@ type (
 		// tableRefSyncAddress is the address of the table-ref-sync
 		// trampoline, which rebuilds a table's Refs side table.
 		tableRefSyncAddress *byte
+		// shadowPinAddress is the address of the shadow-pin trampoline, which
+		// defers a shadow store until the next one.
+		shadowPinAddress    *byte
 		listenerTrampolines listenerTrampolines
 	}
 
@@ -762,7 +765,7 @@ func (e *engine) NewModuleEngine(m *wasm.Module, mi *wasm.ModuleInstance) (wasm.
 }
 
 func (e *engine) compileSharedFunctions() {
-	var sizes [15]int
+	var sizes [16]int
 	var trampolines []byte
 
 	addTrampoline := func(i int, buf []byte) {
@@ -886,6 +889,14 @@ func (e *engine) compileSharedFunctions() {
 			Results: []ssa.Type{},
 		}, false))
 
+	e.be.Init()
+	addTrampoline(15,
+		e.machine.CompileGoFunctionTrampoline(wazevoapi.ExitCodeShadowPin, &ssa.Signature{
+			// exec context, slot, ptr
+			Params:  []ssa.Type{ssa.TypeI64, ssa.TypeI64, ssa.TypeI64},
+			Results: []ssa.Type{},
+		}, false))
+
 	fns := &sharedFunctions{
 		executable:          mmapExecutable(trampolines),
 		listenerTrampolines: make(listenerTrampolines),
@@ -922,6 +933,8 @@ func (e *engine) compileSharedFunctions() {
 	fns.globalRefStoreAddress = &fns.executable[offset]
 	offset += sizes[13]
 	fns.tableRefSyncAddress = &fns.executable[offset]
+	offset += sizes[14]
+	fns.shadowPinAddress = &fns.executable[offset]
 
 	if wazevoapi.PerfMapEnabled {
 		wazevoapi.PerfMap.AddEntry(uintptr(unsafe.Pointer(fns.memoryGrowAddress)), uint64(sizes[0]), "memory_grow_trampoline")
@@ -939,6 +952,7 @@ func (e *engine) compileSharedFunctions() {
 		wazevoapi.PerfMap.AddEntry(uintptr(unsafe.Pointer(fns.shadowStoreAddress)), uint64(sizes[12]), "shadow_store_trampoline")
 		wazevoapi.PerfMap.AddEntry(uintptr(unsafe.Pointer(fns.globalRefStoreAddress)), uint64(sizes[13]), "global_ref_store_trampoline")
 		wazevoapi.PerfMap.AddEntry(uintptr(unsafe.Pointer(fns.tableRefSyncAddress)), uint64(sizes[14]), "table_ref_sync_trampoline")
+		wazevoapi.PerfMap.AddEntry(uintptr(unsafe.Pointer(fns.shadowPinAddress)), uint64(sizes[15]), "shadow_pin_trampoline")
 	}
 
 	e.sharedFunctions = fns
