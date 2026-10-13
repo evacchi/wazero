@@ -2174,13 +2174,11 @@ L0 (SSA Block: blk0):
 	ldr x8, [x0, #0x4e0]
 	add x8, x8, #0x1
 	str x8, [x0, #0x4e0]
-	ldr x8, [sp, #0x10]
-	str x1, [x8, #0x8]
-	ldr x9, [x8, #0x4b0]
-	mov x0, x8
-	movz x10, #0x1b, lsl 0
-	mov x1, x10
-	bl x9
+	str x1, [x0, #0x8]
+	ldr x8, [x0, #0x4b0]
+	movz x9, #0x1b, lsl 0
+	mov x1, x9
+	bl x8
 	ldr x8, [sp, #0x10]
 	ldr x9, [x8, #0x4d0]
 	orr w10, wzr, #0x1
@@ -2241,13 +2239,11 @@ L0 (SSA Block: blk0):
 	ldr x8, [x0, #0x4e0]
 	add x8, x8, #0x1
 	str x8, [x0, #0x4e0]
-	ldr x8, [sp, #0x10]
-	str x1, [x8, #0x8]
-	ldr x9, [x8, #0x4b0]
-	mov x0, x8
-	movz x10, #0x1b, lsl 0
-	mov x1, x10
-	bl x9
+	str x1, [x0, #0x8]
+	ldr x8, [x0, #0x4b0]
+	movz x9, #0x1b, lsl 0
+	mov x1, x9
+	bl x8
 	ldr x8, [sp, #0x10]
 	ldr x9, [x8, #0x4d0]
 	orr w10, wzr, #0x1
@@ -2331,13 +2327,11 @@ L0 (SSA Block: blk0):
 	ldr x8, [x0, #0x4e0]
 	add x8, x8, #0x1
 	str x8, [x0, #0x4e0]
-	ldr x8, [sp, #0x10]
-	str x1, [x8, #0x8]
-	ldr x9, [x8, #0x4b0]
-	mov x0, x8
-	movz x10, #0x1b, lsl 0
-	mov x1, x10
-	bl x9
+	str x1, [x0, #0x8]
+	ldr x8, [x0, #0x4b0]
+	movz x9, #0x1b, lsl 0
+	mov x1, x9
+	bl x8
 	ldr x8, [sp, #0x10]
 	ldr x9, [x8, #0x4d0]
 	orr w10, wzr, #0x1

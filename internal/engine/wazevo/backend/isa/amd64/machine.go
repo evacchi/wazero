@@ -3899,10 +3899,12 @@ func (m *machine) lowerShadowFrame(execCtx regalloc.VReg, op aluRmiROpcode) {
 		return
 	}
 
-	mem := newOperandMem(m.newAmodeImmReg(wazevoapi.ExecutionContextOffsetShadowRefsTop.U32(), execCtx))
-
+	// The load and the store each get their own address mode: the register
+	// allocator rewrites it in place, so a shared one hides the store's use of
+	// execCtx and lets tmp take its register.
+	offset := wazevoapi.ExecutionContextOffsetShadowRefsTop.U32()
 	tmp := m.c.AllocateVReg(ssa.TypeI64)
-	m.insert(m.allocateInstr().asMov64MR(mem, tmp))
+	m.insert(m.allocateInstr().asMov64MR(newOperandMem(m.newAmodeImmReg(offset, execCtx)), tmp))
 	m.insert(m.allocateInstr().asAluRmiR(op, newOperandImm32(uint32(n)), tmp, true))
-	m.insert(m.allocateInstr().asMovRM(tmp, mem, 8))
+	m.insert(m.allocateInstr().asMovRM(tmp, newOperandMem(m.newAmodeImmReg(offset, execCtx)), 8))
 }

@@ -2285,15 +2285,13 @@ func (m *machine) lowerShadowFrame(execCtxVReg regalloc.VReg, op aluOp) {
 		return
 	}
 
-	amode := m.amodePool.Allocate()
-	*amode = addressMode{
-		kind: addressModeKindRegUnsignedImm12,
-		rn:   execCtxVReg, imm: wazevoapi.ExecutionContextOffsetShadowRefsTop.I64(),
-	}
-
+	// The load and the store each get their own address mode: the register
+	// allocator rewrites it in place, so a shared one hides the store's use of
+	// execCtxVReg and lets tmp take its register.
+	offset := wazevoapi.ExecutionContextOffsetShadowRefsTop.I64()
 	tmp := m.compiler.AllocateVReg(ssa.TypeI64)
 	ldr := m.allocateInstr()
-	ldr.asULoad(tmp, amode, 64)
+	ldr.asULoad(tmp, m.resolveAddressModeForOffset(offset, 64, execCtxVReg, false), 64)
 	m.insert(ldr)
 
 	imm12, ok := asImm12Operand(uint64(n))
@@ -2305,6 +2303,6 @@ func (m *machine) lowerShadowFrame(execCtxVReg regalloc.VReg, op aluOp) {
 	m.insert(alu)
 
 	str := m.allocateInstr()
-	str.asStore(operandNR(tmp), amode, 64)
+	str.asStore(operandNR(tmp), m.resolveAddressModeForOffset(offset, 64, execCtxVReg, false), 64)
 	m.insert(str)
 }
