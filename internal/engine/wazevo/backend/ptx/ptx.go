@@ -1,32 +1,40 @@
 // Package ptx is an experimental wazevo backend that emits NVIDIA PTX.
+// See DESIGN.md for the model and the decisions behind it.
 //
-// It does not implement backend.Machine: PTX is a virtual ISA with
-// unlimited typed registers, so SSA values map 1:1 to PTX registers and
-// regalloc, ABI and encoding are skipped. ptxas does the rest.
+// An exported Wasm function becomes a kernel. Params are uniform
+// scalars; thread geometry comes from `gpu.*` intrinsic imports; memory 0
+// is a device buffer shared by the whole grid:
 //
-// One Wasm function becomes one "map" kernel. Thread i reads param k
-// from in_k[i], runs the body, writes the result to out[i]:
+//	 host                                  device, every thread
+//	┌───────────────────────┐  launch   ┌──────────────────────────────┐
+//	│ mem0 []byte           │ ────────► │ i := block_idx*block_dim+tid │
+//	│ params (uniform)      │           │ mem0[...] = f(mem0[...])     │
+//	│ status (trap code)    │ ◄──────── │ trap: status = code; exit    │
+//	└───────────────────────┘           └──────────────────────────────┘
 //
-//	       host                         device, thread i
-//	┌─────────────────┐   launch   ┌────────────────────────────┐
-//	│ in_0[] in_1[] … │ ─────────► │ v = f(in_0[i], in_1[i], …) │
-//	│ out[]           │ ◄───────── │ out[i] = v                 │
-//	└─────────────────┘            └────────────────────────────┘
-//
-// Supported subset: i32/i64/f32/f64 scalars, one result, integer and
-// float arithmetic, compares, select, and control flow (block, loop,
-// if, br, br_if). Memory, globals, tables, calls and traps are rejected.
+// It does not implement backend.Machine: PTX has unlimited typed
+// registers, so SSA values map 1:1 to PTX registers and regalloc, ABI
+// and encoding are skipped. ptxas does the rest.
 package ptx
 
 import (
 	"fmt"
-	"slices"
 	"strings"
 
 	"github.com/tetratelabs/wazero/internal/engine/wazevo/frontend"
 	"github.com/tetratelabs/wazero/internal/engine/wazevo/ssa"
 	"github.com/tetratelabs/wazero/internal/engine/wazevo/wazevoapi"
 	"github.com/tetratelabs/wazero/internal/wasm"
+)
+
+// BoundsCheck selects how memory accesses are guarded.
+type BoundsCheck int
+
+const (
+	// Checked keeps the frontend's bounds checks; OOB sets status.
+	Checked BoundsCheck = iota
+	// Unchecked drops bounds checks. Unsafe: OOB corrupts device memory.
+	Unchecked
 )
 
 const (
@@ -36,101 +44,241 @@ const (
 	ptxTarget  = "sm_52"
 
 	// numCtxParams is the count of wazevo's implicit leading params
-	// (exec_ctx, module_ctx). Kernels ignore them.
+	// (exec_ctx, module_ctx).
 	numCtxParams = 2
 
-	// labelExit is the shared exit label of every kernel.
+	// intrinsicModule is the import module recognized as intrinsics.
+	intrinsicModule = "gpu"
+
 	labelExit = "$Lexit"
+	labelTrap = "$Ltrap"
+
+	// barrierName is `gpu.barrier()`: block-wide barrier, also ordering
+	// the block's memory accesses (bar.sync has CTA fence semantics).
+	barrierName = "barrier"
 )
 
-// Compile lowers the local function fnIdx of m into a PTX module
-// exposing one kernel named name with signature:
+// Intrinsic signatures.
+var (
+	geometrySig = wasm.FunctionType{Params: []wasm.ValueType{wasm.ValueTypeI32}, Results: []wasm.ValueType{wasm.ValueTypeI32}}
+	barrierSig  = wasm.FunctionType{}
+)
+
+// intrinsics maps `gpu.<name>(dim i32) i32` to its PTX special register.
+var intrinsics = map[string]string{
+	"thread_idx": "%tid",
+	"block_idx":  "%ctaid",
+	"block_dim":  "%ntid",
+	"grid_dim":   "%nctaid",
+}
+
+// dims are the PTX suffixes for dim 0..2.
+var dims = [...]string{"x", "y", "z"}
+
+// shiftOps maps SSA shifts to PTX mnemonic prefixes.
+var shiftOps = map[ssa.Opcode]string{
+	ssa.OpcodeIshl: "shl.b",
+	ssa.OpcodeUshr: "shr.u",
+	ssa.OpcodeSshr: "shr.s",
+}
+
+// Kernel is a compiled PTX module holding one entry point.
+type Kernel struct {
+	name   string
+	src    string
+	params []wasm.ValueType
+}
+
+// String returns the PTX source.
+func (k *Kernel) String() string {
+	return k.src
+}
+
+// Compile lowers the exported function export of m into a kernel with
+// the same name and signature:
 //
-//	.entry name(.param .u64 in_0, …, .param .u64 out, .param .u32 n)
-//
-// fnIdx indexes the code section, i.e. imports are not counted.
-func Compile(m *wasm.Module, fnIdx wasm.Index, name string) (string, error) {
-	typIdx := m.FunctionSection[fnIdx]
-	typ := &m.TypeSection[typIdx]
-	if len(typ.Results) != 1 {
-		return "", fmt.Errorf("ptx: want 1 result, got %d", len(typ.Results))
+//	.entry export(.param .u64 mem0, .param .u64 mem0_len,
+//	              .param .u64 status, .param <p0>, …)
+func Compile(m *wasm.Module, export string, bc BoundsCheck) (*Kernel, error) {
+	fnIdx, err := exportedFunc(m, export)
+	if err != nil {
+		return nil, err
 	}
-	for _, vt := range slices.Concat(typ.Params, typ.Results) {
-		switch vt {
-		case wasm.ValueTypeI32, wasm.ValueTypeI64, wasm.ValueTypeF32, wasm.ValueTypeF64:
-			continue
+	imports, err := intrinsicImports(m)
+	if err != nil {
+		return nil, err
+	}
+
+	local := fnIdx - m.ImportFunctionCount
+	typIdx := m.FunctionSection[local]
+	typ := &m.TypeSection[typIdx]
+	if len(typ.Results) != 0 {
+		return nil, fmt.Errorf("ptx: kernel %q must not return values", export)
+	}
+	for _, vt := range typ.Params {
+		if !scalar(vt) {
+			return nil, fmt.Errorf("ptx: unsupported param type %s", wasm.ValueTypeName(vt))
 		}
-		return "", fmt.Errorf("ptx: unsupported type %s", wasm.ValueTypeName(vt))
 	}
 
 	// Wasm -> optimized SSA, as the native backends do.
 	b := ssa.NewBuilder()
 	offset := wazevoapi.NewModuleContextOffsetData(m, false)
 	fe := frontend.NewFrontendCompiler(m, b, &offset, false, false, false)
-	code := &m.CodeSection[fnIdx]
-	fe.Init(fnIdx, typIdx, typ, code.LocalTypes, code.Body, false, 0)
+	code := &m.CodeSection[local]
+	fe.Init(local, typIdx, typ, code.LocalTypes, code.Body, false, 0)
 	fe.LowerToSSA()
 	b.RunPasses()
 
-	e := &emitter{b: b, name: name, regs: map[ssa.Type]int{}}
-	return e.emit()
+	e := &emitter{
+		b: b, name: export, bc: bc, offset: &offset, imports: imports,
+		regs: map[ssa.Type]int{}, intrinsicPtrs: map[ssa.ValueID]string{},
+	}
+	src, err := e.emit()
+	if err != nil {
+		return nil, err
+	}
+	return &Kernel{name: export, src: src, params: typ.Params}, nil
+}
+
+// exportedFunc resolves an exported function to its function index.
+func exportedFunc(m *wasm.Module, name string) (wasm.Index, error) {
+	for i := range m.ExportSection {
+		exp := &m.ExportSection[i]
+		if exp.Type == wasm.ExternTypeFunc && exp.Name == name {
+			return exp.Index, nil
+		}
+	}
+	return 0, fmt.Errorf("ptx: no exported function %q", name)
+}
+
+// intrinsicImports checks every import is a known `gpu.*` intrinsic with
+// the right signature, and returns their names by function index.
+func intrinsicImports(m *wasm.Module) ([]string, error) {
+	var names []string
+	for i := range m.ImportSection {
+		imp := &m.ImportSection[i]
+		if imp.Type != wasm.ExternTypeFunc {
+			return nil, fmt.Errorf("ptx: unsupported import %s.%s", imp.Module, imp.Name)
+		}
+
+		sig, ok := intrinsicSig(imp.Name)
+		if imp.Module != intrinsicModule || !ok {
+			return nil, fmt.Errorf("ptx: unknown intrinsic %s.%s", imp.Module, imp.Name)
+		}
+		if typ := &m.TypeSection[imp.DescFunc]; !typ.EqualsSignature(sig.Params, sig.Results) {
+			return nil, fmt.Errorf("ptx: gpu.%s has signature %s, want %s", imp.Name, typ, sig)
+		}
+		names = append(names, imp.Name)
+	}
+	return names, nil
+}
+
+// intrinsicSig returns the expected signature of intrinsic name.
+func intrinsicSig(name string) (*wasm.FunctionType, bool) {
+	if name == barrierName {
+		return &barrierSig, true
+	}
+	if _, ok := intrinsics[name]; ok {
+		return &geometrySig, true
+	}
+	return nil, false
+}
+
+func scalar(vt wasm.ValueType) bool {
+	switch vt {
+	case wasm.ValueTypeI32, wasm.ValueTypeI64, wasm.ValueTypeF32, wasm.ValueTypeF64:
+		return true
+	}
+	return false
 }
 
 // emitter translates one ssa.Builder into PTX text.
 type emitter struct {
-	b    ssa.Builder
-	name string
-	body strings.Builder
+	b       ssa.Builder
+	name    string
+	bc      BoundsCheck
+	offset  *wazevoapi.ModuleContextOffsetData
+	imports []string
+	body    strings.Builder
+	err     error
+
+	// execCtx, moduleCtx are wazevo's context params. They have no PTX
+	// register: only recognized access patterns are lowered.
+	execCtx, moduleCtx ssa.Value
+	// intrinsicPtrs maps an imported function pointer to its name.
+	intrinsicPtrs map[ssa.ValueID]string
 
 	// regs is the register count per type, i.e. `.reg .b32 %r<N>`.
 	regs map[ssa.Type]int
 	// preds is the predicate register count.
 	preds int
-	// tmps is the next temp ID for block-argument copies; IDs start
-	// after the last SSA value so they never collide.
+	// tmps is the next temp ID; IDs start after the last SSA value so
+	// they never collide.
 	tmps int
-	// numParams is the count of kernel input arrays.
-	numParams int
-	// result is the type stored to out[].
-	result ssa.Type
+	// params are the kernel's Wasm params.
+	params []ssa.Value
+	// usesTrap is set when any trap path is emitted.
+	usesTrap bool
 }
 
 func (e *emitter) emit() (string, error) {
 	e.tmps = len(e.b.ValuesInfo())
-	e.result = e.b.Signature().Results[0]
 
 	entry := e.b.EntryBlock()
-	e.numParams = entry.Params() - numCtxParams
-	e.prologue(entry)
+	e.execCtx, e.moduleCtx = entry.Param(0), entry.Param(1)
+	for k := numCtxParams; k < entry.Params(); k++ {
+		e.params = append(e.params, entry.Param(k))
+	}
+
+	// Wasm params come in as uniform kernel params.
+	for k, v := range e.params {
+		e.ins(fmt.Sprintf("ld.param.%s %s, [p%d];", memKind(v.Type()), e.reg(v), k))
+	}
 
 	for blk := e.b.BlockIteratorReversePostOrderBegin(); blk != nil; blk = e.b.BlockIteratorReversePostOrderNext() {
 		if err := e.block(blk); err != nil {
 			return "", err
 		}
 	}
+	if e.err != nil {
+		return "", e.err
+	}
 
 	e.line(labelExit + ":")
 	e.ins("ret;")
+	if e.usesTrap {
+		e.trapStub()
+	}
 	return e.module(), nil
 }
 
+// trapStub stores the exit code in %code to *status and exits.
+func (e *emitter) trapStub() {
+	e.line(labelTrap + ":")
+	e.ins("ld.param.u64 %base, [status];")
+	e.ins("cvta.to.global.u64 %base, %base;")
+	e.ins("st.global.u32 [%base], %code;")
+	e.ins("ret;")
+}
+
 // module assembles header, kernel signature, declarations and body.
-// Declarations come last in generation since counts are only known
-// after the body is emitted.
+// Declarations are generated last since counts are only known after
+// the body is emitted.
 func (e *emitter) module() string {
 	var s strings.Builder
 	fmt.Fprintf(&s, ".version %s\n.target %s\n.address_size 64\n\n", ptxVersion, ptxTarget)
 
 	fmt.Fprintf(&s, ".visible .entry %s(\n", e.name)
-	for k := 0; k < e.numParams; k++ {
-		fmt.Fprintf(&s, "\t.param .u64 in_%d,\n", k)
+	s.WriteString("\t.param .u64 mem0,\n\t.param .u64 mem0_len,\n\t.param .u64 status")
+	for k, v := range e.params {
+		fmt.Fprintf(&s, ",\n\t.param .%s p%d", memKind(v.Type()), k)
 	}
-	s.WriteString("\t.param .u64 out,\n\t.param .u32 n\n)\n{\n")
+	s.WriteString("\n)\n{\n")
 
-	// Fixed registers used by the prologue and by loads/stores.
-	s.WriteString("\t.reg .b32 %gid, %t0, %t1;\n")
-	s.WriteString("\t.reg .b64 %base, %off, %addr;\n")
-	s.WriteString("\t.reg .pred %oob;\n")
+	// Fixed registers for trap reporting.
+	s.WriteString("\t.reg .b32 %code;\n")
+	s.WriteString("\t.reg .b64 %base;\n")
 	for _, t := range []ssa.Type{ssa.TypeI32, ssa.TypeI64, ssa.TypeF32, ssa.TypeF64} {
 		n := e.regs[t]
 		if n == 0 {
@@ -146,35 +294,6 @@ func (e *emitter) module() string {
 	s.WriteString(e.body.String())
 	s.WriteString("}\n")
 	return s.String()
-}
-
-// prologue computes the global thread index, exits out-of-range
-// threads, and loads each Wasm param from its input array.
-func (e *emitter) prologue(entry ssa.BasicBlock) {
-	// gid = ctaid.x * ntid.x + tid.x
-	e.ins("mov.u32 %t0, %ctaid.x;")
-	e.ins("mov.u32 %t1, %ntid.x;")
-	e.ins("mov.u32 %gid, %tid.x;")
-	e.ins("mad.lo.s32 %gid, %t0, %t1, %gid;")
-
-	// Grid may overshoot n.
-	e.ins("ld.param.u32 %t0, [n];")
-	e.ins("setp.ge.u32 %oob, %gid, %t0;")
-	e.ins("@%oob bra " + labelExit + ";")
-
-	for k := 0; k < e.numParams; k++ {
-		v := entry.Param(numCtxParams + k)
-		e.addr(fmt.Sprintf("in_%d", k), v.Type())
-		e.ins(fmt.Sprintf("ld.global.%s %s, [%%addr];", memKind(v.Type()), e.reg(v)))
-	}
-}
-
-// addr sets %addr = &param[gid] for an array of elements of type t.
-func (e *emitter) addr(param string, t ssa.Type) {
-	e.ins(fmt.Sprintf("ld.param.u64 %%base, [%s];", param))
-	e.ins("cvta.to.global.u64 %base, %base;")
-	e.ins(fmt.Sprintf("mul.wide.u32 %%off, %%gid, %d;", t.Size()))
-	e.ins("add.s64 %addr, %base, %off;")
 }
 
 func (e *emitter) block(blk ssa.BasicBlock) error {
@@ -200,6 +319,12 @@ func (e *emitter) instr(i *ssa.Instruction) error {
 		r := i.Return()
 		e.ins(fmt.Sprintf("%s %s, %s, %s;", binOp(op, r.Type()), e.reg(r), e.reg(x), e.reg(y)))
 
+	case ssa.OpcodeIshl, ssa.OpcodeUshr, ssa.OpcodeSshr:
+		e.shift(i)
+
+	case ssa.OpcodeUExtend, ssa.OpcodeSExtend:
+		return e.extend(i)
+
 	case ssa.OpcodeIcmp:
 		x, y, c := i.IcmpData()
 		e.setBool(i.Return(), fmt.Sprintf("setp.%s.%s", icmpCond(c), cmpKind(c, x.Type())), x, y)
@@ -214,6 +339,22 @@ func (e *emitter) instr(i *ssa.Instruction) error {
 		r := i.Return()
 		e.ins(fmt.Sprintf("selp.%s %s, %s, %s, %s;", regKind(r.Type()), e.reg(r), e.reg(x), e.reg(y), p))
 
+	case ssa.OpcodeLoad, ssa.OpcodeUload32:
+		return e.load(i)
+
+	case ssa.OpcodeStore:
+		return e.store(i)
+
+	case ssa.OpcodeCallIndirect:
+		return e.intrinsic(i)
+
+	case ssa.OpcodeExitIfTrueWithCode:
+		e.exitIf(i)
+
+	case ssa.OpcodeExitWithCode:
+		_, code := i.ExitWithCodeData()
+		e.trap("", code)
+
 	case ssa.OpcodeBrz, ssa.OpcodeBrnz:
 		return e.condBranch(i)
 
@@ -221,11 +362,136 @@ func (e *emitter) instr(i *ssa.Instruction) error {
 		e.jump(i)
 
 	case ssa.OpcodeReturn:
-		e.ret(i.ReturnVals())
+		e.ins("bra " + labelExit + ";")
 
 	default:
 		return fmt.Errorf("ptx: unsupported instruction %s", op)
 	}
+	return nil
+}
+
+// load lowers module_ctx field reads to kernel params, and any other
+// load to a global memory load.
+func (e *emitter) load(i *ssa.Instruction) error {
+	ptr, off, typ := i.LoadData()
+	r := i.Return()
+	if ptr != e.moduleCtx {
+		if i.Opcode() != ssa.OpcodeLoad {
+			return fmt.Errorf("ptx: unsupported instruction %s", i.Opcode())
+		}
+		e.ins(fmt.Sprintf("ld.global.%s %s, [%s+%d];", memKind(typ), e.reg(r), e.reg(ptr), off))
+		return nil
+	}
+
+	// Memory 0 base and length are kernel params.
+	o := wazevoapi.Offset(off)
+	switch o {
+	case e.offset.LocalMemoryBase():
+		e.ins(fmt.Sprintf("ld.param.u64 %s, [mem0];", e.reg(r)))
+		e.ins(fmt.Sprintf("cvta.to.global.u64 %s, %s;", e.reg(r), e.reg(r)))
+		return nil
+	case e.offset.LocalMemoryLen():
+		e.ins(fmt.Sprintf("ld.param.u64 %s, [mem0_len];", e.reg(r)))
+		return nil
+	}
+
+	// Imported function pointer: remember it for the CallIndirect.
+	// The paired callee module_ctx load has no use on the device.
+	for k, name := range e.imports {
+		fnPtr, modCtx, _ := e.offset.ImportedFunctionOffset(wasm.Index(k))
+		switch o {
+		case fnPtr:
+			e.intrinsicPtrs[r.ID()] = name
+			return nil
+		case modCtx:
+			return nil
+		}
+	}
+	return fmt.Errorf("ptx: unsupported module context access at offset %#x", off)
+}
+
+// store lowers global memory stores. The frontend's caller-module-ctx
+// store before import calls is dropped.
+func (e *emitter) store(i *ssa.Instruction) error {
+	v, ptr, off, _ := i.StoreData()
+	if ptr == e.execCtx && wazevoapi.Offset(off) == wazevoapi.ExecutionContextOffsetCallerModuleContextPtr {
+		return nil
+	}
+	e.ins(fmt.Sprintf("st.global.%s [%s+%d], %s;", memKind(v.Type()), e.reg(ptr), off, e.reg(v)))
+	return nil
+}
+
+// intrinsic lowers a call to a `gpu.*` import inline: a barrier, or a
+// special register read.
+func (e *emitter) intrinsic(i *ssa.Instruction) error {
+	fnPtr, _, args, _ := i.CallIndirectData()
+	name, ok := e.intrinsicPtrs[fnPtr.ID()]
+	if !ok {
+		return fmt.Errorf("ptx: unsupported indirect call")
+	}
+	if name == barrierName {
+		e.ins("bar.sync 0;")
+		return nil
+	}
+
+	// args = exec_ctx, callee module_ctx, dim.
+	dim := e.b.InstructionOfValue(args[numCtxParams])
+	if dim == nil || dim.Opcode() != ssa.OpcodeIconst || dim.ConstantVal() >= uint64(len(dims)) {
+		return fmt.Errorf("ptx: gpu.%s needs a constant dim in 0..%d", name, len(dims)-1)
+	}
+	e.ins(fmt.Sprintf("mov.u32 %s, %s.%s;", e.reg(i.Return()), intrinsics[name], dims[dim.ConstantVal()]))
+	return nil
+}
+
+// exitIf lowers a conditional trap. Unchecked drops bounds checks.
+func (e *emitter) exitIf(i *ssa.Instruction) {
+	_, c, code := i.ExitIfTrueWithCodeData()
+	if e.bc == Unchecked && code == wazevoapi.ExitCodeMemoryOutOfBounds {
+		return
+	}
+	e.trap(e.nonZero(c), code)
+}
+
+// trap jumps to the trap stub with code, guarded by predicate p
+// (unconditional when p is empty).
+func (e *emitter) trap(p string, code wazevoapi.ExitCode) {
+	guard := ""
+	if p != "" {
+		guard = "@" + p + " "
+	}
+	e.usesTrap = true
+	e.ins(fmt.Sprintf("%smov.u32 %%code, %d;", guard, code))
+	e.ins(fmt.Sprintf("%sbra %s;", guard, labelTrap))
+}
+
+// shift masks the amount like Wasm (x << (y mod bits)); PTX clamps
+// instead, and always takes a u32 amount.
+func (e *emitter) shift(i *ssa.Instruction) {
+	x, y := i.Arg2()
+	r := i.Return()
+	t := r.Type()
+
+	amt := e.tmp(ssa.TypeI32)
+	src := e.reg(y)
+	if t == ssa.TypeI64 {
+		e.ins(fmt.Sprintf("cvt.u32.u64 %s, %s;", amt, src))
+		src = amt
+	}
+	e.ins(fmt.Sprintf("and.b32 %s, %s, %d;", amt, src, t.Bits()-1))
+	e.ins(fmt.Sprintf("%s%d %s, %s, %s;", shiftOps[i.Opcode()], t.Bits(), e.reg(r), e.reg(x), amt))
+}
+
+// extend supports 32->64 only, which covers address computation.
+func (e *emitter) extend(i *ssa.Instruction) error {
+	from, to, signed := i.ExtendData()
+	if from != 32 || to != 64 {
+		return fmt.Errorf("ptx: unsupported extend %d->%d", from, to)
+	}
+	kind := "u"
+	if signed {
+		kind = "s"
+	}
+	e.ins(fmt.Sprintf("cvt.%s64.%s32 %s, %s;", kind, kind, e.reg(i.Return()), e.reg(i.Arg())))
 	return nil
 }
 
@@ -267,7 +533,7 @@ func (e *emitter) jump(i *ssa.Instruction) {
 	_, args, targetID := i.BranchData()
 	target := e.b.BasicBlock(targetID)
 	if target.ReturnBlock() {
-		e.ret(args)
+		e.ins("bra " + labelExit + ";")
 		return
 	}
 
@@ -282,20 +548,16 @@ func (e *emitter) jump(i *ssa.Instruction) {
 	e.ins(fmt.Sprintf("bra %s;", blockLabel(targetID)))
 }
 
-// ret stores the single result to out[gid] and exits.
-func (e *emitter) ret(vals []ssa.Value) {
-	v := vals[0]
-	e.addr("out", e.result)
-	e.ins(fmt.Sprintf("st.global.%s [%%addr], %s;", memKind(v.Type()), e.reg(v)))
-	e.ins("bra " + labelExit + ";")
-}
-
 func (e *emitter) mov(t ssa.Type, dst, src string) {
 	e.ins(fmt.Sprintf("mov.%s %s, %s;", regKind(t), dst, src))
 }
 
-// reg names the register of v, e.g. v12:i32 -> %r12.
+// reg names the register of v, e.g. v12:i32 -> %r12. Context params
+// have no register: reaching here means an unsupported access pattern.
 func (e *emitter) reg(v ssa.Value) string {
+	if (v == e.execCtx || v == e.moduleCtx) && e.err == nil {
+		e.err = fmt.Errorf("ptx: unsupported use of execution or module context")
+	}
 	return e.named(v.Type(), int(v.ID()))
 }
 
@@ -320,11 +582,14 @@ func (e *emitter) pred() string {
 }
 
 func (e *emitter) ins(s string) {
-	e.body.WriteString("\t" + s + "\n")
+	e.body.WriteString("\t")
+	e.body.WriteString(s)
+	e.body.WriteString("\n")
 }
 
 func (e *emitter) line(s string) {
-	e.body.WriteString(s + "\n")
+	e.body.WriteString(s)
+	e.body.WriteString("\n")
 }
 
 func blockLabel(id ssa.BasicBlockID) string {
@@ -362,7 +627,7 @@ func regKind(t ssa.Type) string {
 	panic("ptx: unsupported type " + t.String())
 }
 
-// memKind is the type used in ld/st.
+// memKind is the type used in ld/st and params.
 func memKind(t ssa.Type) string {
 	switch t {
 	case ssa.TypeI32:
@@ -387,7 +652,8 @@ func constLit(t ssa.Type, bits uint64) string {
 }
 
 // binOp maps an SSA binary opcode to a typed PTX mnemonic.
-// Integer ops wrap, matching Wasm; f32/f64 use IEEE round-to-nearest.
+// Integer ops wrap, matching Wasm; f32/f64 use IEEE round-to-nearest,
+// which also forbids FMA contraction.
 func binOp(op ssa.Opcode, t ssa.Type) string {
 	bits := fmt.Sprintf("%d", t.Bits())
 	switch op {

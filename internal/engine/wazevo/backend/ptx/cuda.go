@@ -12,95 +12,124 @@ import "C"
 import (
 	"fmt"
 	"unsafe"
+
+	"github.com/tetratelabs/wazero/internal/wasm"
 )
 
-// blockSize is threads per block; 256 is a safe default on all GPUs.
-const blockSize = 256
+const (
+	// numFixedParams counts mem0, mem0_len, status.
+	numFixedParams = 3
+	// slotSize holds any kernel param (u64 max).
+	slotSize = 8
+)
 
-// Run JIT-loads src through the CUDA driver, launches kernel name over
-// n elements and copies the result into out.
+// Run JIT-loads k through the CUDA driver and launches a 1D grid of
+// grid blocks of block threads. mem is copied to memory 0 and back.
+// args are the Wasm params as raw bits (api.EncodeF32 etc).
 //
-// Each inputs[k] and out hold n elements, packed little-endian.
+// status is the Wasm exit code of a trapping thread, or 0.
 // Opt-in via `-tags cuda` so the default build stays cgo-free.
-func Run(src, name string, inputs [][]byte, out []byte, n uint32) error {
-	if err := check(C.cuInit(0)); err != nil {
-		return err
+func (k *Kernel) Run(mem []byte, args []uint64, grid, block uint32) (status uint32, err error) {
+	if len(args) != len(k.params) {
+		return 0, fmt.Errorf("cuda: want %d args, got %d", len(k.params), len(args))
+	}
+	if err = check(C.cuInit(0)); err != nil {
+		return 0, err
 	}
 
 	// Context on device 0.
 	var dev C.CUdevice
-	if err := check(C.cuDeviceGet(&dev, 0)); err != nil {
-		return err
+	if err = check(C.cuDeviceGet(&dev, 0)); err != nil {
+		return 0, err
 	}
 	var ctx C.CUcontext
-	if err := check(C.cuCtxCreate(&ctx, 0, dev)); err != nil {
-		return err
+	if err = check(C.cuCtxCreate(&ctx, 0, dev)); err != nil {
+		return 0, err
 	}
 	defer C.cuCtxDestroy(ctx)
 
-	// The driver JIT-compiles PTX to SASS for the current device.
-	csrc := C.CString(src)
-	defer C.free(unsafe.Pointer(csrc))
-	var mod C.CUmodule
-	if err := check(C.cuModuleLoadData(&mod, unsafe.Pointer(csrc))); err != nil {
-		return err
+	fn, mod, err := k.load()
+	if err != nil {
+		return 0, err
 	}
 	defer C.cuModuleUnload(mod)
 
-	cname := C.CString(name)
+	// Device buffers: memory 0 and the status word.
+	var dmem, dstatus C.CUdeviceptr
+	if err = check(C.cuMemAlloc(&dmem, C.size_t(len(mem)))); err != nil {
+		return 0, err
+	}
+	defer C.cuMemFree(dmem)
+	if err = check(C.cuMemAlloc(&dstatus, C.size_t(unsafe.Sizeof(C.uint(0))))); err != nil {
+		return 0, err
+	}
+	defer C.cuMemFree(dstatus)
+	if err = check(C.cuMemcpyHtoD(dmem, unsafe.Pointer(&mem[0]), C.size_t(len(mem)))); err != nil {
+		return 0, err
+	}
+	if err = check(C.cuMemsetD32(dstatus, 0, 1)); err != nil {
+		return 0, err
+	}
+
+	// Kernel params: one 8-byte slot each, in signature order. 4-byte
+	// params use the slot's low half (little-endian). Both arrays live in
+	// C memory: cgo forbids passing Go pointers to Go pointers.
+	n := numFixedParams + len(args)
+	slots := (*[1 << 16]uint64)(C.calloc(C.size_t(n), slotSize))[:n:n]
+	defer C.free(unsafe.Pointer(&slots[0]))
+	ptrs := (*[1 << 16]unsafe.Pointer)(C.calloc(C.size_t(n), C.size_t(unsafe.Sizeof(uintptr(0)))))[:n:n]
+	defer C.free(unsafe.Pointer(&ptrs[0]))
+
+	slots[0], slots[1], slots[2] = uint64(dmem), uint64(len(mem)), uint64(dstatus)
+	for i, a := range args {
+		slots[numFixedParams+i] = narrow(k.params[i], a)
+	}
+	for i := range slots {
+		ptrs[i] = unsafe.Pointer(&slots[i])
+	}
+
+	if err = check(C.cuLaunchKernel(fn, C.uint(grid), 1, 1, C.uint(block), 1, 1, 0, nil, &ptrs[0], nil)); err != nil {
+		return 0, err
+	}
+	if err = check(C.cuCtxSynchronize()); err != nil {
+		return 0, err
+	}
+
+	if err = check(C.cuMemcpyDtoH(unsafe.Pointer(&mem[0]), dmem, C.size_t(len(mem)))); err != nil {
+		return 0, err
+	}
+	var s C.uint
+	err = check(C.cuMemcpyDtoH(unsafe.Pointer(&s), dstatus, C.size_t(unsafe.Sizeof(s))))
+	return uint32(s), err
+}
+
+// load JIT-compiles the PTX to SASS for the current device.
+func (k *Kernel) load() (C.CUfunction, C.CUmodule, error) {
+	csrc := C.CString(k.src)
+	defer C.free(unsafe.Pointer(csrc))
+	var mod C.CUmodule
+	if err := check(C.cuModuleLoadData(&mod, unsafe.Pointer(csrc))); err != nil {
+		return nil, nil, err
+	}
+
+	cname := C.CString(k.name)
 	defer C.free(unsafe.Pointer(cname))
 	var fn C.CUfunction
 	if err := check(C.cuModuleGetFunction(&fn, mod, cname)); err != nil {
-		return err
+		C.cuModuleUnload(mod)
+		return nil, nil, err
 	}
+	return fn, mod, nil
+}
 
-	// One device buffer per input, plus out.
-	bufs := make([]C.CUdeviceptr, len(inputs)+1)
-	defer func() {
-		for _, b := range bufs {
-			if b != 0 {
-				C.cuMemFree(b)
-			}
-		}
-	}()
-	for k, in := range inputs {
-		if err := check(C.cuMemAlloc(&bufs[k], C.size_t(len(in)))); err != nil {
-			return err
-		}
-		if err := check(C.cuMemcpyHtoD(bufs[k], unsafe.Pointer(&in[0]), C.size_t(len(in)))); err != nil {
-			return err
-		}
+// narrow keeps the low 32 bits of 4-byte params so the slot reads back
+// as the right value regardless of the caller's upper bits.
+func narrow(vt wasm.ValueType, v uint64) uint64 {
+	switch vt {
+	case wasm.ValueTypeI32, wasm.ValueTypeF32:
+		return uint64(uint32(v))
 	}
-	outBuf := &bufs[len(inputs)]
-	if err := check(C.cuMemAlloc(outBuf, C.size_t(len(out)))); err != nil {
-		return err
-	}
-
-	// Kernel params are pointers to each argument, in signature order.
-	// They live in C memory: cgo forbids passing Go pointers to Go pointers.
-	argc := len(bufs) + 1
-	args := (*[1 << 16]unsafe.Pointer)(C.malloc(C.size_t(argc) * C.size_t(unsafe.Sizeof(uintptr(0)))))[:argc:argc]
-	defer C.free(unsafe.Pointer(&args[0]))
-	vals := (*[1 << 16]C.CUdeviceptr)(C.malloc(C.size_t(len(bufs)) * C.size_t(unsafe.Sizeof(C.CUdeviceptr(0)))))[:len(bufs):len(bufs)]
-	defer C.free(unsafe.Pointer(&vals[0]))
-	cn := (*C.uint)(C.malloc(C.size_t(unsafe.Sizeof(C.uint(0)))))
-	defer C.free(unsafe.Pointer(cn))
-
-	for k, b := range bufs {
-		vals[k] = b
-		args[k] = unsafe.Pointer(&vals[k])
-	}
-	*cn = C.uint(n)
-	args[len(bufs)] = unsafe.Pointer(cn)
-
-	grid := (n + blockSize - 1) / blockSize
-	if err := check(C.cuLaunchKernel(fn, C.uint(grid), 1, 1, blockSize, 1, 1, 0, nil, &args[0], nil)); err != nil {
-		return err
-	}
-	if err := check(C.cuCtxSynchronize()); err != nil {
-		return err
-	}
-	return check(C.cuMemcpyDtoH(unsafe.Pointer(&out[0]), *outBuf, C.size_t(len(out))))
+	return v
 }
 
 func check(r C.CUresult) error {

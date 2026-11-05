@@ -3,50 +3,48 @@
 package ptx
 
 import (
-	"encoding/binary"
-	"math"
+	"fmt"
 	"testing"
 
+	"github.com/tetratelabs/wazero/internal/engine/wazevo/wazevoapi"
 	"github.com/tetratelabs/wazero/internal/testing/require"
 )
 
-// numElems spans several blocks and a partial tail block.
-const numElems = 1000
+// TestRunGPU runs each kernel on the GPU and on wazero (CPU), and
+// requires identical memory and the expected result.
+func TestRunGPU(t *testing.T) {
+	for _, tc := range cases() {
+		for _, bc := range []BoundsCheck{Checked, Unchecked} {
+			t.Run(fmt.Sprintf("%s/bc=%d", tc.name, bc), func(t *testing.T) {
+				k, err := Compile(tc.m, tc.name, bc)
+				require.NoError(t, err)
 
-func TestRun_sumTo(t *testing.T) {
-	src, err := Compile(sumTo, 0, "sum_to")
-	require.NoError(t, err)
+				gpu := append([]byte(nil), tc.mem...)
+				status, err := k.Run(gpu, tc.args, gridSize, blockSize)
+				require.NoError(t, err)
+				require.Equal(t, uint32(0), status)
 
-	in := make([]byte, 4*numElems)
-	for i := 0; i < numElems; i++ {
-		binary.LittleEndian.PutUint32(in[4*i:], uint32(i))
-	}
-	out := make([]byte, 4*numElems)
-	require.NoError(t, Run(src, "sum_to", [][]byte{in}, out, numElems))
-
-	// sum(0..i-1) = i*(i-1)/2.
-	for i := 0; i < numElems; i++ {
-		require.Equal(t, uint32(i*(i-1)/2), binary.LittleEndian.Uint32(out[4*i:]), "i=%d", i)
+				cpu := append([]byte(nil), tc.mem...)
+				require.NoError(t, runCPU(t, tc.m, tc.name, cpu, tc.args, gridSize, blockSize))
+				require.Equal(t, cpu, gpu)
+				require.Equal(t, tc.exp, gpu)
+			})
+		}
 	}
 }
 
-func TestRun_saxpy(t *testing.T) {
-	src, err := Compile(saxpy, 0, "saxpy")
+// TestRunGPU_trap checks OOB sets status on GPU and traps on CPU.
+func TestRunGPU_trap(t *testing.T) {
+	tc := cases()[0]
+	// out ends half past memory: upper half of the threads store OOB.
+	args := []uint64{arr0, arr1, uint64(memSize - elemSize*numElems/2), numElems}
+
+	k, err := Compile(tc.m, tc.name, Checked)
 	require.NoError(t, err)
+	status, err := k.Run(append([]byte(nil), tc.mem...), args, gridSize, blockSize)
+	require.NoError(t, err)
+	require.Equal(t, uint32(wazevoapi.ExitCodeMemoryOutOfBounds), status)
 
-	const a = float32(2.5)
-	as, xs, ys := make([]byte, 4*numElems), make([]byte, 4*numElems), make([]byte, 4*numElems)
-	for i := 0; i < numElems; i++ {
-		binary.LittleEndian.PutUint32(as[4*i:], math.Float32bits(a))
-		binary.LittleEndian.PutUint32(xs[4*i:], math.Float32bits(float32(i)))
-		binary.LittleEndian.PutUint32(ys[4*i:], math.Float32bits(float32(-i)/3))
-	}
-	out := make([]byte, 4*numElems)
-	require.NoError(t, Run(src, "saxpy", [][]byte{as, xs, ys}, out, numElems))
-
-	// Bit-exact: .rn ops forbid FMA contraction, as in Wasm.
-	for i := 0; i < numElems; i++ {
-		exp := float32(a*float32(i)) + float32(-i)/3 // explicit conversion blocks Go FMA fusion
-		require.Equal(t, math.Float32bits(exp), binary.LittleEndian.Uint32(out[4*i:]), "i=%d", i)
-	}
+	err = runCPU(t, tc.m, tc.name, append([]byte(nil), tc.mem...), args, gridSize, blockSize)
+	require.Error(t, err)
 }
